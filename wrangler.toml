@@ -1,5 +1,5 @@
 name = "gridrep"
-compatibility_date = "2026-02-12"
+compatibility_date = "2026-02-11"
 pages_build_output_dir = "dist"
 
 [[d1_databases]]
