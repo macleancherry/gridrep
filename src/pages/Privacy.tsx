@@ -85,7 +85,7 @@ export default function Privacy() {
         <h2>Contact</h2>
         <p style={{ marginTop: 10 }}>
           For questions, removal requests, or anything privacy-related, contact:{" "}
-          <strong>gridrep@gmail.com</strong>
+          <strong>gridrepgg@gmail.com</strong>
         </p>
       </div>
     </div>
