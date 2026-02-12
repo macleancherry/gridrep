@@ -27,24 +27,42 @@ export default function Driver() {
     })();
   }, [driverId]);
 
-  if (!data) return <div>Loading…</div>;
+  if (!data) return <div className="subtle">Loading…</div>;
 
   return (
-    <div>
-      <h1 style={{ marginTop: 0 }}>{data.name}</h1>
-      <div style={{ color: "#666" }}>iRacing ID: {data.id}</div>
+    <div className="stack">
+      <div className="card card-pad">
+        <div className="row space-between wrap">
+          <div style={{ minWidth: 0 }}>
+            <h1 className="mt-0" style={{ marginBottom: 6 }}>
+              {data.name}
+            </h1>
+            <div className="subtle mono">iRacing ID: {data.id}</div>
+          </div>
 
-      <div style={{ marginTop: 12, display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ padding: 12, border: "1px solid #eee", borderRadius: 10 }}>
-          <div style={{ fontSize: 13, color: "#666" }}>Props received</div>
-          <div style={{ fontSize: 28, fontWeight: 700 }}>{data.propsReceived}</div>
+          <span className="badge">
+            <span className="badge-dot" />
+            Driver profile
+          </span>
+        </div>
+      </div>
+
+      <div className="row wrap">
+        <div className="card card-pad" style={{ minWidth: 220 }}>
+          <h2>Props received</h2>
+          <div style={{ fontSize: 34, fontWeight: 900, marginTop: 8 }}>
+            {data.propsReceived}
+          </div>
+          <div className="subtle" style={{ marginTop: 4 }}>
+            Total across all sessions
+          </div>
         </div>
 
-        <div style={{ padding: 12, border: "1px solid #eee", borderRadius: 10, minWidth: 280 }}>
-          <div style={{ fontSize: 13, color: "#666" }}>Props by reason</div>
-          <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+        <div className="card card-pad" style={{ flex: 1, minWidth: 280 }}>
+          <h2>Props by reason</h2>
+          <div className="stack" style={{ marginTop: 12, gap: 8 }}>
             {PROP_REASONS.map((r) => (
-              <div key={r.id} style={{ display: "flex", justifyContent: "space-between" }}>
+              <div key={r.id} className="kv">
                 <span>{r.label}</span>
                 <strong>{data.propsByReason?.[r.id] ?? 0}</strong>
               </div>
@@ -53,30 +71,49 @@ export default function Driver() {
         </div>
       </div>
 
-      <h2 style={{ marginTop: 24 }}>Last 5 sessions</h2>
-      {data.recentSessions.map((s) => (
-        <Link
-          key={s.sessionId}
-          to={`/s/${s.sessionId}`}
-          style={{
-            display: "block",
-            padding: 12,
-            border: "1px solid #eee",
-            borderRadius: 10,
-            marginBottom: 10,
-            textDecoration: "none",
-            color: "inherit",
-          }}
-        >
-          <div style={{ fontWeight: 600 }}>
-            {s.seriesName ?? "Session"} — {s.trackName ?? "Track"}
-          </div>
-          <div style={{ color: "#666", fontSize: 13 }}>
-            {new Date(s.startTime).toLocaleString()} • Session ID: {s.sessionId}
-            {typeof s.finishPos === "number" ? ` • P${s.finishPos}` : ""}
-          </div>
-        </Link>
-      ))}
+      <div className="card card-pad">
+        <div className="row space-between wrap" style={{ marginBottom: 10 }}>
+          <h2>Last 5 sessions</h2>
+          <span className="subtle">Click a session to send Props (GG)</span>
+        </div>
+
+        <div className="stack" style={{ gap: 10 }}>
+          {data.recentSessions.map((s) => (
+            <Link
+              key={s.sessionId}
+              to={`/s/${s.sessionId}`}
+              className="card card-pad card-hover"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <div className="row space-between wrap">
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 900, color: "var(--text)" }}>
+                    {s.seriesName ?? "Session"}{" "}
+                    <span style={{ color: "var(--muted)" }}>—</span>{" "}
+                    {s.trackName ?? "Track"}
+                  </div>
+
+                  <div className="subtle">
+                    {new Date(s.startTime).toLocaleString()}{" "}
+                    <span style={{ color: "var(--muted2)" }}>•</span>{" "}
+                    <span className="mono">Session ID: {s.sessionId}</span>
+                    {typeof s.finishPos === "number" ? (
+                      <>
+                        {" "}
+                        <span style={{ color: "var(--muted2)" }}>•</span> P{s.finishPos}
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+
+                <button className="btn btn-ghost" type="button">
+                  View →
+                </button>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

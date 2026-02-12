@@ -23,15 +23,57 @@ export async function onRequestGet(context: any) {
     `
   ).bind(sessionId).all();
 
+  // Dev “verified viewer”
+  const viewerDriverId = context.env?.DEV_VIEWER_IRACING_ID ? String(context.env.DEV_VIEWER_IRACING_ID) : null;
+  const verified = !!viewerDriverId;
+
+  // If verified, find (or create) a users row so props can reference from_user_id
+  let fromUserId: string | null = null;
+  if (verified && viewerDriverId) {
+    const existing = await DB.prepare(
+      `SELECT id FROM users WHERE iracing_member_id = ?`
+    ).bind(viewerDriverId).first();
+
+    if (existing?.id) {
+      fromUserId = existing.id;
+    } else {
+      const u = crypto.randomUUID();
+      const dn = await DB.prepare(
+        `SELECT display_name as name FROM drivers WHERE iracing_member_id = ?`
+      ).bind(viewerDriverId).first();
+
+      await DB.prepare(
+        `INSERT INTO users (id, iracing_member_id, display_name, created_at) VALUES (?, ?, ?, ?)`
+      ).bind(u, viewerDriverId, dn?.name ?? `Driver ${viewerDriverId}`, new Date().toISOString()).run();
+
+      fromUserId = u;
+    }
+  }
+
+  // Pull which drivers this viewer already propped in this session
+  const already = new Set<string>();
+  if (fromUserId) {
+    const rows = await DB.prepare(
+      `SELECT to_iracing_member_id as toId
+       FROM props
+       WHERE iracing_session_id = ? AND from_user_id = ?`
+    ).bind(sessionId, fromUserId).all();
+
+    for (const r of rows.results ?? []) already.add(r.toId);
+  }
+
   return Response.json(
     {
       sessionId,
       startTime: session?.startTime ?? new Date(0).toISOString(),
       seriesName: session?.seriesName,
       trackName: session?.trackName,
-      participants: (participants.results ?? []).map((p: any) => ({ ...p, alreadyPropped: false })),
-      viewer: { verified: false },
+      participants: (participants.results ?? []).map((p: any) => ({
+        ...p,
+        alreadyPropped: already.has(p.id),
+      })),
+      viewer: { verified },
     },
-    { headers: { "Cache-Control": "public, max-age=60" } }
+    { headers: { "Cache-Control": "no-store" } }
   );
 }
