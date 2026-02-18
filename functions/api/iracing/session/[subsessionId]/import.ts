@@ -121,7 +121,11 @@ export async function importSubsessionToCache(context: any, subsessionId: string
   console.log("Import parsed (safe)", {
     subsessionId,
     participantCount: participants.length,
-    sample: participants.slice(0, 3).map((p) => ({ id: p.iracing_member_id, name: p.display_name, pos: p.finish_pos })),
+    sample: participants.slice(0, 3).map((p) => ({
+      id: p.iracing_member_id,
+      name: p.display_name,
+      pos: p.finish_pos,
+    })),
   });
 
   await DB.prepare(
@@ -140,16 +144,20 @@ export async function importSubsessionToCache(context: any, subsessionId: string
   // Idempotent: replace participants
   await DB.prepare(`DELETE FROM session_participants WHERE iracing_session_id = ?`).bind(subsessionId).run();
 
+  // drivers.last_seen_at is NOT NULL in your schema
+  const now = new Date().toISOString();
+
   for (const p of participants) {
     await DB.prepare(
       `
-      INSERT INTO drivers (iracing_member_id, display_name)
-      VALUES (?, ?)
+      INSERT INTO drivers (iracing_member_id, display_name, last_seen_at)
+      VALUES (?, ?, ?)
       ON CONFLICT(iracing_member_id) DO UPDATE SET
-        display_name = excluded.display_name
+        display_name = excluded.display_name,
+        last_seen_at = excluded.last_seen_at
       `
     )
-      .bind(p.iracing_member_id, p.display_name)
+      .bind(p.iracing_member_id, p.display_name, now)
       .run();
 
     await DB.prepare(
