@@ -84,29 +84,67 @@ export type TokenResponse = {
 async function postForm(env: Env, url: string, form: Record<string, string>): Promise<any> {
   const isTokenEndpoint = url === OAUTH_TOKEN;
 
-  const payload: Record<string, string> = { ...form };
-
   if (isTokenEndpoint) {
-    // Replace raw client_secret with masked secret required by iRacing
-    payload.client_secret = await maskClientSecret(env);
+    const id = env?.IRACING_CLIENT_ID;
+    const secret = env?.IRACING_CLIENT_SECRET;
+    const redirect = env?.IRACING_REDIRECT_URI;
+
+    // Hard fail early if misconfigured (prevents hashing undefined)
+    if (!id || !secret || !redirect) {
+      console.error("Missing OAuth env vars", {
+        hasClientId: !!id,
+        hasClientSecret: !!secret,
+        hasRedirectUri: !!redirect,
+      });
+      throw new Error("Server misconfigured: missing OAuth env vars");
+    }
+
+    // Mask secret and log only safe info
+    const masked = await maskClientSecret(env);
+    console.log("iRacing token request (safe)", {
+      clientId: id,
+      clientIdLen: id.length,
+      clientIdLower: id.trim().toLowerCase(),
+      maskedLen: masked.length,
+      maskedHasPlus: masked.includes("+"),
+      maskedHasSlash: masked.includes("/"),
+      maskedHasEq: masked.includes("="),
+      redirectHost: (() => {
+        try { return new URL(redirect).host; } catch { return "bad-redirect-uri"; }
+      })(),
+    });
+
+    const payload: Record<string, string> = { ...form, client_id: id, client_secret: masked };
+    const body = new URLSearchParams(payload).toString();
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+
+    const text = await res.text();
+    if (!res.ok) throw new Error(`Token error ${res.status}: ${text}`);
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(`Token error ${res.status}: non-JSON response: ${text}`);
+    }
   }
 
-  const body = new URLSearchParams(payload).toString();
+  // Non-token posts: unchanged
+  const body = new URLSearchParams(form).toString();
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
-
   const text = await res.text();
-  if (!res.ok) throw new Error(`Token error ${res.status}: ${text}`);
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`Token error ${res.status}: non-JSON response: ${text}`);
-  }
+  if (!res.ok) throw new Error(`HTTP error ${res.status}: ${text}`);
+  return JSON.parse(text);
 }
+
 
 export async function exchangeCodeForTokens(
   env: Env,
