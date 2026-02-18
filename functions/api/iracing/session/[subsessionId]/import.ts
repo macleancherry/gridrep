@@ -60,12 +60,16 @@ function extractParticipants(payload: any): Array<{
 
     if (!cust || !name) continue;
 
+        const rawPos = pickNumber((r as any).finish_position ?? (r as any).finish_pos);
+    const finishPos = typeof rawPos === "number" ? rawPos + 1 : undefined;
+
     out.push({
       iracing_member_id: String(cust),
       display_name: name,
-      finish_pos: pickNumber((r as any).finish_position ?? (r as any).finish_pos),
+      finish_pos: finishPos,
       car_name: pickString((r as any).car_name) ?? pickString((r as any).car),
     });
+
   }
 
   return out;
