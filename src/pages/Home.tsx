@@ -148,9 +148,7 @@ export default function Home() {
       const imported = Number(j?.sessionsImported ?? 0) || 0;
 
       setLastSync({ ok: true, sessionsImported: imported });
-      setSyncMsg(
-        `Synced ${imported} sessions. Next: search your own name below to find your driver profile.`
-      );
+      setSyncMsg(`Synced ${imported} sessions. Next: search your own name below to find your driver profile.`);
 
       // Refresh homepage widgets
       await Promise.all([loadLeaderboard(lbWindow), loadFeed()]);
@@ -185,8 +183,7 @@ export default function Home() {
     window.history.replaceState({}, "", nextUrl);
 
     void syncRecent({
-      startMessage:
-        "Syncing your recent races… this can take up to a minute. You can keep browsing while we work.",
+      startMessage: "Syncing your recent races… this can take up to a minute. You can keep browsing while we work.",
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoSyncStarted, viewer.loading, viewer.verified, location.pathname, location.search]);
@@ -366,12 +363,15 @@ export default function Home() {
       {results.length > 0 && (
         <div className="stack">
           {results.map((d) => (
-            <div key={d.id} className="card card-pad card-hover">
+            <Link
+              key={d.id}
+              to={`/d/${d.id}`}
+              className="card card-pad card-hover"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
               <div className="row space-between wrap">
                 <div style={{ minWidth: 0 }}>
-                  <Link to={`/d/${d.id}`} style={{ fontWeight: 900, textDecoration: "none", color: "var(--text)" }}>
-                    {d.name}
-                  </Link>
+                  <div style={{ fontWeight: 900, color: "var(--text)" }}>{d.name}</div>
                   <div className="subtle mono">ID: {d.id}</div>
                 </div>
 
@@ -380,7 +380,7 @@ export default function Home() {
                   Props <strong style={{ color: "var(--text)", fontWeight: 900 }}>{d.propsReceived ?? 0}</strong>
                 </span>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}
