@@ -1,6 +1,16 @@
 import { getViewer } from "../../_lib/auth";
 import { importSubsessionToCache } from "../iracing/session/[subsessionId]/import";
 
+function safeLog(
+  level: "log" | "warn" | "error",
+  debugId: string,
+  msg: string,
+  extra: Record<string, unknown> = {}
+) {
+  // Never include tokens in logs
+  console[level](JSON.stringify({ level, debugId, msg, ...extra }));
+}
+
 function textResponse(status: number, message: string, extraHeaders?: Record<string, string>) {
   return new Response(message, {
     status,
@@ -12,9 +22,38 @@ function textResponse(status: number, message: string, extraHeaders?: Record<str
   });
 }
 
+function jsonResponse(status: number, payload: Record<string, unknown>, extraHeaders?: Record<string, string>) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      ...(extraHeaders ?? {}),
+    },
+  });
+}
+
+function isScopeRequiredError(err: any): boolean {
+  const name = (err?.name ?? "").toString();
+  const code = (err?.code ?? "").toString();
+  const msg = (err?.message ?? "").toString().toLowerCase();
+  const raw = (err?.raw ?? "").toString().toLowerCase();
+
+  if (name === "IRacingScopeRequiredError") return true;
+  if (code === "scope_required") return true;
+
+  return (
+    (msg.includes("iracing.auth") && msg.includes("required")) ||
+    (raw.includes("iracing.auth") && raw.includes("required"))
+  );
+}
+
 export async function onRequestGet(context: any) {
+  const debugId = crypto.randomUUID();
   const id = context.params.id as string;
   const { DB } = context.env;
+
+  safeLog("log", debugId, "sessions.get.start", { id });
 
   const viewer = await getViewer(context);
 
@@ -75,16 +114,83 @@ export async function onRequestGet(context: any) {
 
   // Automatic import on "cache miss" (missing session OR empty grid)
   if (needsImport) {
+    safeLog("log", debugId, "sessions.get.needs_import", {
+      id,
+      hasSession: Boolean(session),
+      participantCount: participants.length,
+      viewerVerified: viewer.verified,
+    });
+
     if (!viewer.verified) {
-      return textResponse(
-        404,
-        "This session isn’t cached yet. Verify with iRacing to load it.",
-        { "X-GridRep-Auth-Required": "1" }
-      );
+      // Must not change UX rule: browsing cached sessions works; uncached requires verify.
+      // Keep the existing behaviour (404 + hint header) so frontend can show verify CTA.
+      return textResponse(404, "This session isn’t cached yet. Verify with iRacing to load it.", {
+        "X-GridRep-Auth-Required": "1",
+        "X-GridRep-Debug-Id": debugId,
+      });
     }
 
     // Import from iRacing and then re-query
-    await importSubsessionToCache(context, id);
+    try {
+      await importSubsessionToCache(context, id);
+    } catch (err: any) {
+      const code = (err?.code ?? "").toString();
+      const errDebugId = (err?.debugId ?? debugId).toString();
+
+      safeLog("warn", errDebugId, "sessions.get.import_failed", {
+        id,
+        code: err?.code ?? null,
+        name: err?.name ?? null,
+        status: err?.status ?? null,
+        message: err?.message ?? String(err),
+      });
+
+      // Token missing/refresh failed (ask user to verify again)
+      if (code === "auth_required") {
+        return jsonResponse(
+          401,
+          {
+            error: "auth_required",
+            message: "Please verify again to continue.",
+            debugId: errDebugId,
+          },
+          { "X-GridRep-Debug-Id": errDebugId }
+        );
+      }
+
+      // Subscription inactive / scope not granted
+      if (code === "scope_required" || isScopeRequiredError(err)) {
+        return jsonResponse(
+          403,
+          {
+            error: "missing_required_scope",
+            message:
+              "Your iRacing account did not grant iracing.auth (often because the subscription is inactive). Please activate your iRacing subscription and verify again.",
+            debugId: errDebugId,
+          },
+          { "X-GridRep-Debug-Id": errDebugId }
+        );
+      }
+
+      // Not verified (shouldn't happen here because viewer.verified true, but handle defensively)
+      if (code === "not_verified" || (err?.message ?? "") === "Not verified") {
+        return textResponse(404, "This session isn’t cached yet. Verify with iRacing to load it.", {
+          "X-GridRep-Auth-Required": "1",
+          "X-GridRep-Debug-Id": errDebugId,
+        });
+      }
+
+      // Generic iRacing fetch/import failure
+      return jsonResponse(
+        502,
+        {
+          error: "import_failed",
+          message: "Could not import this session from iRacing. Please try again later.",
+          debugId: errDebugId,
+        },
+        { "X-GridRep-Debug-Id": errDebugId }
+      );
+    }
 
     const session2 = await DB.prepare(
       `SELECT iracing_session_id as sessionId,
@@ -139,7 +245,7 @@ export async function onRequestGet(context: any) {
     }));
 
     if (!session2) {
-      return textResponse(404, "Session not found after import.");
+      return textResponse(404, "Session not found after import.", { "X-GridRep-Debug-Id": debugId });
     }
 
     return Response.json(
@@ -150,14 +256,15 @@ export async function onRequestGet(context: any) {
         trackName: session2.trackName,
         participants: participants2,
         viewer: { verified: true },
+        debugId,
       },
-      { headers: { "Cache-Control": "no-store" } }
+      { headers: { "Cache-Control": "no-store", "X-GridRep-Debug-Id": debugId } }
     );
   }
 
   // Normal cached response
   if (!session) {
-    return textResponse(404, "Session not found.");
+    return textResponse(404, "Session not found.", { "X-GridRep-Debug-Id": debugId });
   }
 
   return Response.json(
@@ -168,7 +275,8 @@ export async function onRequestGet(context: any) {
       trackName: session.trackName,
       participants,
       viewer: { verified: viewer.verified },
+      debugId,
     },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store", "X-GridRep-Debug-Id": debugId } }
   );
 }

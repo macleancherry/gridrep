@@ -14,6 +14,16 @@ type ResultRow = {
   simsession_name?: string;
 };
 
+function safeLog(
+  level: "log" | "warn" | "error",
+  debugId: string,
+  msg: string,
+  extra: Record<string, unknown> = {}
+) {
+  // Never include tokens in logs
+  console[level](JSON.stringify({ level, debugId, msg, ...extra }));
+}
+
 function pickString(v: any): string | undefined {
   if (typeof v === "string" && v.trim()) return v;
   return undefined;
@@ -151,23 +161,95 @@ function extractSessionHeader(payload: any): { start_time?: string; series_name?
   return { start_time: start, series_name: series, track_name: track };
 }
 
+function isScopeRequiredError(err: any): boolean {
+  // If you use the hardened iracing.ts I supplied earlier, this will match:
+  //   err.name === "IRacingScopeRequiredError" or err.code === "scope_required"
+  // If not, we still catch via message pattern.
+  const name = (err?.name ?? "").toString();
+  const code = (err?.code ?? "").toString();
+  const msg = (err?.message ?? "").toString().toLowerCase();
+  const raw = (err?.raw ?? "").toString().toLowerCase();
+
+  if (name === "IRacingScopeRequiredError") return true;
+  if (code === "scope_required") return true;
+
+  return (
+    msg.includes("iracing.auth") && msg.includes("required") ||
+    raw.includes("iracing.auth") && raw.includes("required")
+  );
+}
+
+function jsonError(status: number, payload: Record<string, unknown>, extraHeaders?: Record<string, string>) {
+  const headers = new Headers({ "content-type": "application/json", "cache-control": "no-store" });
+  if (extraHeaders) {
+    for (const [k, v] of Object.entries(extraHeaders)) headers.set(k, v);
+  }
+  return new Response(JSON.stringify(payload), { status, headers });
+}
+
 /**
  * Shared importer: can be called from /api/sessions/:id (automatic import)
  */
 export async function importSubsessionToCache(context: any, subsessionId: string) {
+  const debugId = crypto.randomUUID();
   const { DB } = context.env;
 
+  safeLog("log", debugId, "session.import.start", { subsessionId });
+
   const viewer = await getViewer(context);
-  if (!viewer.verified) throw new Error("Not verified");
+  if (!viewer.verified) {
+    safeLog("warn", debugId, "session.import.not_verified", { subsessionId });
+    // Keep as thrown Error for existing callers, but with a stable message
+    const e: any = new Error("Not verified");
+    e.code = "not_verified";
+    e.debugId = debugId;
+    throw e;
+  }
 
-  const accessToken = await getValidAccessToken(context, viewer.user!.id);
+  let accessToken: string;
+  try {
+    accessToken = await getValidAccessToken(context, viewer.user!.id);
+  } catch (err: any) {
+    safeLog("warn", debugId, "session.import.access_token_failed", {
+      subsessionId,
+      message: err?.message ?? String(err),
+    });
+    const e: any = new Error("Authentication required");
+    e.code = "auth_required";
+    e.debugId = debugId;
+    throw e;
+  }
 
-  const payload = await iracingDataGet<any>(
-    `/data/results/get?subsession_id=${encodeURIComponent(subsessionId)}&include_licenses=false`,
-    accessToken
-  );
+  let payload: any;
+  try {
+    payload = await iracingDataGet<any>(
+      `/data/results/get?subsession_id=${encodeURIComponent(subsessionId)}&include_licenses=false`,
+      accessToken
+    );
+  } catch (err: any) {
+    if (isScopeRequiredError(err)) {
+      safeLog("warn", debugId, "session.import.scope_required", { subsessionId });
+      const e: any = new Error("The iracing.auth scope is required for this request.");
+      e.code = "scope_required";
+      e.debugId = debugId;
+      throw e;
+    }
 
-  console.log("iRacing results/get payload (safe)", {
+    safeLog("error", debugId, "session.import.iracing_fetch_failed", {
+      subsessionId,
+      name: err?.name ?? null,
+      code: err?.code ?? null,
+      status: err?.status ?? null,
+      message: err?.message ?? String(err),
+    });
+
+    const e: any = new Error("Failed to fetch iRacing results");
+    e.code = "iracing_fetch_failed";
+    e.debugId = debugId;
+    throw e;
+  }
+
+  safeLog("log", debugId, "session.import.payload_received", {
     subsessionId,
     topKeys: payload ? Object.keys(payload).slice(0, 20) : [],
     hasSessionResults: Array.isArray(payload?.session_results),
@@ -176,7 +258,7 @@ export async function importSubsessionToCache(context: any, subsessionId: string
   const header = extractSessionHeader(payload);
   const participants = extractParticipants(payload);
 
-  console.log("Import parsed (safe)", {
+  safeLog("log", debugId, "session.import.parsed", {
     subsessionId,
     participantCount: participants.length,
     sample: participants.slice(0, 3).map((p) => ({
@@ -228,11 +310,78 @@ export async function importSubsessionToCache(context: any, subsessionId: string
       .run();
   }
 
-  return { ok: true, subsessionId, participantsImported: participants.length };
+  safeLog("log", debugId, "session.import.ok", { subsessionId, participantsImported: participants.length });
+
+  return { ok: true, subsessionId, participantsImported: participants.length, debugId };
 }
 
 export async function onRequestGet(context: any) {
   const subsessionId = context.params.subsessionId as string;
-  const result = await importSubsessionToCache(context, subsessionId);
-  return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+  const debugId = crypto.randomUUID();
+
+  try {
+    const result = await importSubsessionToCache(context, subsessionId);
+    return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+  } catch (err: any) {
+    const code = (err?.code ?? "").toString();
+    const errDebugId = (err?.debugId ?? debugId).toString();
+
+    // Not verified (expected gating)
+    if (code === "not_verified" || (err?.message ?? "") === "Not verified") {
+      return jsonError(
+        401,
+        {
+          error: "not_verified",
+          message: "Verification required to import uncached sessions.",
+          debugId: errDebugId,
+        },
+        { "X-GridRep-Debug-Id": errDebugId }
+      );
+    }
+
+    // Token missing/refresh failed
+    if (code === "auth_required") {
+      return jsonError(
+        401,
+        {
+          error: "auth_required",
+          message: "Please verify again to continue.",
+          debugId: errDebugId,
+        },
+        { "X-GridRep-Debug-Id": errDebugId }
+      );
+    }
+
+    // Scope required (inactive subscription / not eligible)
+    if (code === "scope_required" || isScopeRequiredError(err)) {
+      return jsonError(
+        403,
+        {
+          error: "missing_required_scope",
+          message:
+            "Your iRacing account did not grant iracing.auth (often because the subscription is inactive). Please renew/activate your iRacing subscription and verify again.",
+          debugId: errDebugId,
+        },
+        { "X-GridRep-Debug-Id": errDebugId }
+      );
+    }
+
+    safeLog("error", errDebugId, "session.import.unhandled_error", {
+      subsessionId,
+      name: err?.name ?? null,
+      code: err?.code ?? null,
+      status: err?.status ?? null,
+      message: err?.message ?? String(err),
+    });
+
+    return jsonError(
+      500,
+      {
+        error: "import_failed",
+        message: "Import failed. Please try again.",
+        debugId: errDebugId,
+      },
+      { "X-GridRep-Debug-Id": errDebugId }
+    );
+  }
 }
