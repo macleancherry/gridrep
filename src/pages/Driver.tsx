@@ -212,11 +212,12 @@ export default function Driver() {
 
         <div className="card card-pad" style={{ flex: 1, minWidth: 280 }}>
           <h2>Props by reason</h2>
+
           <div className="stack" style={{ marginTop: 12, gap: 8 }}>
-            {PROP_REASONS.map((r) => (
+            {reasonRows.current.map((r) => (
               <div key={r.id} className="kv">
                 <span>{r.label}</span>
-                <strong>{data.propsByReason?.[r.id] ?? 0}</strong>
+                <strong>{r.count}</strong>
               </div>
             ))}
           </div>
@@ -252,34 +253,36 @@ export default function Driver() {
         ) : (
           <div className="stack" style={{ gap: 10 }}>
             {recentProps.map((x, i) => (
-              <Link
-                key={`${x.createdAt}-${x.sessionId}-${i}`}
-                to={`/s/${x.sessionId}`}
-                className="card card-pad card-hover"
-                style={{ textDecoration: "none", color: "inherit" }}
-              >
-                <div style={{ fontWeight: 900 }}>
-                  {x.fromDriverId ? (
-                    <Link to={`/d/${x.fromDriverId}`} style={{ color: "inherit", textDecoration: "none" }}>
-                      {x.fromName ?? `Driver ${x.fromDriverId}`}
-                    </Link>
-                  ) : x.fromName ? (
-                    x.fromName
-                  ) : (
-                    "Someone"
-                  )}{" "}
-                  →{" "}
-                  <span style={{ color: "var(--text)" }}>{data.name}</span>{" "}
-                  <span style={{ color: "var(--muted)" }}>•</span> {displayReason(x.reason)}
-                </div>
+              <div key={`${x.createdAt}-${x.sessionId}-${i}`} className="card card-pad card-hover">
+                <div className="row space-between wrap">
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 900 }}>
+                      {x.fromDriverId ? (
+                        <Link to={`/d/${x.fromDriverId}`} style={{ color: "inherit", textDecoration: "none" }}>
+                          {x.fromName ?? `Driver ${x.fromDriverId}`}
+                        </Link>
+                      ) : x.fromName ? (
+                        x.fromName
+                      ) : (
+                        "Someone"
+                      )}{" "}
+                      → <span style={{ color: "var(--text)" }}>{data.name}</span>{" "}
+                      <span style={{ color: "var(--muted)" }}>•</span> {displayReason(x.reason)}
+                    </div>
 
-                <div className="subtle" style={{ marginTop: 4 }}>
-                  {x.seriesName ?? "Session"} <span style={{ color: "var(--muted2)" }}>•</span>{" "}
-                  {x.trackName ?? "Track"} <span style={{ color: "var(--muted2)" }}>•</span>{" "}
-                  {new Date(x.createdAt).toLocaleString()} <span style={{ color: "var(--muted2)" }}>•</span>{" "}
-                  <span className="mono">Session {x.sessionId}</span>
+                    <div className="subtle" style={{ marginTop: 4 }}>
+                      {x.seriesName ?? "Session"} <span style={{ color: "var(--muted2)" }}>•</span>{" "}
+                      {x.trackName ?? "Track"} <span style={{ color: "var(--muted2)" }}>•</span>{" "}
+                      {new Date(x.createdAt).toLocaleString()} <span style={{ color: "var(--muted2)" }}>•</span>{" "}
+                      <span className="mono">Session {x.sessionId}</span>
+                    </div>
+                  </div>
+
+                  <Link className="btn btn-ghost" to={`/s/${x.sessionId}`} style={{ textDecoration: "none" }}>
+                    View →
+                  </Link>
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         )}
