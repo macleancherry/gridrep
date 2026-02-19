@@ -92,6 +92,49 @@ export default function Driver() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [driverId]);
 
+  // IMPORTANT: keep hooks ABOVE any conditional returns.
+  const data: DriverProfile | null = state.status === "ready" ? state.data : null;
+
+  const reasonRows = useMemo(() => {
+    const by = data?.propsByReason ?? {};
+    const knownIds = new Set(PROP_REASONS.map((r) => r.id));
+
+    const current = PROP_REASONS.map((r) => ({
+      id: r.id,
+      label: r.label,
+      count: Number(by?.[r.id] ?? 0),
+      kind: "current" as const,
+    }));
+
+    const legacyIds = Object.keys(by).filter((id) => !knownIds.has(id) && Number(by[id] ?? 0) > 0);
+    legacyIds.sort((a, b) => Number(by[b] ?? 0) - Number(by[a] ?? 0));
+
+    const legacy = legacyIds.map((id) => ({
+      id,
+      label: toLegacyLabel(id),
+      count: Number(by[id] ?? 0),
+      kind: "legacy" as const,
+    }));
+
+    return { current, legacy };
+  }, [data]);
+
+  const reasonLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of PROP_REASONS) map.set(r.id, r.label);
+    for (const [k, v] of Object.entries(LEGACY_REASON_LABELS)) map.set(k, v);
+    return map;
+  }, []);
+
+  function displayReason(reason: string | undefined | null): string {
+    const r = (reason ?? "").trim();
+    if (!r) return "Props";
+    return reasonLabelById.get(r) ?? r;
+  }
+
+  const recentProps = data?.recentPropsReceived ?? [];
+
+  // Now it's safe to return early
   if (state.status === "loading") return <div className="subtle">Loading…</div>;
 
   if (state.status === "error") {
@@ -142,46 +185,8 @@ export default function Driver() {
     );
   }
 
-  const data = state.data;
-
-  const reasonRows = useMemo(() => {
-    const by = data.propsByReason ?? {};
-    const knownIds = new Set(PROP_REASONS.map((r) => r.id));
-
-    const current = PROP_REASONS.map((r) => ({
-      id: r.id,
-      label: r.label,
-      count: Number(by?.[r.id] ?? 0),
-      kind: "current" as const,
-    }));
-
-    const legacyIds = Object.keys(by).filter((id) => !knownIds.has(id) && Number(by[id] ?? 0) > 0);
-    legacyIds.sort((a, b) => Number(by[b] ?? 0) - Number(by[a] ?? 0));
-
-    const legacy = legacyIds.map((id) => ({
-      id,
-      label: toLegacyLabel(id),
-      count: Number(by[id] ?? 0),
-      kind: "legacy" as const,
-    }));
-
-    return { current, legacy };
-  }, [data.propsByReason]);
-
-  const reasonLabelById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const r of PROP_REASONS) map.set(r.id, r.label);
-    for (const [k, v] of Object.entries(LEGACY_REASON_LABELS)) map.set(k, v);
-    return map;
-  }, []);
-
-  function displayReason(reason: string | undefined | null): string {
-    const r = (reason ?? "").trim();
-    if (!r) return "Props";
-    return reasonLabelById.get(r) ?? r;
-  }
-
-  const recentProps = data.recentPropsReceived ?? [];
+  // ready
+  if (!data) return <div className="subtle">Loading…</div>;
 
   return (
     <div className="stack">
