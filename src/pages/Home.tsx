@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { PROP_REASONS } from "../lib/propReasons";
 
 type DriverHit = { id: string; name: string; propsReceived?: number };
 
@@ -20,6 +21,14 @@ type FeedRow = {
   fromName?: string;
   toDriverId: string;
   toName?: string;
+};
+
+const LEGACY_REASON_LABELS: Record<string, string> = {
+  respectful_driving: "Respectful driving",
+  great_racecraft: "Great racecraft",
+  good_etiquette: "Good etiquette",
+  helpful_friendly: "Helpful / friendly",
+  other: "Other",
 };
 
 async function fetchViewer(): Promise<ViewerState> {
@@ -53,6 +62,19 @@ export default function Home() {
 
   const [feedBusy, setFeedBusy] = useState(true);
   const [feed, setFeed] = useState<FeedRow[]>([]);
+
+  const reasonLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of PROP_REASONS) map.set(r.id, r.label);
+    for (const [k, v] of Object.entries(LEGACY_REASON_LABELS)) map.set(k, v);
+    return map;
+  }, []);
+
+  function displayReason(reason: string | undefined | null): string {
+    const r = (reason ?? "").trim();
+    if (!r) return "Props";
+    return reasonLabelById.get(r) ?? r;
+  }
 
   function verifyUrl() {
     return `/api/auth/start?returnTo=${encodeURIComponent(location.pathname)}`;
@@ -111,9 +133,7 @@ export default function Home() {
       }
 
       const j = await r.json().catch(() => ({}));
-      setSyncMsg(
-        `Synced ${j?.sessionsImported ?? 0} sessions. You can now search names we’ve seen in those sessions.`
-      );
+      setSyncMsg(`Synced ${j?.sessionsImported ?? 0} sessions. You can now search names we’ve seen in those sessions.`);
 
       // Refresh homepage widgets
       await Promise.all([loadLeaderboard(lbWindow), loadFeed()]);
@@ -265,8 +285,7 @@ export default function Home() {
 
                 <span className="badge">
                   <span className="badge-dot" />
-                  Props{" "}
-                  <strong style={{ color: "var(--text)", fontWeight: 900 }}>{d.propsReceived ?? 0}</strong>
+                  Props <strong style={{ color: "var(--text)", fontWeight: 900 }}>{d.propsReceived ?? 0}</strong>
                 </span>
               </div>
             </div>
@@ -357,7 +376,7 @@ export default function Home() {
                     <Link to={`/d/${x.toDriverId}`} style={{ color: "inherit", textDecoration: "none" }}>
                       {x.toName ?? `Driver ${x.toDriverId}`}
                     </Link>{" "}
-                    <span style={{ color: "var(--muted)" }}>•</span> {x.reason}
+                    <span style={{ color: "var(--muted)" }}>•</span> {displayReason(x.reason)}
                   </div>
 
                   <div className="subtle" style={{ marginTop: 4 }}>
