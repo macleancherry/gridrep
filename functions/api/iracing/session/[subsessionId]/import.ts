@@ -9,6 +9,9 @@ type ResultRow = {
   finish_pos?: number;
   car_name?: string;
   car?: string;
+  simsession_type?: number;
+  simsession_type_name?: string;
+  simsession_name?: string;
 };
 
 function pickString(v: any): string | undefined {
@@ -22,27 +25,78 @@ function pickNumber(v: any): number | undefined {
   return undefined;
 }
 
+function pickRows(sr: any): any[] {
+  if (Array.isArray(sr?.results)) return sr.results;
+  if (Array.isArray(sr?.result_rows)) return sr.result_rows;
+  if (Array.isArray(sr?.rows)) return sr.rows;
+  return [];
+}
+
+/**
+ * Choose the RACE result block from iRacing payloads.
+ * iRacing /data/results/get returns session_results for practice/quali/race etc.
+ * We MUST pick the race block, otherwise positions can show as practice/quali.
+ */
 function extractParticipants(payload: any): Array<{
   iracing_member_id: string;
   display_name: string;
   finish_pos?: number;
   car_name?: string;
 }> {
-  const candidates: any[] = [];
+  let rows: any[] = [];
 
   if (Array.isArray(payload?.session_results)) {
-    for (const sr of payload.session_results) {
-      if (Array.isArray(sr?.results)) candidates.push(sr.results);
-      if (Array.isArray(sr?.result_rows)) candidates.push(sr.result_rows);
-      if (Array.isArray(sr?.rows)) candidates.push(sr.rows);
+    // Helpful for debugging: see what's inside session_results
+    try {
+      console.log(
+        "session_results overview (safe)",
+        payload.session_results.map((sr: any, i: number) => ({
+          i,
+          simsession_type: sr?.simsession_type,
+          simsession_type_name: sr?.simsession_type_name,
+          simsession_name: sr?.simsession_name,
+          rows: pickRows(sr).length,
+        }))
+      );
+    } catch {
+      // ignore logging failures
+    }
+
+    // Prefer explicit "RACE" by name
+    const raceByName = payload.session_results.find(
+      (sr: any) => typeof sr?.simsession_type_name === "string" && sr.simsession_type_name.toUpperCase() === "RACE"
+    );
+
+    // Common iRacing enum: race is often 6 (but not guaranteed)
+    const raceByEnum = payload.session_results.find((sr: any) => sr?.simsession_type === 6);
+
+    // Fallback: any simsession_name containing "race"
+    const raceByFuzzy = payload.session_results.find(
+      (sr: any) => typeof sr?.simsession_name === "string" && /race/i.test(sr.simsession_name)
+    );
+
+    const chosen = raceByName ?? raceByEnum ?? raceByFuzzy;
+
+    if (chosen) rows = pickRows(chosen);
+
+    // Final fallback: first non-empty block
+    if (!rows.length) {
+      for (const sr of payload.session_results) {
+        const r = pickRows(sr);
+        if (r.length) {
+          rows = r;
+          break;
+        }
+      }
     }
   }
 
-  if (Array.isArray(payload?.results)) candidates.push(payload.results);
-  if (Array.isArray(payload?.result_rows)) candidates.push(payload.result_rows);
-  if (Array.isArray(payload?.rows)) candidates.push(payload.rows);
-
-  const rows = candidates.find((arr) => Array.isArray(arr) && arr.length > 0) ?? [];
+  // Some endpoints may return data directly at top-level (rare)
+  if (!rows.length) {
+    if (Array.isArray(payload?.results)) rows = payload.results;
+    else if (Array.isArray(payload?.result_rows)) rows = payload.result_rows;
+    else if (Array.isArray(payload?.rows)) rows = payload.rows;
+  }
 
   const out: Array<{
     iracing_member_id: string;
@@ -60,7 +114,8 @@ function extractParticipants(payload: any): Array<{
 
     if (!cust || !name) continue;
 
-        const rawPos = pickNumber((r as any).finish_position ?? (r as any).finish_pos);
+    // iRacing positions appear 0-based in some payloads (winner = 0)
+    const rawPos = pickNumber((r as any).finish_position ?? (r as any).finish_pos);
     const finishPos = typeof rawPos === "number" ? rawPos + 1 : undefined;
 
     out.push({
@@ -69,7 +124,6 @@ function extractParticipants(payload: any): Array<{
       finish_pos: finishPos,
       car_name: pickString((r as any).car_name) ?? pickString((r as any).car),
     });
-
   }
 
   return out;
