@@ -1,6 +1,6 @@
 import { getViewer, getValidAccessToken } from "../../../_lib/auth";
 import { iracingDataGet } from "../../../_lib/iracing";
-import { importSubsessionToCache } from "../session/[id]/import";
+import { importSubsessionToCache } from "../session/[subsessionId]/import";
 
 type RecentRaceRow = { subsession_id?: number; subsessionId?: number };
 
