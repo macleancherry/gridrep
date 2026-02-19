@@ -57,6 +57,35 @@ export async function onRequestGet(context: any) {
     .bind(id)
     .all<any>();
 
+  // Recent props received (latest 20)
+  // We resolve "from" via users -> drivers (if the sender's driver record is cached).
+  const recentProps = await DB.prepare(
+    `
+    SELECT
+      p.created_at as createdAt,
+      p.reason as reason,
+      p.iracing_session_id as sessionId,
+
+      s.series_name as seriesName,
+      s.track_name as trackName,
+
+      dFrom.iracing_member_id as fromDriverId,
+      dFrom.display_name as fromName
+
+    FROM props p
+    LEFT JOIN sessions s ON s.iracing_session_id = p.iracing_session_id
+
+    LEFT JOIN users uFrom ON uFrom.id = p.from_user_id
+    LEFT JOIN drivers dFrom ON dFrom.iracing_member_id = uFrom.iracing_member_id
+
+    WHERE p.to_iracing_member_id = ?
+    ORDER BY datetime(p.created_at) DESC
+    LIMIT 20
+    `
+  )
+    .bind(id)
+    .all<any>();
+
   return Response.json(
     {
       id: String(driver.id),
@@ -64,6 +93,7 @@ export async function onRequestGet(context: any) {
       propsReceived: Number(propsRow?.c ?? 0),
       propsByReason,
       recentSessions: sessions.results ?? [],
+      recentPropsReceived: recentProps.results ?? [],
     },
     { headers: { "Cache-Control": "public, max-age=60" } }
   );
