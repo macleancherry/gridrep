@@ -39,6 +39,46 @@ function appendQueryParam(url: string, key: string, value: string, origin: strin
   return isAbsolute ? u.toString() : `${u.pathname}${u.search}${u.hash}`;
 }
 
+/**
+ * Best-effort: try to fetch a member display name from iRacing so the UI can
+ * prompt users to "search your name" instead of showing "Driver <id>".
+ *
+ * This must never break auth if it fails.
+ */
+async function fetchMemberDisplayName(accessToken: string, custId: string): Promise<string | null> {
+  const tryPaths = [
+    // Different tenants / wrappers expose different shapes. Try a few.
+    `/data/member/info?cust_ids=${encodeURIComponent(custId)}`,
+    `/data/member/get?cust_ids=${encodeURIComponent(custId)}`,
+    `/data/member/summary?cust_id=${encodeURIComponent(custId)}`,
+  ];
+
+  for (const path of tryPaths) {
+    try {
+      const data: any = await iracingDataGet<any>(path, accessToken);
+
+      // Common shapes
+      const member =
+        (Array.isArray(data?.members) && data.members[0]) ||
+        (Array.isArray(data?.data) && data.data[0]) ||
+        data?.member ||
+        data;
+
+      const name =
+        member?.display_name ??
+        member?.name ??
+        member?.member_display_name ??
+        member?.customer_display_name;
+
+      if (typeof name === "string" && name.trim()) return name.trim();
+    } catch {
+      // ignore and try next endpoint
+    }
+  }
+
+  return null;
+}
+
 export async function onRequestGet(context: any) {
   const debugId = crypto.randomUUID();
   const { DB } = context.env;
@@ -178,6 +218,17 @@ export async function onRequestGet(context: any) {
   if (!identity?.iracingId) {
     safeLog("error", debugId, "auth.callback.identity_missing");
     return new Response("Could not determine iRacing identity", { status: 500 });
+  }
+
+  // Best-effort: fetch a better display name so users can "search your name"
+  try {
+    const betterName = await fetchMemberDisplayName(token.access_token, String(identity.iracingId));
+    if (betterName) {
+      identity.name = betterName;
+      safeLog("log", debugId, "auth.callback.display_name_enriched", { name: betterName });
+    }
+  } catch {
+    // never fail auth for this
   }
 
   safeLog("log", debugId, "auth.callback.identity_ok", { iracingId: identity.iracingId });
