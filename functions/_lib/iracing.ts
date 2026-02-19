@@ -77,9 +77,64 @@ export type TokenResponse = {
   scope?: string;
 };
 
+type TokenErrorShape = {
+  error?: string;
+  error_description?: string;
+};
+
+class IRacingHttpError extends Error {
+  status: number;
+  raw: string;
+  code?: string;
+  details?: Record<string, unknown>;
+
+  constructor(message: string, opts: { status: number; raw: string; code?: string; details?: Record<string, unknown> }) {
+    super(message);
+    this.name = "IRacingHttpError";
+    this.status = opts.status;
+    this.raw = opts.raw;
+    this.code = opts.code;
+    this.details = opts.details;
+  }
+}
+
+class IRacingTokenError extends IRacingHttpError {
+  error?: string;
+  error_description?: string;
+
+  constructor(
+    message: string,
+    opts: { status: number; raw: string; error?: string; error_description?: string; details?: Record<string, unknown> }
+  ) {
+    super(message, { status: opts.status, raw: opts.raw, code: "token_error", details: opts.details });
+    this.name = "IRacingTokenError";
+    this.error = opts.error;
+    this.error_description = opts.error_description;
+  }
+}
+
+class IRacingScopeRequiredError extends IRacingHttpError {
+  constructor(message: string, opts: { status: number; raw: string; details?: Record<string, unknown> }) {
+    super(message, { status: opts.status, raw: opts.raw, code: "scope_required", details: opts.details });
+    this.name = "IRacingScopeRequiredError";
+  }
+}
+
+function tryParseJson(text: string): any | null {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * POST x-www-form-urlencoded and parse JSON.
  * If this is the OAuth token endpoint, we automatically mask client_secret.
+ *
+ * IMPORTANT: For token endpoint errors, we throw IRacingTokenError with structured fields:
+ *   - status, error, error_description, raw
+ * so callers can reliably detect invalid_grant/expired, etc.
  */
 async function postForm(env: Env, url: string, form: Record<string, string>): Promise<any> {
   const isTokenEndpoint = url === OAUTH_TOKEN;
@@ -99,20 +154,7 @@ async function postForm(env: Env, url: string, form: Record<string, string>): Pr
       throw new Error("Server misconfigured: missing OAuth env vars");
     }
 
-    // Mask secret and log only safe info
     const masked = await maskClientSecret(env);
-    console.log("iRacing token request (safe)", {
-      clientId: id,
-      clientIdLen: id.length,
-      clientIdLower: id.trim().toLowerCase(),
-      maskedLen: masked.length,
-      maskedHasPlus: masked.includes("+"),
-      maskedHasSlash: masked.includes("/"),
-      maskedHasEq: masked.includes("="),
-      redirectHost: (() => {
-        try { return new URL(redirect).host; } catch { return "bad-redirect-uri"; }
-      })(),
-    });
 
     const payload: Record<string, string> = { ...form, client_id: id, client_secret: masked };
     const body = new URLSearchParams(payload).toString();
@@ -124,33 +166,60 @@ async function postForm(env: Env, url: string, form: Record<string, string>): Pr
     });
 
     const text = await res.text();
-    if (!res.ok) throw new Error(`Token error ${res.status}: ${text}`);
+    const parsed = tryParseJson(text) as TokenErrorShape | null;
 
-    try {
-      return JSON.parse(text);
-    } catch {
-      throw new Error(`Token error ${res.status}: non-JSON response: ${text}`);
+    if (!res.ok) {
+      // iRacing typically returns JSON like { error, error_description }
+      const err = parsed ?? {};
+      throw new IRacingTokenError(`Token error ${res.status}`, {
+        status: res.status,
+        raw: text,
+        error: err.error,
+        error_description: err.error_description,
+        details: {
+          // safe fields only
+          has_error: Boolean(err.error),
+          has_error_description: Boolean(err.error_description),
+        },
+      });
     }
+
+    if (!parsed) {
+      throw new IRacingTokenError(`Token error ${res.status}: non-JSON response`, {
+        status: res.status,
+        raw: text,
+      });
+    }
+
+    return parsed;
   }
 
-  // Non-token posts: unchanged
+  // Non-token posts: unchanged, but throw structured error if non-OK
   const body = new URLSearchParams(form).toString();
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
+
   const text = await res.text();
-  if (!res.ok) throw new Error(`HTTP error ${res.status}: ${text}`);
-  return JSON.parse(text);
+  if (!res.ok) {
+    throw new IRacingHttpError(`HTTP error ${res.status}`, { status: res.status, raw: text, code: "http_error" });
+  }
+
+  const parsed = tryParseJson(text);
+  if (!parsed) {
+    throw new IRacingHttpError(`HTTP error ${res.status}: non-JSON response`, {
+      status: res.status,
+      raw: text,
+      code: "non_json",
+    });
+  }
+
+  return parsed;
 }
 
-
-export async function exchangeCodeForTokens(
-  env: Env,
-  code: string,
-  codeVerifier: string
-): Promise<TokenResponse> {
+export async function exchangeCodeForTokens(env: Env, code: string, codeVerifier: string): Promise<TokenResponse> {
   return postForm(env, OAUTH_TOKEN, {
     grant_type: "authorization_code",
     client_id: env.IRACING_CLIENT_ID,
@@ -173,20 +242,73 @@ export async function refreshTokens(env: Env, refreshToken: string): Promise<Tok
 /**
  * iRacing data endpoints often return { link: "https://..." } pointing to signed S3 content.
  * We fetch the /data endpoint with Bearer, then follow link to get the real JSON.
+ *
+ * If the /data endpoint responds 401 with "iracing.auth scope is required", we throw IRacingScopeRequiredError.
+ * Otherwise we throw IRacingHttpError with status + raw.
  */
 export async function iracingDataGet<T>(path: string, accessToken: string): Promise<T> {
   const url = `${DATA_BASE}${path}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   const metaText = await res.text();
-  if (!res.ok) throw new Error(`iRacing data meta error ${res.status}: ${metaText}`);
-  const meta = JSON.parse(metaText);
+
+  if (!res.ok) {
+    const parsed = tryParseJson(metaText);
+    const message = (parsed?.message ?? parsed?.error ?? metaText ?? "").toString();
+
+    // Specific known error:
+    // {"error":"Unauthorized","message":"The iracing.auth scope is required for this request."}
+    if (res.status === 401 && message.toLowerCase().includes("iracing.auth") && message.toLowerCase().includes("required")) {
+      throw new IRacingScopeRequiredError("The iracing.auth scope is required for this request.", {
+        status: res.status,
+        raw: metaText,
+        details: {
+          path,
+        },
+      });
+    }
+
+    throw new IRacingHttpError(`iRacing data meta error ${res.status}`, {
+      status: res.status,
+      raw: metaText,
+      code: "data_meta_error",
+      details: { path },
+    });
+  }
+
+  const meta = tryParseJson(metaText);
+  if (!meta) {
+    throw new IRacingHttpError("iRacing data meta error: non-JSON response", {
+      status: res.status,
+      raw: metaText,
+      code: "data_meta_non_json",
+      details: { path },
+    });
+  }
 
   // Some endpoints may return data directly, but most return { link }
   if (meta?.link) {
     const dataRes = await fetch(meta.link);
     const dataText = await dataRes.text();
-    if (!dataRes.ok) throw new Error(`iRacing data link error ${dataRes.status}: ${dataText}`);
-    return JSON.parse(dataText) as T;
+    if (!dataRes.ok) {
+      throw new IRacingHttpError(`iRacing data link error ${dataRes.status}`, {
+        status: dataRes.status,
+        raw: dataText,
+        code: "data_link_error",
+        details: { path },
+      });
+    }
+
+    const dataParsed = tryParseJson(dataText);
+    if (!dataParsed) {
+      throw new IRacingHttpError("iRacing data link error: non-JSON response", {
+        status: dataRes.status,
+        raw: dataText,
+        code: "data_link_non_json",
+        details: { path },
+      });
+    }
+
+    return dataParsed as T;
   }
 
   return meta as T;
