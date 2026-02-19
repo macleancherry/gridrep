@@ -54,6 +54,9 @@ export default function Home() {
   // Viewer + sync
   const [viewer, setViewer] = useState<ViewerState>({ loading: true, verified: false });
   const [syncMsg, setSyncMsg] = useState<string>("");
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [lastSync, setLastSync] = useState<{ ok: boolean; sessionsImported?: number } | null>(null);
+  const [autoSyncStarted, setAutoSyncStarted] = useState(false);
 
   // Leaderboard + feed
   const [lbWindow, setLbWindow] = useState<"7d" | "30d" | "all">("7d");
@@ -116,35 +119,77 @@ export default function Home() {
     }
   }
 
-  async function syncRecent() {
-    setSyncMsg("");
+  async function syncRecent(opts?: { startMessage?: string }) {
+    if (syncBusy) return;
+
     if (!viewer.verified) {
       window.location.href = verifyUrl();
       return;
     }
 
-    setSyncMsg("Syncing your recent races…");
+    setLastSync(null);
+    setSyncBusy(true);
+    setSyncMsg(
+      opts?.startMessage ??
+        "Syncing your recent races… this can take up to a minute. You can keep browsing while we work."
+    );
+
     try {
       const r = await fetch("/api/iracing/recent/import", { method: "POST" });
       if (!r.ok) {
         const t = await r.text().catch(() => "");
-        setSyncMsg(t || `Sync failed (${r.status}).`);
+        const reason = (t || `${r.status} ${r.statusText}` || `Sync failed (${r.status}).`).trim();
+        setLastSync({ ok: false });
+        setSyncMsg(`Sync failed: ${reason}. Please try again.`);
         return;
       }
 
       const j = await r.json().catch(() => ({}));
-      setSyncMsg(`Synced ${j?.sessionsImported ?? 0} sessions. You can now search names we’ve seen in those sessions.`);
+      const imported = Number(j?.sessionsImported ?? 0) || 0;
+
+      setLastSync({ ok: true, sessionsImported: imported });
+      setSyncMsg(
+        `Synced ${imported} sessions. Next: search your own name below to find your driver profile.`
+      );
 
       // Refresh homepage widgets
       await Promise.all([loadLeaderboard(lbWindow), loadFeed()]);
     } catch {
-      setSyncMsg("Sync failed — network error.");
+      setLastSync({ ok: false });
+      setSyncMsg("Sync failed — network error. Please try again.");
+    } finally {
+      setSyncBusy(false);
     }
   }
 
   useEffect(() => {
     (async () => setViewer(await fetchViewer()))();
   }, []);
+
+  // Auto-sync once after returning from OAuth when verified=1 is present
+  useEffect(() => {
+    if (autoSyncStarted) return;
+    if (viewer.loading) return;
+    if (!viewer.verified) return;
+
+    const params = new URLSearchParams(location.search);
+    const justVerified = params.get("verified") === "1";
+    if (!justVerified) return;
+
+    setAutoSyncStarted(true);
+
+    // Remove only the verified param to avoid re-triggering on refresh/back
+    params.delete("verified");
+    const nextQs = params.toString();
+    const nextUrl = nextQs ? `${location.pathname}?${nextQs}` : location.pathname;
+    window.history.replaceState({}, "", nextUrl);
+
+    void syncRecent({
+      startMessage:
+        "Syncing your recent races… this can take up to a minute. You can keep browsing while we work.",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSyncStarted, viewer.loading, viewer.verified, location.pathname, location.search]);
 
   useEffect(() => {
     loadLeaderboard(lbWindow);
@@ -157,6 +202,23 @@ export default function Home() {
 
   const showIntroEmpty = !hasSearched && results.length === 0;
   const showNoResults = hasSearched && results.length === 0;
+
+  const canSearchMyName = viewer.verified && !viewer.loading;
+  const myName = viewer.verified ? viewer.user.name : "";
+
+  async function searchMyName() {
+    if (!canSearchMyName || !myName) return;
+    setQ(myName);
+    setHasSearched(true);
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/drivers/search?q=${encodeURIComponent(myName)}`);
+      const j = await r.json();
+      setResults(j.results || []);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="stack">
@@ -171,17 +233,37 @@ export default function Home() {
               You can browse cached drivers/sessions without logging in. Verify to send Props, and sync to populate your
               profile + recent sessions.
             </div>
+
             {syncMsg && (
-              <div className="subtle" style={{ marginTop: 8 }}>
+              <div className="subtle" style={{ marginTop: 8, whiteSpace: "pre-line" }}>
                 {syncMsg}
+              </div>
+            )}
+
+            {/* Make it obvious they can search their own name after sync */}
+            {viewer.verified && lastSync?.ok && (
+              <div className="row wrap" style={{ gap: 10, marginTop: 10, alignItems: "center" }}>
+                <button className="btn btn-primary" type="button" onClick={searchMyName} disabled={loading || !myName}>
+                  {loading ? "Searching…" : `Search my name (${myName})`}
+                </button>
+                <div className="subtle" style={{ minWidth: 0 }}>
+                  This is the fastest way to find your driver page after sync.
+                </div>
+              </div>
+            )}
+
+            {/* If sync failed, keep it non-blocking and encourage retry */}
+            {viewer.verified && lastSync?.ok === false && (
+              <div className="subtle" style={{ marginTop: 10 }}>
+                Tip: you can retry sync any time using the button on the right.
               </div>
             )}
           </div>
 
           <div className="row wrap" style={{ gap: 10 }}>
             {viewer.verified ? (
-              <button className="btn btn-primary" type="button" onClick={syncRecent}>
-                Sync my recent races
+              <button className="btn btn-primary" type="button" onClick={() => syncRecent()} disabled={syncBusy}>
+                {syncBusy ? "Syncing…" : "Sync my recent races"}
               </button>
             ) : (
               <a className="btn btn-primary" href={verifyUrl()} style={{ textDecoration: "none" }}>
@@ -222,6 +304,16 @@ export default function Home() {
             {loading ? "Searching…" : "Search"}
           </button>
         </div>
+
+        {/* Extra obvious prompt for verified users post-sync */}
+        {viewer.verified && lastSync?.ok && (
+          <div className="hint" style={{ marginTop: 10 }}>
+            <span>Just synced?</span>
+            <span style={{ color: "var(--muted2)" }}>•</span>
+            <span>Search your own name:</span>
+            <span className="mono">{myName}</span>
+          </div>
+        )}
 
         <div className="hint" style={{ marginTop: 10 }}>
           <span>Try:</span>

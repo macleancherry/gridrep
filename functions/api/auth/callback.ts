@@ -31,6 +31,14 @@ function isExpiredOrUsedGrant(err: any): boolean {
   return e === "invalid_grant" && (d.includes("expired") || d.includes("used") || d.includes("invalid"));
 }
 
+// Append verified=1 safely to returnTo so the frontend can auto-sync once
+function appendQueryParam(url: string, key: string, value: string, origin: string) {
+  const isAbsolute = /^https?:\/\//i.test(url);
+  const u = new URL(url, origin);
+  u.searchParams.set(key, value);
+  return isAbsolute ? u.toString() : `${u.pathname}${u.search}${u.hash}`;
+}
+
 export async function onRequestGet(context: any) {
   const debugId = crypto.randomUUID();
   const { DB } = context.env;
@@ -241,7 +249,8 @@ export async function onRequestGet(context: any) {
   headers.set("X-GridRep-Debug-Id", debugId);
 
   const returnTo = typeof oauth.returnTo === "string" ? oauth.returnTo : "/";
-  headers.set("Location", returnTo);
+  const redirectTo = appendQueryParam(returnTo, "verified", "1", reqUrl.origin);
+  headers.set("Location", redirectTo);
 
   return new Response(null, { status: 302, headers });
 }
