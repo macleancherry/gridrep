@@ -45,7 +45,7 @@ async function fetchViewer(): Promise<ViewerState> {
 export default function Home() {
   const location = useLocation();
 
-  // Search state (existing)
+  // Search state
   const [q, setQ] = useState("");
   const [results, setResults] = useState<DriverHit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -80,7 +80,8 @@ export default function Home() {
   }
 
   function verifyUrl() {
-    return `/api/auth/start?returnTo=${encodeURIComponent(location.pathname)}`;
+    // Preserve querystring too (helps if you ever add deep links)
+    return `/api/auth/start?returnTo=${encodeURIComponent(location.pathname + location.search)}`;
   }
 
   async function search() {
@@ -150,7 +151,6 @@ export default function Home() {
       setLastSync({ ok: true, sessionsImported: imported });
       setSyncMsg(`Synced ${imported} sessions. Next: search your own name below to find your driver profile.`);
 
-      // Refresh homepage widgets
       await Promise.all([loadLeaderboard(lbWindow), loadFeed()]);
     } catch {
       setLastSync({ ok: false });
@@ -237,7 +237,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* Make it obvious they can search their own name after sync */}
             {viewer.verified && lastSync?.ok && (
               <div className="row wrap" style={{ gap: 10, marginTop: 10, alignItems: "center" }}>
                 <button className="btn btn-primary" type="button" onClick={searchMyName} disabled={loading || !myName}>
@@ -249,7 +248,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* If sync failed, keep it non-blocking and encourage retry */}
             {viewer.verified && lastSync?.ok === false && (
               <div className="subtle" style={{ marginTop: 10 }}>
                 Tip: you can retry sync any time using the button on the right.
@@ -271,7 +269,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Hero + Search (your existing block) */}
+      {/* Hero + Search */}
       <div className="card hero">
         <div className="row space-between wrap">
           <div style={{ minWidth: 0 }}>
@@ -302,7 +300,6 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Extra obvious prompt for verified users post-sync */}
         {viewer.verified && lastSync?.ok && (
           <div className="hint" style={{ marginTop: 10 }}>
             <span>Just synced?</span>
@@ -337,7 +334,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Empty state (only before any search) */}
       {showIntroEmpty && (
         <div className="card card-pad">
           <h2>What you’ll see</h2>
@@ -348,7 +344,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* No results state (only after searching) */}
       {showNoResults && (
         <div className="card card-pad">
           <h2>No results</h2>
@@ -385,8 +380,8 @@ export default function Home() {
         </div>
       )}
 
-      {/* Leaderboard + Recent GGs */}
-      <div className="row wrap" style={{ gap: 14 }}>
+      {/* Leaderboard + Recent GGs (top aligned) */}
+      <div className="row wrap" style={{ gap: 14, alignItems: "flex-start" }}>
         <div className="card card-pad" style={{ flex: 1, minWidth: 320 }}>
           <div className="row space-between wrap" style={{ marginBottom: 10, alignItems: "center" }}>
             <h2 style={{ margin: 0 }}>Leaderboard</h2>
@@ -472,10 +467,9 @@ export default function Home() {
                   </div>
 
                   <div className="subtle" style={{ marginTop: 4 }}>
-                    {x.seriesName ?? "Session"} <span style={{ color: "var(--muted2)" }}>•</span>{" "}
-                    {x.trackName ?? "Track"} <span style={{ color: "var(--muted2)" }}>•</span>{" "}
-                    {new Date(x.createdAt).toLocaleString()} <span style={{ color: "var(--muted2)" }}>•</span>{" "}
-                    <span className="mono">Session {x.sessionId}</span>
+                    {x.seriesName ?? "Session"} <span style={{ color: "var(--muted2)" }}>•</span> {x.trackName ?? "Track"}{" "}
+                    <span style={{ color: "var(--muted2)" }}>•</span> {new Date(x.createdAt).toLocaleString()}{" "}
+                    <span style={{ color: "var(--muted2)" }}>•</span> <span className="mono">Session {x.sessionId}</span>
                   </div>
                 </Link>
               ))}

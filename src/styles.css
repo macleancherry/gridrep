@@ -1,36 +1,54 @@
 /* ===============================
-   GridRep – clean racing UI
-   Drop-in styles.css (replace all)
+   GridRep – community-first UI
+   FULL drop-in styles.css (replace all)
+   Includes fixes for:
+   - Leaderboard column top alignment
+   - Mobile header overflow/cutoff (brand + nav + badge + verify)
    =============================== */
 
 /* -------- Design Tokens -------- */
 :root{
-  --bg: #0b0e14;
-  --bg2:#0f1420;
+  /* Surfaces */
+  --bg:  #0e1320;
+  --bg2: #151c2e;
 
-  --text: rgba(255,255,255,0.92);
-  --muted: rgba(255,255,255,0.62);
-  --muted2: rgba(255,255,255,0.42);
+  /* Text */
+  --text:  rgba(255,255,255,0.93);
+  --muted: rgba(255,255,255,0.70);
+  --muted2:rgba(255,255,255,0.52);
 
-  --border: rgba(255,255,255,0.12);
-  --border2: rgba(255,255,255,0.18);
+  /* Lines */
+  --border:  rgba(255,255,255,0.16);
+  --border2: rgba(255,255,255,0.22);
 
-  --card: rgba(255,255,255,0.03);
-  --card2: rgba(255,255,255,0.05);
+  /* Cards */
+  --card:  rgba(255,255,255,0.06);
+  --card2: rgba(255,255,255,0.09);
 
-  --accent: #7c5cff;   /* “GG” purple */
-  --accent2:#2fe4c3;   /* teal highlight */
+  /* Brand */
+  --accent:  #7c5cff; /* identity purple */
+  --accent2: #2fe4c3; /* appreciation teal */
+
+  /* Status */
   --danger:#ff4d5e;
   --ok:#32d583;
 
-  --radius: 16px;
-  --radius2: 12px;
+  /* Layout */
+  --radius: 18px;
+  --radius2: 14px;
 
-  --maxw: 1040px;
-  --pad: 20px;
+  --maxw: 1080px;
+  --pad: 22px;
 
+  /* Typography */
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+
+  --fs-body: 16px;
+  --lh-body: 1.75;
+
+  --shadow-1: 0 10px 30px rgba(0,0,0,0.28);
+  --shadow-2: 0 18px 60px rgba(0,0,0,0.34);
 }
 
 * { box-sizing: border-box; }
@@ -40,16 +58,19 @@ body{
   margin: 0;
   font-family: var(--sans);
   color: var(--text);
+
+  /* Night paddock: richer dark + softer glows */
   background:
-    radial-gradient(1200px 800px at 20% 0%, rgba(124,92,255,0.18), transparent 55%),
-    radial-gradient(1000px 600px at 90% 20%, rgba(47,228,195,0.12), transparent 55%),
+    radial-gradient(1200px 800px at 18% -10%, rgba(124,92,255,0.16), transparent 55%),
+    radial-gradient(1000px 650px at 92% 10%, rgba(47,228,195,0.10), transparent 55%),
+    radial-gradient(900px 600px at 50% 120%, rgba(255,255,255,0.04), transparent 60%),
     linear-gradient(180deg, var(--bg), var(--bg2));
 }
 
 /* -------- Layout -------- */
 .shell{ min-height: 100%; }
 .container{ max-width: var(--maxw); margin: 0 auto; padding: 0 var(--pad); }
-.stack{ display: grid; gap: 16px; }
+.stack{ display: grid; gap: 18px; }
 
 .row{ display:flex; gap:12px; align-items:center; }
 .space-between{ justify-content: space-between; }
@@ -58,62 +79,77 @@ body{
 .mt-0{ margin-top:0; }
 .mt-16{ margin-top:16px; }
 .mt-24{ margin-top:24px; }
+.mt-32{ margin-top:32px; }
 
 /* -------- Header -------- */
 .topbar{
   position: sticky;
   top: 0;
   z-index: 10;
-  backdrop-filter: blur(12px);
-  background: rgba(8,10,15,0.62);
-  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(14px);
+  background: rgba(12,16,28,0.70);
+  border-bottom: 1px solid rgba(255,255,255,0.14);
 }
 
 .topbar-inner{
-  height: 68px;
+  height: 72px;
   display:flex;
   align-items:center;
   justify-content: space-between;
+  gap: 12px;
 }
 
+/* Brand */
 .brand{
   display:flex;
   align-items: baseline;
   gap: 10px;
+  min-width: 0;
 }
 
 .brand a{
   color: var(--text);
   text-decoration:none;
-  font-weight: 900;
+  font-weight: 950;
   letter-spacing: 0.2px;
+  font-size: 18px;
+  white-space: nowrap;
 }
 
 .brand small{
   color: var(--muted);
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
-.nav{ display:flex; gap: 6px; align-items:center; }
+/* Nav */
+.nav{
+  display:flex;
+  align-items:center;
+  gap: 14px;           /* matches your inline style intent */
+  min-width: 0;
+}
 
 .nav a{
   color: var(--muted);
   text-decoration:none;
-  font-weight: 800;
-  padding: 8px 10px;
-  border-radius: 10px;
+  font-weight: 850;
+  padding: 9px 11px;
+  border-radius: 12px;
+  white-space: nowrap;
 }
 
 .nav a:hover{
   color: var(--text);
-  background: rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.07);
 }
 
 /* -------- Typography -------- */
 h1,h2{ letter-spacing: -0.02em; }
 
 h1{
-  font-size: 40px;
+  font-size: 42px;
   line-height: 1.05;
   margin: 0 0 10px;
 }
@@ -122,67 +158,75 @@ h2{
   font-size: 12px;
   margin: 0;
   color: var(--muted);
-  font-weight: 800;
+  font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.18em;
 }
 
 p{
   color: var(--muted);
-  line-height: 1.6;
-  font-size: 15px;
-  margin: 10px 0 0;
+  line-height: var(--lh-body);
+  font-size: var(--fs-body);
+  margin: 12px 0 0;
 }
 
 .mono{ font-family: var(--mono); }
 
 .subtle{
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.55;
+  color: var(--muted2);
+  font-size: 14px;
+  line-height: 1.65;
 }
+
+/* -------- Links -------- */
+a{ color: rgba(124,92,255,0.96); }
+a:hover{ color: rgba(124,92,255,1); }
 
 /* -------- Cards -------- */
 .card{
   border: 1px solid var(--border);
   background: var(--card);
   border-radius: var(--radius);
-  box-shadow: none;
+  box-shadow: var(--shadow-1);
+  /* IMPORTANT: don't force align-self globally (can break layouts) */
 }
 
-.card-pad{ padding: 18px; }
+.card-pad{ padding: 20px; }
 
 .card-hover{
-  transition: transform .10s ease, border-color .12s ease, background .12s ease;
+  transition: transform .12s ease, border-color .14s ease, background .14s ease, box-shadow .14s ease;
 }
 
 .card-hover:hover{
-  transform: translateY(-1px);
+  transform: translateY(-2px);
   border-color: var(--border2);
   background: var(--card2);
+  box-shadow: var(--shadow-2);
 }
 
-.divider{ border-top: 1px solid var(--border); }
+.divider{ border-top: 1px solid rgba(255,255,255,0.13); }
 
 /* -------- Hero -------- */
 .hero{
-  padding: 22px;
+  padding: 24px;
   background:
-    radial-gradient(900px 520px at 10% 0%, rgba(124,92,255,0.20), transparent 60%),
-    radial-gradient(900px 520px at 90% 0%, rgba(47,228,195,0.14), transparent 60%),
-    var(--card);
-  border-color: rgba(255,255,255,0.16);
+    radial-gradient(900px 520px at 10% 0%, rgba(124,92,255,0.18), transparent 62%),
+    radial-gradient(900px 520px at 90% 0%, rgba(47,228,195,0.12), transparent 62%),
+    linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.04));
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
 }
 
 /* -------- Buttons -------- */
 .btn{
   appearance:none;
   border: 1px solid var(--border);
-  background: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.08);
   color: var(--text);
   border-radius: 14px;
-  padding: 12px 14px;
-  font-weight: 800;
+  padding: 12px 15px;
+  font-weight: 900;
   cursor: pointer;
   transition: transform .08s ease, border-color .12s ease, background .12s ease, box-shadow .12s ease;
   box-shadow: none;
@@ -190,97 +234,97 @@ p{
 
 .btn:hover{
   border-color: var(--border2);
-  background: rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.10);
 }
 
 .btn:active{ transform: translateY(1px); }
 
 .btn:disabled{
-  opacity: 0.5;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
 .btn-primary{
-  border-color: rgba(124,92,255,0.45);
+  border-color: rgba(124,92,255,0.55);
   background: linear-gradient(180deg, rgba(124,92,255,0.26), rgba(124,92,255,0.14));
 }
 
 .btn-primary:hover{
-  border-color: rgba(124,92,255,0.72);
+  border-color: rgba(124,92,255,0.78);
   box-shadow: 0 0 0 4px rgba(124,92,255,0.12);
 }
 
 .btn-success{
-  border-color: rgba(50,213,131,0.45);
-  background: linear-gradient(180deg, rgba(50,213,131,0.22), rgba(50,213,131,0.12));
+  border-color: rgba(47,228,195,0.55);
+  background: linear-gradient(180deg, rgba(47,228,195,0.22), rgba(47,228,195,0.12));
 }
 
 .btn-success:hover{
-  border-color: rgba(50,213,131,0.72);
-  box-shadow: 0 0 0 4px rgba(50,213,131,0.10);
+  border-color: rgba(47,228,195,0.80);
+  box-shadow: 0 0 0 4px rgba(47,228,195,0.11);
 }
 
-.btn-ghost{
-  background: transparent;
+.btn-ghost{ background: transparent; }
+
+/* Make small header buttons a bit tighter */
+.topbar .btn{
+  padding: 10px 12px;
+  border-radius: 12px;
 }
 
 /* -------- Inputs -------- */
 .input, select{
   width: 100%;
-  border: 1px solid var(--border);
-  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.16);
   color: var(--text);
   border-radius: 14px;
   padding: 14px 16px;
   outline: none;
   transition: border-color .12s ease, box-shadow .12s ease, background .12s ease;
+  font-size: 16px;
 }
 
-.input::placeholder{ color: rgba(255,255,255,0.38); }
+.input::placeholder{ color: rgba(255,255,255,0.44); }
 
 .input:focus, select:focus{
-  border-color: rgba(47,228,195,0.62);
+  border-color: rgba(47,228,195,0.70);
   box-shadow: 0 0 0 4px rgba(47,228,195,0.12);
-  background: rgba(0,0,0,0.22);
+  background: rgba(0,0,0,0.20);
 }
-
-/* -------- Search row polish -------- */
-.search-row .input{ font-size: 16px; }
-.search-row .btn{ padding: 14px 16px; }
 
 /* -------- Badges -------- */
 .badge{
   display:inline-flex;
   align-items:center;
   gap:8px;
-  border: 1px solid var(--border);
-  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
   border-radius: 999px;
-  padding: 6px 10px;
-  font-size: 12px;
+  padding: 7px 11px;
+  font-size: 13px;
   color: var(--muted);
-  font-weight: 800;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 
 .badge-dot{
-  width: 8px; height: 8px; border-radius: 999px;
+  width: 9px; height: 9px; border-radius: 999px;
   background: var(--accent2);
   box-shadow: 0 0 0 3px rgba(47,228,195,0.12);
 }
-
-/* -------- Links -------- */
-a{ color: rgba(124,92,255,0.95); }
-a:hover{ color: rgba(124,92,255,1); }
 
 /* -------- Key/value rows -------- */
 .kv{
   display:flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.55;
 }
-.kv strong{ color: var(--text); font-weight: 900; }
+.kv strong{ color: var(--text); font-weight: 950; }
 
 /* -------- Background grid pattern -------- */
 .bg-grid { position: relative; }
@@ -289,12 +333,12 @@ a:hover{ color: rgba(124,92,255,1); }
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: 0.14;
+  opacity: 0.12;
   background:
     linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255,255,255,0.06) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: radial-gradient(900px 500px at 30% 0%, black 18%, transparent 72%);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(980px 560px at 30% 0%, black 20%, transparent 72%);
 }
 
 /* -------- Pills -------- */
@@ -304,24 +348,21 @@ a:hover{ color: rgba(124,92,255,1); }
   display:inline-flex;
   align-items:center;
   gap:8px;
-  padding: 7px 10px;
+  padding: 8px 11px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 900;
   letter-spacing: 0.02em;
 }
 
-.pill strong{
-  color: var(--text);
-  font-weight: 900;
-}
+.pill strong{ color: var(--text); font-weight: 950; }
 
 .pill .chip{
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 999px;
   background: var(--accent);
   box-shadow: 0 0 0 3px rgba(124,92,255,0.12);
@@ -335,9 +376,9 @@ a:hover{ color: rgba(124,92,255,1); }
 .pill.mono { font-family: var(--mono); }
 
 .pills.compact .pill{
-  padding: 6px 9px;
-  font-size: 11px;
-  opacity: 0.92;
+  padding: 7px 10px;
+  font-size: 12px;
+  opacity: 0.94;
 }
 
 /* -------- Position badges -------- */
@@ -345,30 +386,30 @@ a:hover{ color: rgba(124,92,255,1); }
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  min-width: 44px;
-  padding: 6px 10px;
+  min-width: 46px;
+  padding: 7px 11px;
   border-radius: 12px;
-  border: 1px solid var(--border);
-  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
   color: var(--muted);
-  font-weight: 900;
+  font-weight: 950;
   font-family: var(--mono);
 }
 
 .pos.p1{
-  border-color: rgba(47,228,195,0.55);
-  background: rgba(47,228,195,0.14);
-  color: rgba(255,255,255,0.95);
+  border-color: rgba(47,228,195,0.60);
+  background: rgba(47,228,195,0.16);
+  color: rgba(255,255,255,0.96);
 }
 .pos.p2{
-  border-color: rgba(124,92,255,0.60);
-  background: rgba(124,92,255,0.18);
-  color: rgba(255,255,255,0.95);
+  border-color: rgba(124,92,255,0.62);
+  background: rgba(124,92,255,0.20);
+  color: rgba(255,255,255,0.96);
 }
 .pos.p3{
-  border-color: rgba(255,255,255,0.22);
-  background: rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.92);
+  border-color: rgba(255,255,255,0.24);
+  background: rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.93);
 }
 
 /* -------- Home hint row -------- */
@@ -377,20 +418,270 @@ a:hover{ color: rgba(124,92,255,1); }
   gap: 10px;
   flex-wrap: wrap;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
   align-items: center;
+  line-height: 1.6;
+}
+.hint a { text-decoration: none; font-weight: 950; }
+
+/* =========================================================
+   FIX 1: Leaderboard + Recent columns top-align
+   Your wrapper in Home.tsx is: <div className="row wrap" style={{ gap: 14 }}>
+   .row defaults to align-items:center; so we override it ONLY when it has .wrap
+   ========================================================= */
+.row.wrap{
+  align-items: flex-start;
 }
 
-.hint a { text-decoration: none; font-weight: 900; }
-
-/* -------- Responsive -------- */
+/* =========================================================
+   FIX 2: Header behaves on mobile
+   ========================================================= */
 @media (max-width: 720px){
   :root{ --pad: 16px; }
 
-  h1{ font-size: 30px; }
-  .topbar-inner{ height: 64px; }
+  h1{ font-size: 32px; }
 
+  /* Let header wrap instead of clipping */
+  .topbar-inner{
+    height: auto;
+    padding: 10px 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+
+  /* Brand on its own row */
+  .brand{
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  /* Tagline causes wrapping/cutoff; hide on mobile */
+  .brand small{
+    display: none;
+  }
+
+  /*
+    Your nav is <nav className="nav row" ...>.
+    That means it inherits .row's flex + center alignment.
+    We keep it flex, but make it full-width and scrollable.
+  */
+  .topbar .nav{
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 6px;
+
+    /* avoid weird shrinking of children */
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+  }
+
+  /* Keep each item intact, allow horizontal scrolling */
+  .topbar .nav > a,
+  .topbar .nav > button,
+  .topbar .nav > .badge,
+  .topbar .nav > span{
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* Slightly tighter padding so more fits on screen */
+  .topbar .nav a{ padding: 8px 10px; }
+  .topbar .badge{ padding: 6px 10px; font-size: 12px; }
+  .topbar .btn{ padding: 9px 11px; }
+
+  /* General mobile */
   .row{ gap: 10px; }
   .btn{ width: 100%; justify-content: center; }
   .search-row{ flex-direction: column; align-items: stretch; }
+}
+/* =========================
+   Mobile hamburger menu (polished)
+   Replaces previous hamburger/menu CSS
+   ========================= */
+
+/* Desktop defaults */
+.nav-mobile-actions { display: none; }
+.mobile-menu { display: none; }
+
+/* Hamburger button + icon */
+.hamburger{
+  width: 42px;
+  height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hamburger-icon{
+  display:inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 18px;
+}
+.hamburger-icon span{
+  height: 2px;
+  width: 18px;
+  background: rgba(255,255,255,0.80);
+  border-radius: 2px;
+  display:block;
+}
+
+/* ===== Mobile ===== */
+@media (max-width: 720px){
+  /* Hide desktop nav */
+  .nav-desktop { display: none; }
+
+  /* Make the topbar look like a single tight row */
+  .topbar-inner{
+    height: auto;
+    padding: 10px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: nowrap; /* important: avoid weird wrapping */
+  }
+
+  /* Brand: just the wordmark on mobile */
+  .brand{
+    width: auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand-tagline{ display: none; }
+
+  /* Right-side actions: badge + burger aligned cleanly */
+  .nav-mobile-actions{
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    flex: 0 0 auto;
+  }
+
+  /* Badge should be compact on mobile */
+  .topbar .badge{
+    padding: 6px 10px;
+    font-size: 12px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.14);
+  }
+
+  /* Mobile menu panel */
+  .mobile-menu{
+    display: block;
+    background: rgba(12,16,28,0.92);
+    backdrop-filter: blur(14px);
+    border-top: 1px solid rgba(255,255,255,0.10);
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+
+    /* Slide-down */
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height .20s ease;
+  }
+
+  .mobile-menu.open{
+    max-height: 420px; /* safe for future menu items */
+  }
+
+  .mobile-menu-inner{
+    padding-top: 12px;
+    padding-bottom: 14px;
+    display: grid;
+    gap: 10px;
+  }
+
+  /* Menu items look like clean tappable rows */
+  .mobile-link{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 12px;
+    border-radius: 14px;
+    text-decoration: none;
+    color: rgba(255,255,255,0.92);
+    font-weight: 900;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+  }
+
+  .mobile-link::after{
+    content: "›";
+    color: rgba(255,255,255,0.55);
+    font-weight: 900;
+  }
+
+  .mobile-link:hover{
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.18);
+  }
+
+  .mobile-divider{
+    height: 1px;
+    background: rgba(255,255,255,0.12);
+    margin: 2px 2px;
+  }
+
+  .mobile-action{
+    width: 100%;
+    justify-content: center;
+    padding: 12px 14px;
+  }
+
+  /* IMPORTANT: keep page buttons full width on mobile EXCEPT header */
+  .topbar .btn{ width: auto; }
+}
+/* =========================
+   Mobile edge padding polish
+   ========================= */
+@media (max-width: 720px){
+  /* Give the sticky header a little extra breathing room */
+  .topbar .container{
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  /* Slightly increase perceived spacing inside the header row */
+  .topbar-inner{
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  /* Optional: make the hamburger hit area feel less edge-clipped */
+  .nav-mobile-actions{
+    margin-right: 2px;
+  }
+
+  /* Optional: if you want the whole page a touch less tight on mobile
+     (comment out if you prefer the original 16px global pad)
+  */
+  /*
+  :root{ --pad: 18px; }
+  */
+}
+/* =========================
+   Hamburger -> X animation
+   ========================= */
+.hamburger-icon span{
+  transition: transform .14s ease, opacity .14s ease;
+  transform-origin: center;
+}
+
+/* When open: turn into an X */
+.hamburger.open .hamburger-icon span:nth-child(1){
+  transform: translateY(6px) rotate(45deg);
+}
+.hamburger.open .hamburger-icon span:nth-child(2){
+  opacity: 0;
+}
+.hamburger.open .hamburger-icon span:nth-child(3){
+  transform: translateY(-6px) rotate(-45deg);
 }
