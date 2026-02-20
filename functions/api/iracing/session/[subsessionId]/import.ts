@@ -56,22 +56,6 @@ function extractParticipants(payload: any): Array<{
   let rows: any[] = [];
 
   if (Array.isArray(payload?.session_results)) {
-    // Helpful for debugging: see what's inside session_results
-    try {
-      console.log(
-        "session_results overview (safe)",
-        payload.session_results.map((sr: any, i: number) => ({
-          i,
-          simsession_type: sr?.simsession_type,
-          simsession_type_name: sr?.simsession_type_name,
-          simsession_name: sr?.simsession_name,
-          rows: pickRows(sr).length,
-        }))
-      );
-    } catch {
-      // ignore logging failures
-    }
-
     // Prefer explicit "RACE" by name
     const raceByName = payload.session_results.find(
       (sr: any) => typeof sr?.simsession_type_name === "string" && sr.simsession_type_name.toUpperCase() === "RACE"
@@ -118,9 +102,7 @@ function extractParticipants(payload: any): Array<{
   for (const r of rows as ResultRow[]) {
     const cust = pickNumber((r as any).cust_id ?? (r as any).id);
     const name =
-      pickString((r as any).display_name) ??
-      pickString((r as any).name) ??
-      (cust ? `Driver ${cust}` : undefined);
+      pickString((r as any).display_name) ?? pickString((r as any).name) ?? (cust ? `Driver ${cust}` : undefined);
 
     if (!cust || !name) continue;
 
@@ -162,9 +144,6 @@ function extractSessionHeader(payload: any): { start_time?: string; series_name?
 }
 
 function isScopeRequiredError(err: any): boolean {
-  // If you use the hardened iracing.ts I supplied earlier, this will match:
-  //   err.name === "IRacingScopeRequiredError" or err.code === "scope_required"
-  // If not, we still catch via message pattern.
   const name = (err?.name ?? "").toString();
   const code = (err?.code ?? "").toString();
   const msg = (err?.message ?? "").toString().toLowerCase();
@@ -174,8 +153,8 @@ function isScopeRequiredError(err: any): boolean {
   if (code === "scope_required") return true;
 
   return (
-    msg.includes("iracing.auth") && msg.includes("required") ||
-    raw.includes("iracing.auth") && raw.includes("required")
+    (msg.includes("iracing.auth") && msg.includes("required")) ||
+    (raw.includes("iracing.auth") && raw.includes("required"))
   );
 }
 
@@ -187,44 +166,71 @@ function jsonError(status: number, payload: Record<string, unknown>, extraHeader
   return new Response(JSON.stringify(payload), { status, headers });
 }
 
+type ImportOpts = {
+  // If provided, we won't call getViewer/getValidAccessToken again.
+  viewerUserId?: string;
+  accessToken?: string;
+};
+
 /**
  * Shared importer: can be called from /api/sessions/:id (automatic import)
  */
-export async function importSubsessionToCache(context: any, subsessionId: string) {
+export async function importSubsessionToCache(context: any, subsessionId: string, opts?: ImportOpts) {
   const debugId = crypto.randomUUID();
   const { DB } = context.env;
 
   safeLog("log", debugId, "session.import.start", { subsessionId });
 
-  const viewer = await getViewer(context);
-  if (!viewer.verified) {
-    safeLog("warn", debugId, "session.import.not_verified", { subsessionId });
-    // Keep as thrown Error for existing callers, but with a stable message
-    const e: any = new Error("Not verified");
-    e.code = "not_verified";
-    e.debugId = debugId;
-    throw e;
+  // NEW: Skip if this subsession is already cached (has any participants)
+  const existing = await DB.prepare(
+    `SELECT 1 as ok
+     FROM session_participants
+     WHERE iracing_session_id = ?
+     LIMIT 1`
+  )
+    .bind(subsessionId)
+    .first<any>();
+
+  if (existing?.ok) {
+    safeLog("log", debugId, "session.import.skip_already_cached", { subsessionId });
+    return { ok: true, subsessionId, participantsImported: 0, debugId, skipped: true };
   }
 
-  let accessToken: string;
-  try {
-    accessToken = await getValidAccessToken(context, viewer.user!.id);
-  } catch (err: any) {
-    safeLog("warn", debugId, "session.import.access_token_failed", {
-      subsessionId,
-      message: err?.message ?? String(err),
-    });
-    const e: any = new Error("Authentication required");
-    e.code = "auth_required";
-    e.debugId = debugId;
-    throw e;
+  // If called from recent/import, we can avoid repeated auth/db work.
+  let viewerUserId = opts?.viewerUserId;
+  let accessToken = opts?.accessToken;
+
+  if (!viewerUserId || !accessToken) {
+    const viewer = await getViewer(context);
+    if (!viewer.verified) {
+      safeLog("warn", debugId, "session.import.not_verified", { subsessionId });
+      const e: any = new Error("Not verified");
+      e.code = "not_verified";
+      e.debugId = debugId;
+      throw e;
+    }
+
+    viewerUserId = viewer.user!.id;
+
+    try {
+      accessToken = await getValidAccessToken(context, viewerUserId);
+    } catch (err: any) {
+      safeLog("warn", debugId, "session.import.access_token_failed", {
+        subsessionId,
+        message: err?.message ?? String(err),
+      });
+      const e: any = new Error("Authentication required");
+      e.code = "auth_required";
+      e.debugId = debugId;
+      throw e;
+    }
   }
 
   let payload: any;
   try {
     payload = await iracingDataGet<any>(
       `/data/results/get?subsession_id=${encodeURIComponent(subsessionId)}&include_licenses=false`,
-      accessToken
+      accessToken!
     );
   } catch (err: any) {
     if (isScopeRequiredError(err)) {
@@ -249,65 +255,75 @@ export async function importSubsessionToCache(context: any, subsessionId: string
     throw e;
   }
 
-  safeLog("log", debugId, "session.import.payload_received", {
-    subsessionId,
-    topKeys: payload ? Object.keys(payload).slice(0, 20) : [],
-    hasSessionResults: Array.isArray(payload?.session_results),
-  });
-
   const header = extractSessionHeader(payload);
   const participants = extractParticipants(payload);
 
   safeLog("log", debugId, "session.import.parsed", {
     subsessionId,
     participantCount: participants.length,
-    sample: participants.slice(0, 3).map((p) => ({
-      id: p.iracing_member_id,
-      name: p.display_name,
-      pos: p.finish_pos,
-    })),
   });
 
-  await DB.prepare(
-    `
-    INSERT INTO sessions (iracing_session_id, start_time, series_name, track_name)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(iracing_session_id) DO UPDATE SET
-      start_time = COALESCE(excluded.start_time, sessions.start_time),
-      series_name = COALESCE(excluded.series_name, sessions.series_name),
-      track_name = COALESCE(excluded.track_name, sessions.track_name)
-    `
-  )
-    .bind(subsessionId, header.start_time ?? null, header.series_name ?? null, header.track_name ?? null)
-    .run();
+  // --- DB writes (batched + transaction) ---
+  const now = new Date().toISOString();
+  const statements: any[] = [];
+
+  statements.push(DB.prepare("BEGIN"));
+
+  statements.push(
+    DB.prepare(
+      `
+      INSERT INTO sessions (iracing_session_id, start_time, series_name, track_name)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(iracing_session_id) DO UPDATE SET
+        start_time = COALESCE(excluded.start_time, sessions.start_time),
+        series_name = COALESCE(excluded.series_name, sessions.series_name),
+        track_name = COALESCE(excluded.track_name, sessions.track_name)
+      `
+    ).bind(subsessionId, header.start_time ?? null, header.series_name ?? null, header.track_name ?? null)
+  );
 
   // Idempotent: replace participants
-  await DB.prepare(`DELETE FROM session_participants WHERE iracing_session_id = ?`).bind(subsessionId).run();
-
-  // drivers.last_seen_at is NOT NULL in your schema
-  const now = new Date().toISOString();
+  statements.push(DB.prepare(`DELETE FROM session_participants WHERE iracing_session_id = ?`).bind(subsessionId));
 
   for (const p of participants) {
-    await DB.prepare(
-      `
-      INSERT INTO drivers (iracing_member_id, display_name, last_seen_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(iracing_member_id) DO UPDATE SET
-        display_name = excluded.display_name,
-        last_seen_at = excluded.last_seen_at
-      `
-    )
-      .bind(p.iracing_member_id, p.display_name, now)
-      .run();
+    statements.push(
+      DB.prepare(
+        `
+        INSERT INTO drivers (iracing_member_id, display_name, last_seen_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(iracing_member_id) DO UPDATE SET
+          display_name = excluded.display_name,
+          last_seen_at = excluded.last_seen_at
+        `
+      ).bind(p.iracing_member_id, p.display_name, now)
+    );
 
-    await DB.prepare(
-      `
-      INSERT INTO session_participants (iracing_session_id, iracing_member_id, finish_pos, car_name)
-      VALUES (?, ?, ?, ?)
-      `
-    )
-      .bind(subsessionId, p.iracing_member_id, p.finish_pos ?? null, p.car_name ?? null)
-      .run();
+    statements.push(
+      DB.prepare(
+        `
+        INSERT INTO session_participants (iracing_session_id, iracing_member_id, finish_pos, car_name)
+        VALUES (?, ?, ?, ?)
+        `
+      ).bind(subsessionId, p.iracing_member_id, p.finish_pos ?? null, p.car_name ?? null)
+    );
+  }
+
+  statements.push(DB.prepare("COMMIT"));
+
+  try {
+    await DB.batch(statements);
+  } catch (e: any) {
+    try {
+      await DB.prepare("ROLLBACK").run();
+    } catch {}
+    safeLog("error", debugId, "session.import.db_failed", {
+      subsessionId,
+      message: e?.message ?? String(e),
+    });
+    const err: any = new Error("Database write failed");
+    err.code = "db_failed";
+    err.debugId = debugId;
+    throw err;
   }
 
   safeLog("log", debugId, "session.import.ok", { subsessionId, participantsImported: participants.length });
@@ -326,7 +342,6 @@ export async function onRequestGet(context: any) {
     const code = (err?.code ?? "").toString();
     const errDebugId = (err?.debugId ?? debugId).toString();
 
-    // Not verified (expected gating)
     if (code === "not_verified" || (err?.message ?? "") === "Not verified") {
       return jsonError(
         401,
@@ -339,7 +354,6 @@ export async function onRequestGet(context: any) {
       );
     }
 
-    // Token missing/refresh failed
     if (code === "auth_required") {
       return jsonError(
         401,
@@ -352,7 +366,6 @@ export async function onRequestGet(context: any) {
       );
     }
 
-    // Scope required (inactive subscription / not eligible)
     if (code === "scope_required" || isScopeRequiredError(err)) {
       return jsonError(
         403,
