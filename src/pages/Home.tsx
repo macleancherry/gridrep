@@ -219,16 +219,41 @@ export default function Home() {
 
   return (
     <div className="stack">
-      {/* Verify / Sync callout */}
+      {/* Intro / Verify / Sync callout (keep UX, improve clarity) */}
       <div className="card card-pad">
         <div className="row space-between wrap" style={{ alignItems: "center" }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 900, marginBottom: 4 }}>
-              {viewer.loading ? "Checking verification…" : viewer.verified ? "You’re verified" : "Browse mode"}
-            </div>
+            <div style={{ fontWeight: 900, marginBottom: 6 }}>Good racers notice each other</div>
             <div className="subtle">
-              You can browse cached drivers/sessions without logging in. Verify to send Props, and sync to populate your
-              profile + recent sessions.
+              <strong>GridRep.gg</strong> is a simple reputation layer for sim racing. Send <strong>Props (GG)</strong>{" "}
+              after a race — a quick public nod for fair moves, racing room, and sportsmanship.
+            </div>
+
+            <div className="pills compact" style={{ marginTop: 12 }}>
+              <span className="pill">
+                <span className="chip" />
+                Browse without logging in
+              </span>
+              <span className="pill alt">
+                <span className="chip" />
+                Verify to send Props
+              </span>
+              <span className="pill mono">
+                <span className="chip" />
+                One Prop per driver per session
+              </span>
+            </div>
+
+            <div className="subtle" style={{ marginTop: 10 }}>
+              Status:{" "}
+              <strong>
+                {viewer.loading ? "Checking…" : viewer.verified ? "Verified" : "Browse mode"}
+              </strong>
+              {viewer.loading ? null : viewer.verified ? (
+                <> — sync to import your recent sessions.</>
+              ) : (
+                <> — verify with iRacing to send Props.</>
+              )}
             </div>
 
             {syncMsg && (
@@ -243,7 +268,7 @@ export default function Home() {
                   {loading ? "Searching…" : `Search my name (${myName})`}
                 </button>
                 <div className="subtle" style={{ minWidth: 0 }}>
-                  This is the fastest way to find your driver page after sync.
+                  Fastest way to find your driver page after sync.
                 </div>
               </div>
             )}
@@ -269,7 +294,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Hero + Search */}
+      {/* Hero + Search (unchanged UX, clearer copy) */}
       <div className="card hero">
         <div className="row space-between wrap">
           <div style={{ minWidth: 0 }}>
@@ -277,7 +302,7 @@ export default function Home() {
               Find a driver
             </h1>
             <div className="subtle">
-              Send <strong>Props (GG)</strong> after races. A quick public nod for clean driving.
+              Search an iRacing driver to see Props they’ve received — and if you raced them, send one.
             </div>
           </div>
 

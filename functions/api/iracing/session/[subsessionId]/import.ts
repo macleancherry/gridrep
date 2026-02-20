@@ -181,7 +181,7 @@ export async function importSubsessionToCache(context: any, subsessionId: string
 
   safeLog("log", debugId, "session.import.start", { subsessionId });
 
-  // NEW: Skip if this subsession is already cached (has any participants)
+  // Skip if this subsession is already cached (has any participants)
   const existing = await DB.prepare(
     `SELECT 1 as ok
      FROM session_participants
@@ -263,11 +263,10 @@ export async function importSubsessionToCache(context: any, subsessionId: string
     participantCount: participants.length,
   });
 
-  // --- DB writes (batched + transaction) ---
+  // --- DB writes (batched, no explicit SQL transactions) ---
+  // NOTE: Do NOT use BEGIN/COMMIT/SAVEPOINT with Cloudflare DO storage.
   const now = new Date().toISOString();
   const statements: any[] = [];
-
-  statements.push(DB.prepare("BEGIN"));
 
   statements.push(
     DB.prepare(
@@ -298,6 +297,7 @@ export async function importSubsessionToCache(context: any, subsessionId: string
       ).bind(p.iracing_member_id, p.display_name, now)
     );
 
+    // Insert participant row (unique PK prevents duplicates within the same run)
     statements.push(
       DB.prepare(
         `
@@ -308,14 +308,9 @@ export async function importSubsessionToCache(context: any, subsessionId: string
     );
   }
 
-  statements.push(DB.prepare("COMMIT"));
-
   try {
     await DB.batch(statements);
   } catch (e: any) {
-    try {
-      await DB.prepare("ROLLBACK").run();
-    } catch {}
     safeLog("error", debugId, "session.import.db_failed", {
       subsessionId,
       message: e?.message ?? String(e),
