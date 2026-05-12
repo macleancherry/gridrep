@@ -31,9 +31,10 @@ function parseOriginHeader(value: string | null): string | null {
 function hasAllowedOrigin(request: Request, allowedOrigin: string | undefined): boolean {
   if (!allowedOrigin) return false;
 
+  const explicitOrigin = parseOriginHeader(request.headers.get("x-ignium-origin"));
   const origin = parseOriginHeader(request.headers.get("origin"));
   const referer = parseOriginHeader(request.headers.get("referer"));
-  return origin === allowedOrigin || referer === allowedOrigin;
+  return explicitOrigin === allowedOrigin || origin === allowedOrigin || referer === allowedOrigin;
 }
 
 type DriverStat = {
