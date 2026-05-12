@@ -85,77 +85,85 @@ export async function onRequestGet(context: Context) {
 
     const stats = await context.env.DB.prepare(
       `
+      WITH targets AS (
+        SELECT value AS member_id
+        FROM json_each(?)
+      ),
+      latest AS (
+        SELECT
+          sp.iracing_member_id,
+          sp.iracing_session_id,
+          sp.finish_pos,
+          s.series_name,
+          s.track_name,
+          s.start_time,
+          ROW_NUMBER() OVER (
+            PARTITION BY sp.iracing_member_id
+            ORDER BY datetime(s.start_time) DESC, sp.iracing_session_id DESC
+          ) AS rn
+        FROM session_participants sp
+        JOIN sessions s ON s.iracing_session_id = sp.iracing_session_id
+        WHERE sp.iracing_member_id IN (SELECT member_id FROM targets)
+      ),
+      favorite_track AS (
+        SELECT
+          sp.iracing_member_id,
+          s.track_name,
+          COUNT(*) AS c,
+          ROW_NUMBER() OVER (
+            PARTITION BY sp.iracing_member_id
+            ORDER BY COUNT(*) DESC, MAX(datetime(s.start_time)) DESC
+          ) AS rn
+        FROM session_participants sp
+        JOIN sessions s ON s.iracing_session_id = sp.iracing_session_id
+        WHERE sp.iracing_member_id IN (SELECT member_id FROM targets)
+          AND s.track_name IS NOT NULL
+        GROUP BY sp.iracing_member_id, s.track_name
+      ),
+      favorite_series AS (
+        SELECT
+          sp.iracing_member_id,
+          s.series_name,
+          COUNT(*) AS c,
+          ROW_NUMBER() OVER (
+            PARTITION BY sp.iracing_member_id
+            ORDER BY COUNT(*) DESC, MAX(datetime(s.start_time)) DESC
+          ) AS rn
+        FROM session_participants sp
+        JOIN sessions s ON s.iracing_session_id = sp.iracing_session_id
+        WHERE sp.iracing_member_id IN (SELECT member_id FROM targets)
+          AND s.series_name IS NOT NULL
+        GROUP BY sp.iracing_member_id, s.series_name
+      )
       SELECT
-        d.iracing_member_id as iracing_customer_id,
-        d.display_name,
+        CAST(t.member_id AS INTEGER) as iracing_customer_id,
+        COALESCE(d.display_name, 'Driver ' || t.member_id) as display_name,
         d.last_seen_at,
         COUNT(DISTINCT sp.iracing_session_id) as total_sessions,
         ROUND(AVG(CASE WHEN sp.finish_pos IS NOT NULL THEN sp.finish_pos END), 2) as avg_finish_position,
         SUM(CASE WHEN sp.finish_pos = 1 THEN 1 ELSE 0 END) as wins,
         SUM(CASE WHEN sp.finish_pos BETWEEN 1 AND 3 THEN 1 ELSE 0 END) as podiums,
         SUM(CASE WHEN sp.finish_pos BETWEEN 1 AND 5 THEN 1 ELSE 0 END) as top_fives,
-        (
-          SELECT s2.iracing_session_id
-          FROM session_participants sp2
-          JOIN sessions s2 ON s2.iracing_session_id = sp2.iracing_session_id
-          WHERE sp2.iracing_member_id = d.iracing_member_id
-          ORDER BY datetime(s2.start_time) DESC
-          LIMIT 1
-        ) as latest_session_id,
-        (
-          SELECT s2.series_name
-          FROM session_participants sp2
-          JOIN sessions s2 ON s2.iracing_session_id = sp2.iracing_session_id
-          WHERE sp2.iracing_member_id = d.iracing_member_id
-          ORDER BY datetime(s2.start_time) DESC
-          LIMIT 1
-        ) as latest_series,
-        (
-          SELECT s2.track_name
-          FROM session_participants sp2
-          JOIN sessions s2 ON s2.iracing_session_id = sp2.iracing_session_id
-          WHERE sp2.iracing_member_id = d.iracing_member_id
-          ORDER BY datetime(s2.start_time) DESC
-          LIMIT 1
-        ) as latest_track,
-        (
-          SELECT sp2.finish_pos
-          FROM session_participants sp2
-          JOIN sessions s2 ON s2.iracing_session_id = sp2.iracing_session_id
-          WHERE sp2.iracing_member_id = d.iracing_member_id
-          ORDER BY datetime(s2.start_time) DESC
-          LIMIT 1
-        ) as latest_finish_position,
+        MAX(CASE WHEN l.rn = 1 THEN l.iracing_session_id END) as latest_session_id,
+        MAX(CASE WHEN l.rn = 1 THEN l.series_name END) as latest_series,
+        MAX(CASE WHEN l.rn = 1 THEN l.track_name END) as latest_track,
+        MAX(CASE WHEN l.rn = 1 THEN l.finish_pos END) as latest_finish_position,
         MIN(sp.finish_pos) as best_finish_position,
-        (
-          SELECT s2.track_name
-          FROM session_participants sp2
-          JOIN sessions s2 ON s2.iracing_session_id = sp2.iracing_session_id
-          WHERE sp2.iracing_member_id = d.iracing_member_id AND s2.track_name IS NOT NULL
-          GROUP BY s2.track_name
-          ORDER BY COUNT(*) DESC, MAX(datetime(s2.start_time)) DESC
-          LIMIT 1
-        ) as favorite_track,
-        (
-          SELECT s2.series_name
-          FROM session_participants sp2
-          JOIN sessions s2 ON s2.iracing_session_id = sp2.iracing_session_id
-          WHERE sp2.iracing_member_id = d.iracing_member_id AND s2.series_name IS NOT NULL
-          GROUP BY s2.series_name
-          ORDER BY COUNT(*) DESC, MAX(datetime(s2.start_time)) DESC
-          LIMIT 1
-        ) as favorite_series,
+        MAX(CASE WHEN ft.rn = 1 THEN ft.track_name END) as favorite_track,
+        MAX(CASE WHEN fs.rn = 1 THEN fs.series_name END) as favorite_series,
         COUNT(sp.iracing_session_id) as total_results,
         NULL as irating,
         NULL as license_class
-      FROM drivers d
-      LEFT JOIN session_participants sp ON d.iracing_member_id = sp.iracing_member_id
-      LEFT JOIN sessions s ON sp.iracing_session_id = s.iracing_session_id
-      WHERE d.iracing_member_id IN (${customerIds.map(() => "?").join(",")})
-      GROUP BY d.iracing_member_id, d.display_name, d.last_seen_at
+      FROM targets t
+      LEFT JOIN drivers d ON d.iracing_member_id = t.member_id
+      LEFT JOIN session_participants sp ON sp.iracing_member_id = t.member_id
+      LEFT JOIN latest l ON l.iracing_member_id = t.member_id
+      LEFT JOIN favorite_track ft ON ft.iracing_member_id = t.member_id
+      LEFT JOIN favorite_series fs ON fs.iracing_member_id = t.member_id
+      GROUP BY t.member_id, d.display_name, d.last_seen_at
       `
     )
-      .bind(...customerIds.map(Number))
+      .bind(JSON.stringify(customerIds.map((id) => String(id))))
       .all();
 
     return json({ 
