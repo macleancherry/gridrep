@@ -1,3 +1,5 @@
+import { refreshRecentRacesForMember } from "../../../_lib/recent";
+
 type Context = {
   request: Request;
   env: {
@@ -42,12 +44,20 @@ type DriverStat = {
   display_name: string;
   last_seen_at: string | null;
   total_sessions: number;
+  avg_finish_position: number | null;
+  wins: number;
+  podiums: number;
+  top_fives: number;
   latest_session_id: string | null;
   latest_series: string | null;
   latest_track: string | null;
   latest_finish_position: number | null;
   best_finish_position: number | null;
+  favorite_track: string | null;
+  favorite_series: string | null;
   total_results: number;
+  irating: number | null;
+  license_class: string | null;
 };
 
 export async function onRequestGet(context: Context) {
@@ -69,6 +79,10 @@ export async function onRequestGet(context: Context) {
   }
 
   try {
+    for (const customerId of customerIds) {
+      await refreshRecentRacesForMember(context, customerId, 10);
+    }
+
     const stats = await context.env.DB.prepare(
       `
       SELECT
@@ -76,16 +90,64 @@ export async function onRequestGet(context: Context) {
         d.display_name,
         d.last_seen_at,
         COUNT(DISTINCT sp.iracing_session_id) as total_sessions,
-        MAX(s.iracing_session_id) as latest_session_id,
-        (SELECT s2.series_name FROM sessions s2 
-         WHERE s2.iracing_session_id = MAX(s.iracing_session_id)) as latest_series,
-        (SELECT s2.track_name FROM sessions s2 
-         WHERE s2.iracing_session_id = MAX(s.iracing_session_id)) as latest_track,
-        (SELECT sp2.finish_pos FROM session_participants sp2 
-         WHERE sp2.iracing_session_id = MAX(s.iracing_session_id) 
-         AND sp2.iracing_member_id = d.iracing_member_id) as latest_finish_position,
+        ROUND(AVG(CASE WHEN sp.finish_pos IS NOT NULL THEN sp.finish_pos END), 2) as avg_finish_position,
+        SUM(CASE WHEN sp.finish_pos = 1 THEN 1 ELSE 0 END) as wins,
+        SUM(CASE WHEN sp.finish_pos BETWEEN 1 AND 3 THEN 1 ELSE 0 END) as podiums,
+        SUM(CASE WHEN sp.finish_pos BETWEEN 1 AND 5 THEN 1 ELSE 0 END) as top_fives,
+        (
+          SELECT s2.iracing_session_id
+          FROM session_participants sp2
+          JOIN sessions s2 ON s2.iracing_session_id = sp2.iracing_session_id
+          WHERE sp2.iracing_member_id = d.iracing_member_id
+          ORDER BY datetime(s2.start_time) DESC
+          LIMIT 1
+        ) as latest_session_id,
+        (
+          SELECT s2.series_name
+          FROM session_participants sp2
+          JOIN sessions s2 ON s2.iracing_session_id = sp2.iracing_session_id
+          WHERE sp2.iracing_member_id = d.iracing_member_id
+          ORDER BY datetime(s2.start_time) DESC
+          LIMIT 1
+        ) as latest_series,
+        (
+          SELECT s2.track_name
+          FROM session_participants sp2
+          JOIN sessions s2 ON s2.iracing_session_id = sp2.iracing_session_id
+          WHERE sp2.iracing_member_id = d.iracing_member_id
+          ORDER BY datetime(s2.start_time) DESC
+          LIMIT 1
+        ) as latest_track,
+        (
+          SELECT sp2.finish_pos
+          FROM session_participants sp2
+          JOIN sessions s2 ON s2.iracing_session_id = sp2.iracing_session_id
+          WHERE sp2.iracing_member_id = d.iracing_member_id
+          ORDER BY datetime(s2.start_time) DESC
+          LIMIT 1
+        ) as latest_finish_position,
         MIN(sp.finish_pos) as best_finish_position,
-        COUNT(*) as total_results
+        (
+          SELECT s2.track_name
+          FROM session_participants sp2
+          JOIN sessions s2 ON s2.iracing_session_id = sp2.iracing_session_id
+          WHERE sp2.iracing_member_id = d.iracing_member_id AND s2.track_name IS NOT NULL
+          GROUP BY s2.track_name
+          ORDER BY COUNT(*) DESC, MAX(datetime(s2.start_time)) DESC
+          LIMIT 1
+        ) as favorite_track,
+        (
+          SELECT s2.series_name
+          FROM session_participants sp2
+          JOIN sessions s2 ON s2.iracing_session_id = sp2.iracing_session_id
+          WHERE sp2.iracing_member_id = d.iracing_member_id AND s2.series_name IS NOT NULL
+          GROUP BY s2.series_name
+          ORDER BY COUNT(*) DESC, MAX(datetime(s2.start_time)) DESC
+          LIMIT 1
+        ) as favorite_series,
+        COUNT(sp.iracing_session_id) as total_results,
+        NULL as irating,
+        NULL as license_class
       FROM drivers d
       LEFT JOIN session_participants sp ON d.iracing_member_id = sp.iracing_member_id
       LEFT JOIN sessions s ON sp.iracing_session_id = s.iracing_session_id

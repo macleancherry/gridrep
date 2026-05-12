@@ -1,3 +1,5 @@
+import { refreshRecentRacesForMember } from "../../_lib/recent";
+
 export async function onRequestGet(context: any) {
   const id = String(context.params.id);
   const { DB } = context.env;
@@ -17,6 +19,8 @@ export async function onRequestGet(context: any) {
       { status: 404, headers: { "Cache-Control": "no-store" } }
     );
   }
+
+  await refreshRecentRacesForMember(context, id, 10);
 
   const propsRow = await DB.prepare(
     `SELECT COUNT(*) as c
@@ -51,7 +55,7 @@ export async function onRequestGet(context: any) {
     JOIN sessions s ON s.iracing_session_id = sp.iracing_session_id
     WHERE sp.iracing_member_id = ?
     ORDER BY s.start_time DESC
-    LIMIT 5
+    LIMIT 10
     `
   )
     .bind(id)

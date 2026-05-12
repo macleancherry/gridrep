@@ -1,3 +1,5 @@
+import { refreshRecentRacesForMember } from "../../../_lib/recent";
+
 type Context = {
   request: Request;
   env: {
@@ -105,11 +107,15 @@ export async function onRequestGet(context: Context) {
 
   const url = new URL(context.request.url);
   const customerIds = parseCustomerIds(url.searchParams.get("customerIds"));
-  const limitRaw = Number(url.searchParams.get("limit") ?? "20");
-  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.trunc(limitRaw))) : 20;
+  const limitRaw = Number(url.searchParams.get("limit") ?? "10");
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.trunc(limitRaw))) : 10;
 
   if (customerIds.length === 0) {
     return json({ ok: false, error: "invalid_customer_ids" }, 400);
+  }
+
+  for (const customerId of customerIds) {
+    await refreshRecentRacesForMember(context, customerId, limit);
   }
 
   const placeholders = customerIds.map(() => "?").join(",");

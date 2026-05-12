@@ -178,7 +178,7 @@ export default function Driver() {
         <div className="card card-pad">
           <div className="subtle">
             Tip: if you open a session page (subsession) that includes this driver, GridRep will cache the participants
-            and this profile will start showing up with their last 5 sessions.
+            and this profile will start showing up with their last 10 sessions.
           </div>
         </div>
       </div>
@@ -300,7 +300,7 @@ export default function Driver() {
 
       <div className="card card-pad">
         <div className="row space-between wrap" style={{ marginBottom: 10 }}>
-          <h2>Last 5 sessions</h2>
+          <h2>Last 10 sessions</h2>
           <span className="subtle">Click a session to send Props (GG)</span>
         </div>
 
