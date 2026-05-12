@@ -131,7 +131,7 @@ export async function refreshRecentRacesForMember(context: any, memberId: string
   const subsessionIds = rows
     .map((row) => row.subsession_id ?? row.subsessionId)
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
-    .slice(0, Math.max(1, Math.min(25, limit)))
+    .slice(0, Math.max(1, Math.min(250, limit)))
     .map(String);
 
   if (subsessionIds.length === 0) {
