@@ -1,5 +1,40 @@
-import { json, requireBearer } from "../../_lib/http";
-import type { Context } from "../../_lib/types";
+type Context = {
+  request: Request;
+  env: {
+    DB: D1Database;
+    IGNIUM_ALLOWED_ORIGIN?: string;
+    IGNIUM_INTEGRATION_TOKEN?: string;
+    INTERNAL_API_TOKEN?: string;
+  };
+};
+
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+function parseOriginHeader(value: string | null): string | null {
+  if (!value) return null;
+
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function hasAllowedOrigin(request: Request, allowedOrigin: string | undefined): boolean {
+  if (!allowedOrigin) return false;
+
+  const origin = parseOriginHeader(request.headers.get("origin"));
+  const referer = parseOriginHeader(request.headers.get("referer"));
+  return origin === allowedOrigin || referer === allowedOrigin;
+}
 
 type DriverStat = {
   iracing_customer_id: number;
@@ -15,8 +50,15 @@ type DriverStat = {
 };
 
 export async function onRequestGet(context: Context) {
-  const authError = requireBearer(context, context.env.IGNIUM_INTEGRATION_TOKEN || context.env.INTERNAL_API_TOKEN);
-  if (authError) return authError;
+  const expectedToken = context.env.IGNIUM_INTEGRATION_TOKEN ?? context.env.INTERNAL_API_TOKEN;
+  const authHeader = context.request.headers.get("authorization") ?? "";
+  const bearer = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : null;
+
+  if (bearer && expectedToken && bearer === expectedToken) {
+    // Explicit token auth still works.
+  } else if (!hasAllowedOrigin(context.request, context.env.IGNIUM_ALLOWED_ORIGIN)) {
+    return json({ ok: false, error: "forbidden_origin" }, 403);
+  }
 
   const urlParams = new URL(context.request.url).searchParams;
   const customerIds = urlParams.get("customerIds")?.split(",").filter(Boolean) ?? [];

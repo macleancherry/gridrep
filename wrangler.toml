@@ -6,3 +6,6 @@ pages_build_output_dir = "dist"
 binding = "DB"
 database_name = "gridrep"
 database_id = "12061c47-4aa7-4e17-a6e5-6c02d9b26ff4"
+
+[vars]
+IGNIUM_ALLOWED_ORIGIN = "https://igniummotorsports.pages.dev"
