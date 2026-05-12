@@ -7,8 +7,29 @@ type ResultRow = {
   name?: string;
   finish_position?: number;
   finish_pos?: number;
+  finish_position_in_class?: number;
+  class_position?: number;
+  class_pos?: number;
+  qualifying_position?: number;
+  qualifying_pos?: number;
+  starting_position?: number;
+  start_position?: number;
+  start_pos?: number;
+  num_cars?: number;
+  field_size?: number;
+  num_in_class?: number;
+  class_field_size?: number;
+  laps_complete?: number;
+  laps_completed?: number;
+  incidents?: number;
+  total_incidents?: number;
+  best_lap_time?: number | string;
+  best_lap?: number | string;
   car_name?: string;
   car?: string;
+  car_class_short_name?: string;
+  car_class_name?: string;
+  car_class?: string;
   simsession_type?: number;
   simsession_type_name?: string;
   simsession_name?: string;
@@ -42,6 +63,12 @@ function pickRows(sr: any): any[] {
   return [];
 }
 
+function formatBestLap(v: unknown): string | undefined {
+  if (typeof v === "string" && v.trim()) return v;
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) return v.toFixed(3);
+  return undefined;
+}
+
 /**
  * Choose the RACE result block from iRacing payloads.
  * iRacing /data/results/get returns session_results for practice/quali/race etc.
@@ -51,7 +78,16 @@ function extractParticipants(payload: any): Array<{
   iracing_member_id: string;
   display_name: string;
   finish_pos?: number;
+  class_pos?: number;
+  start_pos?: number;
+  qualifying_pos?: number;
+  field_size?: number;
+  class_field_size?: number;
+  laps_completed?: number;
+  best_lap?: string;
+  incidents?: number;
   car_name?: string;
+  car_class?: string;
 }> {
   let rows: any[] = [];
 
@@ -96,7 +132,16 @@ function extractParticipants(payload: any): Array<{
     iracing_member_id: string;
     display_name: string;
     finish_pos?: number;
+    class_pos?: number;
+    start_pos?: number;
+    qualifying_pos?: number;
+    field_size?: number;
+    class_field_size?: number;
+    laps_completed?: number;
+    best_lap?: string;
+    incidents?: number;
     car_name?: string;
+    car_class?: string;
   }> = [];
 
   for (const r of rows as ResultRow[]) {
@@ -110,11 +155,34 @@ function extractParticipants(payload: any): Array<{
     const rawPos = pickNumber((r as any).finish_position ?? (r as any).finish_pos);
     const finishPos = typeof rawPos === "number" ? rawPos + 1 : undefined;
 
+    const rawClassPos = pickNumber(
+      (r as any).finish_position_in_class ?? (r as any).class_position ?? (r as any).class_pos
+    );
+    const classPos = typeof rawClassPos === "number" ? rawClassPos + 1 : undefined;
+
+    const rawStartPos = pickNumber((r as any).starting_position ?? (r as any).start_position ?? (r as any).start_pos);
+    const startPos = typeof rawStartPos === "number" ? rawStartPos + 1 : undefined;
+
+    const rawQualPos = pickNumber((r as any).qualifying_position ?? (r as any).qualifying_pos);
+    const qualifyingPos = typeof rawQualPos === "number" ? rawQualPos + 1 : undefined;
+
     out.push({
       iracing_member_id: String(cust),
       display_name: name,
       finish_pos: finishPos,
+      class_pos: classPos,
+      start_pos: startPos,
+      qualifying_pos: qualifyingPos,
+      field_size: pickNumber((r as any).num_cars ?? (r as any).field_size),
+      class_field_size: pickNumber((r as any).num_in_class ?? (r as any).class_field_size),
+      laps_completed: pickNumber((r as any).laps_complete ?? (r as any).laps_completed),
+      best_lap: formatBestLap((r as any).best_lap_time ?? (r as any).best_lap),
+      incidents: pickNumber((r as any).incidents ?? (r as any).total_incidents),
       car_name: pickString((r as any).car_name) ?? pickString((r as any).car),
+      car_class:
+        pickString((r as any).car_class_short_name) ??
+        pickString((r as any).car_class_name) ??
+        pickString((r as any).car_class),
     });
   }
 
@@ -302,10 +370,38 @@ export async function importSubsessionToCache(context: any, subsessionId: string
     statements.push(
       DB.prepare(
         `
-        INSERT INTO session_participants (iracing_session_id, iracing_member_id, finish_pos, car_name)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO session_participants (
+          iracing_session_id,
+          iracing_member_id,
+          finish_pos,
+          class_pos,
+          start_pos,
+          qualifying_pos,
+          field_size,
+          class_field_size,
+          laps_completed,
+          best_lap,
+          incidents,
+          car_name,
+          car_class
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
-      ).bind(subsessionId, p.iracing_member_id, p.finish_pos ?? null, p.car_name ?? null)
+      ).bind(
+        subsessionId,
+        p.iracing_member_id,
+        p.finish_pos ?? null,
+        p.class_pos ?? null,
+        p.start_pos ?? null,
+        p.qualifying_pos ?? null,
+        p.field_size ?? null,
+        p.class_field_size ?? null,
+        p.laps_completed ?? null,
+        p.best_lap ?? null,
+        p.incidents ?? null,
+        p.car_name ?? null,
+        p.car_class ?? null
+      )
     );
   }
 
