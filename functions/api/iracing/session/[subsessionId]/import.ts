@@ -64,14 +64,38 @@ function pickRows(sr: any): any[] {
 }
 
 function formatBestLap(v: unknown): string | undefined {
-  if (typeof v === "string" && v.trim()) return v;
-  if (typeof v === "number" && Number.isFinite(v) && v > 0) return v.toFixed(3);
+  if (typeof v === "string" && v.trim()) {
+    const parsed = Number(v);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      v = parsed;
+    } else {
+      return v;
+    }
+  }
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) {
+    // iRacing commonly provides lap times in milliseconds.
+    if (v >= 1000) {
+      const totalMs = Math.round(v);
+      const minutes = Math.floor(totalMs / 60000);
+      const seconds = Math.floor((totalMs % 60000) / 1000);
+      const millis = totalMs % 1000;
+      return `${minutes}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
+    }
+
+    // Some payloads provide seconds as a float.
+    const totalMs = Math.round(v * 1000);
+    const minutes = Math.floor(totalMs / 60000);
+    const seconds = Math.floor((totalMs % 60000) / 1000);
+    const millis = totalMs % 1000;
+    return `${minutes}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
+  }
   return undefined;
 }
 
 function findNumberByTokens(row: Record<string, unknown>, tokenGroups: string[][]): number | undefined {
   for (const [rawKey, rawValue] of Object.entries(row)) {
     const key = rawKey.toLowerCase();
+    if (/(^|_)id($|_)/.test(key)) continue;
     for (const tokens of tokenGroups) {
       if (tokens.every((token) => key.includes(token))) {
         const parsed = pickNumber(rawValue);
@@ -210,9 +234,12 @@ function extractParticipants(payload: any): Array<{
       start_pos: startPos,
       qualifying_pos: qualifyingPos,
       field_size: pickNumber(row.num_cars ?? row.field_size ?? findNumberByTokens(row, [["field", "size"], ["num", "cars"]])),
-      class_field_size: pickNumber(
-        row.num_in_class ?? row.class_field_size ?? findNumberByTokens(row, [["class", "field"], ["in", "class"]])
-      ),
+      class_field_size: (() => {
+        const value = pickNumber(
+          row.num_in_class ?? row.class_field_size ?? findNumberByTokens(row, [["class", "field"], ["in", "class"]])
+        );
+        return typeof value === "number" && value > 0 && value <= 1000 ? value : undefined;
+      })(),
       laps_completed: pickNumber(
         row.laps_complete ?? row.laps_completed ?? findNumberByTokens(row, [["laps", "complete"], ["laps", "completed"]])
       ),
