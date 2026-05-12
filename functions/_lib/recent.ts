@@ -12,6 +12,49 @@ type RefreshResult = {
   reason?: string;
 };
 
+type TokenOwner = {
+  id: string;
+  iracingMemberId: string | null;
+};
+
+function extractRaceRows(payload: any): RecentRaceRow[] {
+  return (
+    (Array.isArray(payload) && payload) ||
+    (Array.isArray(payload?.races) && payload.races) ||
+    (Array.isArray(payload?.recent_races) && payload.recent_races) ||
+    (Array.isArray(payload?.results) && payload.results) ||
+    []
+  );
+}
+
+function rowMatchesRequestedMember(row: any, requestedMemberId: string): boolean {
+  const candidate =
+    row?.cust_id ??
+    row?.customer_id ??
+    row?.customerId ??
+    row?.iracing_member_id ??
+    row?.member_id ??
+    row?.memberId;
+
+  if (candidate == null) return true;
+  return String(candidate) === requestedMemberId;
+}
+
+async function listTokenOwners(DB: D1Database, requestedMemberId: string): Promise<TokenOwner[]> {
+  const rows = await DB.prepare(
+    `SELECT u.id as id, u.iracing_member_id as iracingMemberId
+     FROM users u
+     JOIN oauth_tokens t ON t.user_id = u.id
+     ORDER BY CASE WHEN u.iracing_member_id = ? THEN 0 ELSE 1 END,
+              datetime(t.updated_at) DESC,
+              datetime(t.created_at) DESC`
+  )
+    .bind(requestedMemberId)
+    .all<TokenOwner>();
+
+  return rows.results ?? [];
+}
+
 async function runWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
@@ -39,40 +82,51 @@ async function runWithConcurrency<T, R>(
 export async function refreshRecentRacesForMember(context: any, memberId: string, limit = 10): Promise<RefreshResult> {
   const { DB } = context.env;
 
-  const user = await DB.prepare(
-    `SELECT u.id as id
-     FROM users u
-     JOIN oauth_tokens t ON t.user_id = u.id
-     WHERE u.iracing_member_id = ?
-     LIMIT 1`
-  )
-    .bind(memberId)
-    .first<{ id: string }>();
-
-  if (!user?.id) {
+  const tokenOwners = await listTokenOwners(DB, memberId);
+  if (tokenOwners.length === 0) {
     return { ok: false, imported: 0, failed: 0, skipped: 0, reason: "no_verified_token" };
   }
 
-  let accessToken: string;
-  try {
-    accessToken = await getValidAccessToken(context, user.id);
-  } catch {
-    return { ok: false, imported: 0, failed: 0, skipped: 0, reason: "token_unavailable" };
+  let viewerUserId: string | null = null;
+  let accessToken: string | null = null;
+  let rows: RecentRaceRow[] = [];
+
+  const queryPaths = [
+    `/data/stats/member_recent_races?cust_id=${encodeURIComponent(memberId)}`,
+    `/data/stats/member_recent_races?customer_id=${encodeURIComponent(memberId)}`,
+    "/data/stats/member_recent_races",
+  ];
+
+  for (const owner of tokenOwners) {
+    let token: string;
+    try {
+      token = await getValidAccessToken(context, owner.id);
+    } catch {
+      continue;
+    }
+
+    for (const path of queryPaths) {
+      try {
+        const payload = await iracingDataGet<any>(path, token);
+        const candidateRows = extractRaceRows(payload).filter((row) => rowMatchesRequestedMember(row, memberId));
+
+        if (candidateRows.length > 0) {
+          viewerUserId = owner.id;
+          accessToken = token;
+          rows = candidateRows;
+          break;
+        }
+      } catch {
+        // Try the next path/token owner.
+      }
+    }
+
+    if (rows.length > 0) break;
   }
 
-  let payload: any;
-  try {
-    payload = await iracingDataGet<any>("/data/stats/member_recent_races", accessToken);
-  } catch {
+  if (!viewerUserId || !accessToken) {
     return { ok: false, imported: 0, failed: 0, skipped: 0, reason: "recent_races_fetch_failed" };
   }
-
-  const rows: RecentRaceRow[] =
-    (Array.isArray(payload) && payload) ||
-    (Array.isArray(payload?.races) && payload.races) ||
-    (Array.isArray(payload?.recent_races) && payload.recent_races) ||
-    (Array.isArray(payload?.results) && payload.results) ||
-    [];
 
   const subsessionIds = rows
     .map((row) => row.subsession_id ?? row.subsessionId)
@@ -86,8 +140,9 @@ export async function refreshRecentRacesForMember(context: any, memberId: string
 
   const outcomes = await runWithConcurrency(subsessionIds, 3, async (subsessionId) => {
     return importSubsessionToCache(context, subsessionId, {
-      viewerUserId: user.id,
+      viewerUserId,
       accessToken,
+      forceRefresh: true,
     });
   });
 

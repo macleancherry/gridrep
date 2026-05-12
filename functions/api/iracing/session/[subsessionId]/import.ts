@@ -170,6 +170,7 @@ type ImportOpts = {
   // If provided, we won't call getViewer/getValidAccessToken again.
   viewerUserId?: string;
   accessToken?: string;
+  forceRefresh?: boolean;
 };
 
 /**
@@ -191,7 +192,7 @@ export async function importSubsessionToCache(context: any, subsessionId: string
     .bind(subsessionId)
     .first<any>();
 
-  if (existing?.ok) {
+  if (existing?.ok && !opts?.forceRefresh) {
     safeLog("log", debugId, "session.import.skip_already_cached", { subsessionId });
     return { ok: true, subsessionId, participantsImported: 0, debugId, skipped: true };
   }
