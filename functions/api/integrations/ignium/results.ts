@@ -2,6 +2,7 @@ type Context = {
   request: Request;
   env: {
     DB: D1Database;
+    IGNIUM_ALLOWED_ORIGIN?: string;
     IGNIUM_INTEGRATION_TOKEN?: string;
     INTERNAL_API_TOKEN?: string;
   };
@@ -50,6 +51,24 @@ function parseBearerToken(request: Request): string | null {
   return token.length > 0 ? token : null;
 }
 
+function parseOriginHeader(value: string | null): string | null {
+  if (!value) return null;
+
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function hasAllowedOrigin(request: Request, allowedOrigin: string | undefined): boolean {
+  if (!allowedOrigin) return false;
+
+  const origin = parseOriginHeader(request.headers.get("origin"));
+  const referer = parseOriginHeader(request.headers.get("referer"));
+  return origin === allowedOrigin || referer === allowedOrigin;
+}
+
 function parseCustomerIds(raw: string | null): string[] {
   if (!raw) return [];
   const ids = raw
@@ -76,12 +95,10 @@ function toResultUrl(subsessionId: string | null): string | null {
 
 export async function onRequestGet(context: Context) {
   const expectedToken = context.env.IGNIUM_INTEGRATION_TOKEN ?? context.env.INTERNAL_API_TOKEN;
-  if (!expectedToken) {
-    return json({ ok: false, error: "server_not_configured" }, 500);
-  }
-
   const bearer = parseBearerToken(context.request);
-  if (!bearer || bearer !== expectedToken) {
+  if (bearer && expectedToken && bearer === expectedToken) {
+    // Explicit token auth still works.
+  } else if (!hasAllowedOrigin(context.request, context.env.IGNIUM_ALLOWED_ORIGIN)) {
     return json({ ok: false, error: "unauthorized" }, 401);
   }
 
