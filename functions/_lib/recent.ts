@@ -47,7 +47,7 @@ async function listTokenOwners(DB: D1Database, requestedMemberId: string): Promi
      JOIN oauth_tokens t ON t.user_id = u.id
      ORDER BY CASE WHEN u.iracing_member_id = ? THEN 0 ELSE 1 END,
               datetime(t.updated_at) DESC,
-              datetime(t.created_at) DESC`
+              u.id ASC`
   )
     .bind(requestedMemberId)
     .all<TokenOwner>();
