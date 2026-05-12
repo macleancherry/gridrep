@@ -75,14 +75,18 @@ export async function onRequestGet(context: Context) {
   const customerIds = urlParams.get("customerIds")?.split(",").filter(Boolean) ?? [];
   const limitRaw = Number(urlParams.get("limit") ?? "100");
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(250, Math.trunc(limitRaw))) : 100;
+  const refreshFlag = (urlParams.get("refresh") ?? "1").toLowerCase();
+  const shouldRefresh = refreshFlag !== "0" && refreshFlag !== "false";
 
   if (!customerIds.length) {
     return json({ ok: false, error: "customerIds required (comma-separated)" }, 400);
   }
 
   try {
-    for (const customerId of customerIds) {
-      await refreshRecentRacesForMember(context, customerId, limit);
+    if (shouldRefresh) {
+      for (const customerId of customerIds) {
+        await refreshRecentRacesForMember(context, customerId, limit);
+      }
     }
 
     const stats = await context.env.DB.prepare(
