@@ -69,6 +69,32 @@ function formatBestLap(v: unknown): string | undefined {
   return undefined;
 }
 
+function findNumberByTokens(row: Record<string, unknown>, tokenGroups: string[][]): number | undefined {
+  for (const [rawKey, rawValue] of Object.entries(row)) {
+    const key = rawKey.toLowerCase();
+    for (const tokens of tokenGroups) {
+      if (tokens.every((token) => key.includes(token))) {
+        const parsed = pickNumber(rawValue);
+        if (typeof parsed === "number") return parsed;
+      }
+    }
+  }
+  return undefined;
+}
+
+function findStringByTokens(row: Record<string, unknown>, tokenGroups: string[][]): string | undefined {
+  for (const [rawKey, rawValue] of Object.entries(row)) {
+    const key = rawKey.toLowerCase();
+    for (const tokens of tokenGroups) {
+      if (tokens.every((token) => key.includes(token))) {
+        const parsed = pickString(rawValue);
+        if (typeof parsed === "string") return parsed;
+      }
+    }
+  }
+  return undefined;
+}
+
 /**
  * Choose the RACE result block from iRacing payloads.
  * iRacing /data/results/get returns session_results for practice/quali/race etc.
@@ -145,25 +171,35 @@ function extractParticipants(payload: any): Array<{
   }> = [];
 
   for (const r of rows as ResultRow[]) {
-    const cust = pickNumber((r as any).cust_id ?? (r as any).id);
+    const row = r as unknown as Record<string, unknown>;
+    const cust = pickNumber(row.cust_id ?? row.id);
     const name =
-      pickString((r as any).display_name) ?? pickString((r as any).name) ?? (cust ? `Driver ${cust}` : undefined);
+      pickString(row.display_name) ?? pickString(row.name) ?? (cust ? `Driver ${cust}` : undefined);
 
     if (!cust || !name) continue;
 
     // iRacing positions appear 0-based in some payloads (winner = 0)
-    const rawPos = pickNumber((r as any).finish_position ?? (r as any).finish_pos);
+    const rawPos = pickNumber(row.finish_position ?? row.finish_pos ?? findNumberByTokens(row, [["finish", "pos"]]));
     const finishPos = typeof rawPos === "number" ? rawPos + 1 : undefined;
 
     const rawClassPos = pickNumber(
-      (r as any).finish_position_in_class ?? (r as any).class_position ?? (r as any).class_pos
+      row.finish_position_in_class ??
+        row.class_position ??
+        row.class_pos ??
+        findNumberByTokens(row, [["class", "position"], ["class", "pos"]])
     );
     const classPos = typeof rawClassPos === "number" ? rawClassPos + 1 : undefined;
 
-    const rawStartPos = pickNumber((r as any).starting_position ?? (r as any).start_position ?? (r as any).start_pos);
+    const rawStartPos = pickNumber(
+      row.starting_position ?? row.start_position ?? row.start_pos ?? findNumberByTokens(row, [["start", "position"], ["grid", "position"]])
+    );
     const startPos = typeof rawStartPos === "number" ? rawStartPos + 1 : undefined;
 
-    const rawQualPos = pickNumber((r as any).qualifying_position ?? (r as any).qualifying_pos);
+    const rawQualPos = pickNumber(
+      row.qualifying_position ??
+        row.qualifying_pos ??
+        findNumberByTokens(row, [["qual", "position"], ["qualify", "position"]])
+    );
     const qualifyingPos = typeof rawQualPos === "number" ? rawQualPos + 1 : undefined;
 
     out.push({
@@ -173,16 +209,25 @@ function extractParticipants(payload: any): Array<{
       class_pos: classPos,
       start_pos: startPos,
       qualifying_pos: qualifyingPos,
-      field_size: pickNumber((r as any).num_cars ?? (r as any).field_size),
-      class_field_size: pickNumber((r as any).num_in_class ?? (r as any).class_field_size),
-      laps_completed: pickNumber((r as any).laps_complete ?? (r as any).laps_completed),
-      best_lap: formatBestLap((r as any).best_lap_time ?? (r as any).best_lap),
-      incidents: pickNumber((r as any).incidents ?? (r as any).total_incidents),
-      car_name: pickString((r as any).car_name) ?? pickString((r as any).car),
+      field_size: pickNumber(row.num_cars ?? row.field_size ?? findNumberByTokens(row, [["field", "size"], ["num", "cars"]])),
+      class_field_size: pickNumber(
+        row.num_in_class ?? row.class_field_size ?? findNumberByTokens(row, [["class", "field"], ["in", "class"]])
+      ),
+      laps_completed: pickNumber(
+        row.laps_complete ?? row.laps_completed ?? findNumberByTokens(row, [["laps", "complete"], ["laps", "completed"]])
+      ),
+      best_lap: formatBestLap(
+        row.best_lap_time ?? row.best_lap ?? findNumberByTokens(row, [["best", "lap"]]) ?? findStringByTokens(row, [["best", "lap"]])
+      ),
+      incidents: pickNumber(
+        row.incidents ?? row.total_incidents ?? findNumberByTokens(row, [["incident"], ["incs"]])
+      ),
+      car_name: pickString(row.car_name) ?? pickString(row.car),
       car_class:
-        pickString((r as any).car_class_short_name) ??
-        pickString((r as any).car_class_name) ??
-        pickString((r as any).car_class),
+        pickString(row.car_class_short_name) ??
+        pickString(row.car_class_name) ??
+        pickString(row.car_class) ??
+        findStringByTokens(row, [["class", "short"], ["class", "name"]]),
     });
   }
 
