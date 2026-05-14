@@ -76,6 +76,14 @@ function formatBestLap(v: unknown): string | undefined {
     // iRacing commonly provides lap times in milliseconds.
     if (v >= 1000) {
       const totalMs = Math.round(v);
+      const totalSeconds = totalMs / 1000;
+      
+      // Sanity check: lap times should not exceed 30 minutes (1800 seconds)
+      // Most racing laps are 1-15 minutes depending on track
+      if (totalSeconds > 1800) {
+        return undefined; // Likely session/race duration, not a lap time
+      }
+      
       const minutes = Math.floor(totalMs / 60000);
       const seconds = Math.floor((totalMs % 60000) / 1000);
       const millis = totalMs % 1000;
@@ -84,6 +92,13 @@ function formatBestLap(v: unknown): string | undefined {
 
     // Some payloads provide seconds as a float.
     const totalMs = Math.round(v * 1000);
+    const totalSeconds = totalMs / 1000;
+    
+    // Same sanity check for seconds-based input
+    if (totalSeconds > 1800) {
+      return undefined;
+    }
+    
     const minutes = Math.floor(totalMs / 60000);
     const seconds = Math.floor((totalMs % 60000) / 1000);
     const millis = totalMs % 1000;
@@ -120,6 +135,66 @@ function findStringByTokens(row: Record<string, unknown>, tokenGroups: string[][
 }
 
 /**
+ * Find the best lap field from iRacing payload.
+ * Avoids matching fields that are likely session/race duration rather than lap times.
+ */
+function findBestLapField(row: Record<string, unknown>): number | string | undefined {
+  // Blacklist patterns that indicate this is NOT a lap time
+  const blacklistPatterns = [/session_time|race_time|event_time|duration|time_limit/i];
+  
+  // Preferred specific field names (in order of confidence)
+  const preferredNames = [
+    "best_lap_time",
+    "best_lap",
+    "best_lap_milliseconds",
+    "fastest_lap_time",
+    "fastest_lap_milliseconds",
+    "lap_time",
+    "fastest_lap",
+  ];
+  
+  // First try exact matches for preferred names
+  for (const name of preferredNames) {
+    const value = row[name];
+    if (value !== undefined && value !== null) {
+      return value;
+    }
+  }
+  
+  // Then try case-insensitive matches for preferred names
+  const lowerKeys = new Map(
+    Object.entries(row).map(([k, v]) => [k.toLowerCase(), v])
+  );
+  for (const name of preferredNames) {
+    const value = lowerKeys.get(name.toLowerCase());
+    if (value !== undefined && value !== null) {
+      return value;
+    }
+  }
+  
+  // As a last resort, search for fields containing "best" and "lap" but not blacklisted
+  for (const [rawKey, rawValue] of Object.entries(row)) {
+    const key = rawKey.toLowerCase();
+    
+    // Skip if matches blacklist
+    if (blacklistPatterns.some(pattern => pattern.test(key))) continue;
+    
+    // Skip ID fields
+    if (/(^|_)id($|_)/.test(key)) continue;
+    
+    // Check if contains both "best" and "lap"
+    if (key.includes("best") && key.includes("lap")) {
+      if (typeof rawValue === "number" || typeof rawValue === "string") {
+        const value = pickNumber(rawValue) ?? pickString(rawValue);
+        if (value !== undefined) return value;
+      }
+    }
+  }
+  
+  return undefined;
+}
+
+/**
  * Choose the RACE result block from iRacing payloads.
  * iRacing /data/results/get returns session_results for practice/quali/race etc.
  * We MUST pick the race block, otherwise positions can show as practice/quali.
@@ -138,7 +213,8 @@ function extractParticipants(payload: any): Array<{
   incidents?: number;
   car_name?: string;
   car_class?: string;
-}> {
+}>
+ {
   let rows: any[] = [];
 
   if (Array.isArray(payload?.session_results)) {
@@ -243,9 +319,7 @@ function extractParticipants(payload: any): Array<{
       laps_completed: pickNumber(
         row.laps_complete ?? row.laps_completed ?? findNumberByTokens(row, [["laps", "complete"], ["laps", "completed"]])
       ),
-      best_lap: formatBestLap(
-        row.best_lap_time ?? row.best_lap ?? findNumberByTokens(row, [["best", "lap"]]) ?? findStringByTokens(row, [["best", "lap"]])
-      ),
+      best_lap: formatBestLap(findBestLapField(row)),
       incidents: pickNumber(
         row.incidents ?? row.total_incidents ?? findNumberByTokens(row, [["incident"], ["incs"]])
       ),
@@ -311,6 +385,7 @@ type ImportOpts = {
   viewerUserId?: string;
   accessToken?: string;
   forceRefresh?: boolean;
+  targetMemberId?: string;
 };
 
 /**
@@ -397,7 +472,10 @@ export async function importSubsessionToCache(context: any, subsessionId: string
   }
 
   const header = extractSessionHeader(payload);
-  const participants = extractParticipants(payload);
+  const participants = extractParticipants(payload).filter((p) => {
+    if (!opts?.targetMemberId) return true;
+    return p.iracing_member_id === opts.targetMemberId;
+  });
 
   safeLog("log", debugId, "session.import.parsed", {
     subsessionId,

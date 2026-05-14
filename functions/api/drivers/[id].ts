@@ -3,6 +3,7 @@ import { refreshRecentRacesForMember } from "../../_lib/recent";
 export async function onRequestGet(context: any) {
   const id = String(context.params.id);
   const { DB } = context.env;
+  let refreshWarning: string | null = null;
 
   // Driver must exist in cache (drivers table) to be a valid profile.
   const driver = await DB.prepare(
@@ -14,13 +15,21 @@ export async function onRequestGet(context: any) {
     .first<any>();
 
   if (!driver?.id) {
-    return new Response(
-      `Driver ${id} not found in cache yet. Open a session that includes them and try again.`,
+    return Response.json(
+      {
+        error: "driver_not_found",
+        message: `Driver ${id} not found in cache yet. Open a session that includes them and try again.`,
+      },
       { status: 404, headers: { "Cache-Control": "no-store" } }
     );
   }
 
-  await refreshRecentRacesForMember(context, id, 10);
+  try {
+    await refreshRecentRacesForMember(context, id, 10);
+  } catch (error) {
+    // Keep the profile endpoint resilient: return cached profile data even when live refresh fails.
+    refreshWarning = error instanceof Error ? error.message : "refresh_failed";
+  }
 
   const propsRow = await DB.prepare(
     `SELECT COUNT(*) as c
@@ -98,6 +107,7 @@ export async function onRequestGet(context: any) {
       propsByReason,
       recentSessions: sessions.results ?? [],
       recentPropsReceived: recentProps.results ?? [],
+      refreshWarning,
     },
     { headers: { "Cache-Control": "public, max-age=60" } }
   );

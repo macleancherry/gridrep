@@ -46,6 +46,36 @@ function toLegacyLabel(id: string): string {
   return `Legacy: ${id}`;
 }
 
+function looksLikeHtml(value: string): boolean {
+  const text = value.trim().toLowerCase();
+  return text.startsWith("<!doctype") || text.startsWith("<html") || text.includes("<body");
+}
+
+function normalizeErrorMessage(message: string, status: number): string {
+  if (!message) return `Failed to load driver (${status}).`;
+  if (looksLikeHtml(message)) return `Failed to load driver (${status}). Please try again in a moment.`;
+  return message;
+}
+
+function extractApiErrorMessage(rawText: string, status: number): string {
+  const text = rawText ?? "";
+  if (!text.trim()) return normalizeErrorMessage("", status);
+
+  try {
+    const parsed = JSON.parse(text) as { message?: unknown; error?: unknown };
+    if (typeof parsed.message === "string" && parsed.message.trim()) {
+      return normalizeErrorMessage(parsed.message, status);
+    }
+    if (typeof parsed.error === "string" && parsed.error.trim()) {
+      return normalizeErrorMessage(parsed.error, status);
+    }
+  } catch {
+    // Non-JSON response; fall back to raw text path.
+  }
+
+  return normalizeErrorMessage(text, status);
+}
+
 export default function Driver() {
   const { driverId } = useParams();
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -67,7 +97,7 @@ export default function Driver() {
           setState({
             status: "notFound",
             message:
-              text ||
+              extractApiErrorMessage(text, r.status) ||
               "That driver isn’t in GridRep yet. Try opening a session first (which will cache participants), then come back.",
           });
           return;
@@ -75,7 +105,7 @@ export default function Driver() {
 
         setState({
           status: "error",
-          message: text || `Failed to load driver (${r.status}).`,
+          message: extractApiErrorMessage(text, r.status),
         });
         return;
       }

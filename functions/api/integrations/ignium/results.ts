@@ -82,6 +82,39 @@ function parseCustomerIds(raw: string | null): string[] {
   return Array.from(new Set(ids));
 }
 
+function clampInt(value: number | null, min: number, max: number, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(value)));
+}
+
+function parseIntParam(url: URL, key: string): number | null {
+  const raw = url.searchParams.get(key);
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function parseBoolParam(url: URL, key: string, fallback: boolean): boolean {
+  const raw = url.searchParams.get(key);
+  if (!raw) return fallback;
+  const value = raw.trim().toLowerCase();
+  if (value === "1" || value === "true" || value === "yes") return true;
+  if (value === "0" || value === "false" || value === "no") return false;
+  return fallback;
+}
+
+function parseIsoParam(url: URL, key: string): string | undefined {
+  const raw = url.searchParams.get(key);
+  if (!raw) return undefined;
+  const date = new Date(raw);
+  if (!Number.isFinite(date.getTime())) return undefined;
+  return date.toISOString();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function toNullableNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.length > 0) {
@@ -107,15 +140,49 @@ export async function onRequestGet(context: Context) {
 
   const url = new URL(context.request.url);
   const customerIds = parseCustomerIds(url.searchParams.get("customerIds"));
-  const limitRaw = Number(url.searchParams.get("limit") ?? "10");
-  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(250, Math.trunc(limitRaw))) : 10;
+  const limit = clampInt(parseIntParam(url, "limit"), 1, 250, 20);
+  const refreshMode = url.searchParams.get("refreshMode") === "window" ? "window" : "recent";
+  const windowStart = parseIsoParam(url, "windowStart");
+  const windowEnd = parseIsoParam(url, "windowEnd");
+  const includeHosted = parseBoolParam(url, "includeHosted", true);
+  const officialOnly = parseBoolParam(url, "officialOnly", true);
+  const importConcurrency = clampInt(parseIntParam(url, "importConcurrency"), 1, 5, 1);
+  const importDelayMs = clampInt(parseIntParam(url, "importDelayMs"), 0, 5000, 750);
+  const queryDelayMs = clampInt(parseIntParam(url, "queryDelayMs"), 0, 5000, 350);
+  const chunkDelayMs = clampInt(parseIntParam(url, "chunkDelayMs"), 0, 5000, 350);
+  const maxChunkFiles = clampInt(parseIntParam(url, "maxChunkFiles"), 1, 200, 50);
+  const driverDelayMs = clampInt(parseIntParam(url, "driverDelayMs"), 0, 10000, 500);
 
   if (customerIds.length === 0) {
     return json({ ok: false, error: "invalid_customer_ids" }, 400);
   }
 
-  for (const customerId of customerIds) {
-    await refreshRecentRacesForMember(context, customerId, limit);
+  if (refreshMode === "window" && (!windowStart || !windowEnd)) {
+    return json({ ok: false, error: "invalid_window", message: "windowStart and windowEnd are required for refreshMode=window" }, 400);
+  }
+
+  const refreshDiagnostics: Array<Record<string, unknown>> = [];
+
+  for (let i = 0; i < customerIds.length; i += 1) {
+    const customerId = customerIds[i];
+    const refresh = await refreshRecentRacesForMember(context, customerId, limit, {
+      mode: refreshMode,
+      windowStart,
+      windowEnd,
+      includeHosted,
+      officialOnly,
+      importConcurrency,
+      importDelayMs,
+      queryDelayMs,
+      chunkDelayMs,
+      maxChunkFiles,
+    });
+
+    refreshDiagnostics.push({ customerId, ...refresh });
+
+    if (i < customerIds.length - 1 && driverDelayMs > 0) {
+      await sleep(driverDelayMs);
+    }
   }
 
   const placeholders = customerIds.map(() => "?").join(",");
@@ -184,5 +251,22 @@ export async function onRequestGet(context: Context) {
     };
   });
 
-  return json({ results });
+  return json({
+    results,
+    refresh: {
+      mode: refreshMode,
+      limit,
+      windowStart,
+      windowEnd,
+      includeHosted,
+      officialOnly,
+      importConcurrency,
+      importDelayMs,
+      queryDelayMs,
+      chunkDelayMs,
+      maxChunkFiles,
+      driverDelayMs,
+      diagnostics: refreshDiagnostics,
+    },
+  });
 }
