@@ -187,8 +187,8 @@ export async function onRequestGet(context: Context) {
         ft.track_name as favorite_track,
         fs.series_name as favorite_series,
         COALESCE(a.total_results, 0) as total_results,
-        NULL as irating,
-        NULL as license_class
+        d.irating as irating,
+        d.license_class as license_class
       FROM targets t
       LEFT JOIN drivers d ON d.iracing_member_id = t.member_id
       LEFT JOIN aggregate_stats a ON a.iracing_member_id = t.member_id

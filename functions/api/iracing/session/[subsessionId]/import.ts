@@ -213,6 +213,8 @@ function extractParticipants(payload: any): Array<{
   incidents?: number;
   car_name?: string;
   car_class?: string;
+  irating_change?: number;
+  license_change?: string;
 }>
  {
   let rows: any[] = [];
@@ -329,6 +331,11 @@ function extractParticipants(payload: any): Array<{
         pickString(row.car_class_name) ??
         pickString(row.car_class) ??
         findStringByTokens(row, [["class", "short"], ["class", "name"]]),
+      irating_change: pickNumber(row.newi_rating != null ? (row.newi_rating as number) - (row.oldi_rating as number) : null) ??
+        pickNumber(row.irating_change ?? row.iratingChange),
+      license_change: pickString(row.new_license_level != null
+        ? `${row.old_license_level ?? ""}→${row.new_license_level}`
+        : (row.license_change ?? row.licenseChange ?? null)),
     });
   }
 
@@ -445,7 +452,7 @@ export async function importSubsessionToCache(context: any, subsessionId: string
   let payload: any;
   try {
     payload = await iracingDataGet<any>(
-      `/data/results/get?subsession_id=${encodeURIComponent(subsessionId)}&include_licenses=false`,
+      `/data/results/get?subsession_id=${encodeURIComponent(subsessionId)}&include_licenses=true`,
       accessToken!
     );
   } catch (err: any) {
@@ -533,9 +540,11 @@ export async function importSubsessionToCache(context: any, subsessionId: string
           best_lap,
           incidents,
           car_name,
-          car_class
+          car_class,
+          irating_change,
+          license_change
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       ).bind(
         subsessionId,
@@ -550,7 +559,9 @@ export async function importSubsessionToCache(context: any, subsessionId: string
         p.best_lap ?? null,
         p.incidents ?? null,
         p.car_name ?? null,
-        p.car_class ?? null
+        p.car_class ?? null,
+        p.irating_change ?? null,
+        p.license_change ?? null
       )
     );
   }

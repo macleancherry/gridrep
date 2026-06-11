@@ -207,8 +207,8 @@ export async function onRequestGet(context: Context) {
       sp.best_lap as bestLap,
       sp.incidents as incidents,
        s.sof as strengthOfField,
-       NULL as iratingChange,
-       NULL as licenseChange,
+       sp.irating_change as iratingChange,
+       sp.license_change as licenseChange,
        NULL as official,
        s.start_time as completedAt
      FROM session_participants sp
@@ -243,8 +243,8 @@ export async function onRequestGet(context: Context) {
       bestLap: typeof row.bestLap === "string" ? row.bestLap : null,
       incidents: toNullableNumber(row.incidents),
       strengthOfField: toNullableNumber(row.strengthOfField),
-      iratingChange: null,
-      licenseChange: null,
+      iratingChange: toNullableNumber(row.iratingChange),
+      licenseChange: typeof row.licenseChange === "string" ? row.licenseChange : null,
       official: null,
       completedAt: typeof row.completedAt === "string" ? row.completedAt : null,
       resultUrl: toResultUrl(subsessionId),

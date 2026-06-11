@@ -423,6 +423,15 @@ export async function refreshRecentRacesForMember(
     }
   }
 
+  // Best-effort: refresh current iRating and license class for this member.
+  if (accessToken) {
+    try {
+      await refreshMemberRating(context, memberId, accessToken);
+    } catch {
+      // Non-fatal — rating display degrades gracefully.
+    }
+  }
+
   return {
     ok: true,
     imported,
@@ -433,4 +442,53 @@ export async function refreshRecentRacesForMember(
     windowStart: options?.windowStart,
     windowEnd: options?.windowEnd,
   };
+}
+
+async function refreshMemberRating(context: any, memberId: string, accessToken: string): Promise<void> {
+  const { DB } = context.env;
+
+  const tryPaths = [
+    `/data/member/get?cust_ids=${encodeURIComponent(memberId)}`,
+    `/data/member/info?cust_ids=${encodeURIComponent(memberId)}`,
+  ];
+
+  for (const path of tryPaths) {
+    try {
+      const data: any = await iracingDataGet<any>(path, accessToken);
+
+      const member =
+        (Array.isArray(data?.members) && data.members.find((m: any) => String(m?.cust_id) === memberId)) ||
+        (Array.isArray(data?.members) && data.members[0]) ||
+        (Array.isArray(data?.data) && data.data[0]) ||
+        data?.member ||
+        data;
+
+      if (!member) continue;
+
+      // iRacing returns per-category licenses; prefer road (category_id 2), then oval (1), then any.
+      let irating: number | null = null;
+      let licenseClass: string | null = null;
+
+      if (Array.isArray(member.licenses) && member.licenses.length > 0) {
+        const road = member.licenses.find((l: any) => l?.category_id === 2 || l?.category === "road");
+        const chosen = road ?? member.licenses[0];
+        irating = typeof chosen?.irating === "number" ? chosen.irating : null;
+        licenseClass = typeof chosen?.group_name === "string" ? chosen.group_name :
+          typeof chosen?.license_level === "number" ? String(chosen.license_level) : null;
+      } else {
+        irating = typeof member.irating === "number" ? member.irating : null;
+        licenseClass = typeof member.license_class === "string" ? member.license_class :
+          typeof member.license === "string" ? member.license : null;
+      }
+
+      if (irating !== null || licenseClass !== null) {
+        await DB.prepare(
+          `UPDATE drivers SET irating = ?, license_class = ?, irating_updated_at = ? WHERE iracing_member_id = ?`
+        ).bind(irating, licenseClass, new Date().toISOString(), memberId).run();
+        return;
+      }
+    } catch {
+      // Try next path.
+    }
+  }
 }
