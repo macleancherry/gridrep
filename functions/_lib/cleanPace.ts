@@ -47,14 +47,12 @@ const UNCLEAN_KEYWORDS = [
 ];
 
 /**
- * Best-effort lap classifier. iRacing's real lap_data flag values have not
- * been validated against a live payload in this environment (needs a
- * verified OAuth session) - see PRD §6/§10.5. This intentionally avoids
- * trusting a hardcoded third-party bitmask: it only calls a lap "clean"
- * when it finds a positive signal (decoded event names, or an explicit
- * incident/pit indicator), and returns isClean=null (unknown) rather than
- * assuming clean when no such signal is present. Recompute once real
- * payload shapes are confirmed.
+ * Lap classifier. Confirmed live against real lap_data payloads: every lap
+ * row always carries a `lap_events` array (required field) - EMPTY for a
+ * genuinely clean lap, populated with strings like "off track"/"invalid"/
+ * "pitted" otherwise. So an empty array is itself the positive "clean"
+ * signal, not an absence of information - only a *missing* lap_events
+ * field (a different endpoint shape/version) falls back to `incident`.
  */
 export function classifyLap(row: Record<string, unknown>): {
   isPitLap: boolean;
@@ -71,11 +69,10 @@ export function classifyLap(row: Record<string, unknown>): {
     row.decoded_flags ??
     row.event_names;
 
-  const flagsDecoded: string[] = Array.isArray(decodedRaw)
-    ? decodedRaw.filter((v): v is string => typeof v === "string")
+  const hasDecodedArray = Array.isArray(decodedRaw);
+  const flagsDecoded: string[] = hasDecodedArray
+    ? (decodedRaw as unknown[]).filter((v): v is string => typeof v === "string")
     : [];
-
-  const incidentCount = pickNumber(row.incident ?? row.incident_count ?? row.incidents);
 
   const isPitLap = Boolean(
     row.lap_in_pits ??
@@ -88,16 +85,20 @@ export function classifyLap(row: Record<string, unknown>): {
 
   let isClean: boolean | null = null;
 
-  if (flagsDecoded.length > 0) {
+  if (hasDecodedArray) {
     const hasBadFlag = flagsDecoded.some((f) => {
       const lower = f.toLowerCase();
       return UNCLEAN_KEYWORDS.some((kw) => lower.includes(kw));
     });
     isClean = !hasBadFlag && !isPitLap;
-  } else if (typeof incidentCount === "number") {
-    isClean = incidentCount === 0 && !isPitLap;
+  } else {
+    const incidentRaw = row.incident ?? row.incident_count ?? row.incidents;
+    const incidentCount = typeof incidentRaw === "boolean" ? (incidentRaw ? 1 : 0) : pickNumber(incidentRaw);
+    if (typeof incidentCount === "number") {
+      isClean = incidentCount === 0 && !isPitLap;
+    }
+    // else: no usable signal at all - leave isClean = null (unknown), not "clean".
   }
-  // else: no usable signal at all - leave isClean = null (unknown), not "clean".
 
   return { isPitLap, isClean, flagsRaw: flagsRaw ?? null, flagsDecoded };
 }

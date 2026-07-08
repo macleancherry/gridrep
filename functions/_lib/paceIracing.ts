@@ -213,12 +213,17 @@ export function normalizeLapTimeMs(row: Record<string, unknown>): number | null 
   const raw = pickNumber(
     row.lap_time ?? row.lapTime ?? row.lap_time_ms ?? row.lapTimeMs ?? row.time
   );
-  if (raw === undefined) return null;
+  // -1 is iRacing's confirmed sentinel for "no time" (out-laps, invalidated
+  // laps) - a real lap_time is never negative, so map any negative value to
+  // null rather than deriving a nonsensical negative millisecond figure.
+  if (raw === undefined || raw < 0) return null;
 
-  // iRacing commonly reports lap times in ten-thousandths of a second (e.g.
-  // irsdk-style "lap_time" as an integer). Treat very large integers as such;
-  // otherwise assume the value is already milliseconds or seconds-as-float.
-  if (raw > 100_000) return Math.round(raw / 10); // e.g. 123456 (0.0001s units) -> ms
+  // Confirmed live: lap_time is reported in ten-thousandths of a second
+  // (e.g. 1186863 -> 118.6863s, a real Watkins Glen lap). Treat very large
+  // integers as such; otherwise assume the value is already milliseconds or
+  // seconds-as-float (kept as a fallback for any other shape this endpoint
+  // might return under a different wrapper/version).
+  if (raw > 100_000) return Math.round(raw / 10);
   if (raw > 1000) return Math.round(raw); // already ms
   return Math.round(raw * 1000); // seconds as float
 }
