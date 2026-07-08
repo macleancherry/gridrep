@@ -227,18 +227,22 @@ export function extractLapNumber(row: Record<string, unknown>): number | undefin
   return pickNumber(row.lap_number ?? row.lapNumber ?? row.lap);
 }
 
+export function buildLapDataPath(subsessionId: string, custId: string, simsessionNumber: number): string {
+  const params = new URLSearchParams({
+    subsession_id: subsessionId,
+    cust_id: custId,
+    simsession_number: String(simsessionNumber),
+  });
+  return `/data/results/lap_data?${params.toString()}`;
+}
+
 export async function fetchLapData(
   subsessionId: string,
   custId: string,
   simsessionNumber: number,
   accessToken: string
 ): Promise<any> {
-  const params = new URLSearchParams({
-    subsession_id: subsessionId,
-    cust_id: custId,
-    simsession_number: String(simsessionNumber),
-  });
-  return iracingDataGet<any>(`/data/results/lap_data?${params.toString()}`, accessToken);
+  return iracingDataGet<any>(buildLapDataPath(subsessionId, custId, simsessionNumber), accessToken);
 }
 
 export async function getLeagueInfo(leagueId: string, accessToken: string): Promise<any> {

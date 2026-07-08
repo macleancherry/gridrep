@@ -2,6 +2,7 @@ import { getViewer, getValidAccessToken } from "./auth";
 import {
   fetchSubsessionResult,
   fetchLapData,
+  buildLapDataPath,
   identifySimSessions,
   extractDriverNames,
   extractSessionHeader,
@@ -171,7 +172,10 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
 
     const payload = await fetchLapData(subsessionId, job.custId, job.simsessionNumber, accessToken!);
     const rows = await extractLapRows(payload);
-    const sample = rows.length === 0 ? JSON.stringify(payload).slice(0, 800) : undefined;
+    const sample =
+      rows.length === 0
+        ? `GET ${buildLapDataPath(subsessionId, job.custId, job.simsessionNumber)} -> ${JSON.stringify(payload).slice(0, 700)}`
+        : undefined;
     const statements: any[] = [];
 
     for (const row of rows) {
