@@ -98,24 +98,27 @@ export default function PaceHome() {
 
       setPullProgress(null);
 
+      // A single driver legitimately having 0 laps in a sim-session (no-showed
+      // qualifying, DNF before a timed lap, etc.) is normal and shouldn't block
+      // viewing results for everyone else - only treat it as a real problem
+      // when NOTHING came through at all, or the run didn't finish.
       const issues: string[] = [];
       if (totalLapsIngested === 0) {
         issues.push(
           `0 laps ingested (${lastData?.simSessionsIngested} sim-session(s), ${lastData?.driversIngested} driver(s) found).`
         );
+        if (lastData?.emptyLapPayloadSample) {
+          issues.push(`Sample lap_data payload: ${lastData.emptyLapPayloadSample}`);
+        }
       }
-      if (allDriverFailures.length > 0) {
+      if (lastData?.remainingJobs && lastData.remainingJobs > 0) {
         issues.push(
-          `${allDriverFailures.length} driver lap fetch failure(s): ${allDriverFailures
-            .map((f) => `cust ${f.custId} sim#${f.simsessionNumber}: ${f.message}`)
-            .join(" | ")}`
+          `Stopped after ${MAX_BATCHES} batches with ${lastData.remainingJobs} pull(s) still pending — click Pull again to continue.`
         );
       }
-      if (lastData?.emptyLapPayloadSample) {
-        issues.push(`Sample lap_data payload for a driver with 0 laps: ${lastData.emptyLapPayloadSample}`);
-      }
-      if (lastData?.remainingJobs > 0) {
-        issues.push(`Stopped after ${MAX_BATCHES} batches with ${lastData.remainingJobs} pull(s) still pending — click Pull again to continue.`);
+
+      if (allDriverFailures.length > 0) {
+        console.warn("pace pull: some driver lap fetches failed", allDriverFailures);
       }
 
       if (issues.length > 0) {
