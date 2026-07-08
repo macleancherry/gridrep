@@ -167,12 +167,23 @@ export default function PaceHome() {
 
         {syncError && <p className="pace-error" style={{ marginTop: 12 }}>{syncError}</p>}
         {syncSummary && (
-          <p className="pace-hint" style={{ marginTop: 12 }}>
-            Checked {syncSummary.leaguesChecked} league(s), found {syncSummary.sessionsFound} session(s), ingested{" "}
-            {syncSummary.sessionsIngested}.
-            {syncSummary.cappedAt ? " Hit the per-run cap — click Sync again to continue." : ""}
-            {syncSummary.failures.length > 0 ? ` ${syncSummary.failures.length} failure(s).` : ""}
-          </p>
+          <>
+            <p className="pace-hint" style={{ marginTop: 12 }}>
+              Checked {syncSummary.leaguesChecked} league(s), found {syncSummary.sessionsFound} session(s), ingested{" "}
+              {syncSummary.sessionsIngested}.
+              {syncSummary.cappedAt ? " Hit the per-run cap — click Sync again to continue." : ""}
+              {syncSummary.failures.length > 0 ? ` ${syncSummary.failures.length} failure(s).` : ""}
+            </p>
+            {syncSummary.failures.length > 0 && (
+              <ul className="pace-hint" style={{ marginTop: 4 }}>
+                {syncSummary.failures.map((f, i) => (
+                  <li key={i}>
+                    {f.subsessionId ? `Subsession ${f.subsessionId}` : `League ${f.leagueId}`}: {f.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </section>
     </>
