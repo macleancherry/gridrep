@@ -1,6 +1,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+type IngestResponse = {
+  ok: boolean;
+  message?: string;
+  lapsIngested?: number;
+  simSessionsIngested?: number;
+  driversIngested?: number;
+  totalJobs?: number;
+  remainingJobs?: number;
+  emptyLapPayloadSample?: string;
+  driverFailures?: Array<{ custId: string; simsessionNumber: number; message: string }>;
+};
+
 type League = {
   leagueId: string;
   name: string;
@@ -24,6 +36,7 @@ export default function PaceHome() {
   const [subsessionInput, setSubsessionInput] = useState("");
   const [pulling, setPulling] = useState(false);
   const [pullError, setPullError] = useState<string | null>(null);
+  const [pullProgress, setPullProgress] = useState<string | null>(null);
 
   const [leagues, setLeagues] = useState<League[]>([]);
   const [leagueInput, setLeagueInput] = useState("");
@@ -51,32 +64,58 @@ export default function PaceHome() {
 
     setPulling(true);
     setPullError(null);
+    setPullProgress(null);
+
+    // A large field can need far more lap_data calls than Cloudflare Workers
+    // allows as subrequests in one invocation, so ingestion is resumable:
+    // each call does a bounded batch and reports how many pairs are still
+    // pending. Keep calling until nothing's left, or bail after a sane cap.
+    const MAX_BATCHES = 30;
+    const allDriverFailures: Array<{ custId: string; simsessionNumber: number; message: string }> = [];
+    let totalLapsIngested = 0;
+    let lastData: IngestResponse | null = null;
 
     try {
-      const r = await fetch(`/api/pace/subsessions/${encodeURIComponent(id)}/sync`, { method: "POST" });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok || !data.ok) {
-        setPullError(data.message ?? "Sync failed.");
-        return;
-      }
+      for (let batch = 0; batch < MAX_BATCHES; batch++) {
+        const r = await fetch(`/api/pace/subsessions/${encodeURIComponent(id)}/sync`, { method: "POST" });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) {
+          setPullError(data.message ?? "Sync failed.");
+          return;
+        }
 
-      const issues: string[] = [];
-      if (data.lapsIngested === 0) {
-        issues.push(
-          `0 laps ingested (${data.simSessionsIngested} sim-session(s), ${data.driversIngested} driver(s) found).`
+        lastData = data;
+        totalLapsIngested += data.lapsIngested ?? 0;
+        allDriverFailures.push(...(data.driverFailures ?? []));
+
+        const remaining = data.remainingJobs ?? 0;
+        if (remaining === 0) break;
+
+        setPullProgress(
+          `Ingesting laps… ${totalLapsIngested} lap(s) so far, ${remaining} of ${data.totalJobs} driver/sim-session pull(s) left.`
         );
       }
-      const driverFailures: Array<{ custId: string; simsessionNumber: number; message: string }> =
-        data.driverFailures ?? [];
-      if (driverFailures.length > 0) {
+
+      setPullProgress(null);
+
+      const issues: string[] = [];
+      if (totalLapsIngested === 0) {
         issues.push(
-          `${driverFailures.length} driver lap fetch failure(s): ${driverFailures
+          `0 laps ingested (${lastData?.simSessionsIngested} sim-session(s), ${lastData?.driversIngested} driver(s) found).`
+        );
+      }
+      if (allDriverFailures.length > 0) {
+        issues.push(
+          `${allDriverFailures.length} driver lap fetch failure(s): ${allDriverFailures
             .map((f) => `cust ${f.custId} sim#${f.simsessionNumber}: ${f.message}`)
             .join(" | ")}`
         );
       }
-      if (data.emptyLapPayloadSample) {
-        issues.push(`Sample lap_data payload for a driver with 0 laps: ${data.emptyLapPayloadSample}`);
+      if (lastData?.emptyLapPayloadSample) {
+        issues.push(`Sample lap_data payload for a driver with 0 laps: ${lastData.emptyLapPayloadSample}`);
+      }
+      if (lastData?.remainingJobs > 0) {
+        issues.push(`Stopped after ${MAX_BATCHES} batches with ${lastData.remainingJobs} pull(s) still pending — click Pull again to continue.`);
       }
 
       if (issues.length > 0) {
@@ -89,6 +128,7 @@ export default function PaceHome() {
       setPullError("Network error. Please try again.");
     } finally {
       setPulling(false);
+      setPullProgress(null);
     }
   }
 
@@ -168,6 +208,7 @@ export default function PaceHome() {
             {pulling ? "Pulling…" : "Pull"}
           </button>
         </div>
+        {pullProgress && <p className="pace-hint">{pullProgress}</p>}
         {pullError && <p className="pace-error">{pullError}</p>}
       </section>
 

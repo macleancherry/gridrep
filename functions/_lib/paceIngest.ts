@@ -33,6 +33,8 @@ type IngestOpts = {
   accessToken?: string;
   lapFetchDelayMs?: number;
   lapFetchConcurrency?: number;
+  /** Cap on new (driver, sim-session) lap_data fetches per call - Cloudflare Workers caps subrequests per invocation, so a large field (many drivers) has to be pulled across several calls. */
+  maxJobsPerRun?: number;
 };
 
 export type IngestSummary = {
@@ -44,6 +46,10 @@ export type IngestSummary = {
   driverFailures: Array<{ custId: string; simsessionNumber: number; message: string }>;
   /** Raw lap_data payload shape, captured once when a fetch succeeded but yielded zero laps - unverified field names (PRD §6/§10.5). */
   emptyLapPayloadSample?: string;
+  /** Total (driver, sim-session) pairs for this subsession, whether done in a prior call or this one. */
+  totalJobs: number;
+  /** How many of totalJobs still have no stored laps and weren't attempted this run - call again to continue. */
+  remainingJobs: number;
 };
 
 /**
@@ -122,27 +128,41 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
       .run();
   }
 
-  await DB.prepare(`DELETE FROM pace_laps WHERE subsession_id = ?`).bind(subsessionId).run();
-
   const concurrency = Math.max(1, Math.min(5, opts.lapFetchConcurrency ?? 2));
   const delayMs = Math.max(0, Math.min(5000, opts.lapFetchDelayMs ?? 400));
+  const maxJobsPerRun = Math.max(1, Math.min(50, opts.maxJobsPerRun ?? 12));
 
   const driverFailures: IngestSummary["driverFailures"] = [];
   let lapsIngested = 0;
 
-  const jobs: Array<{ custId: string; simsessionNumber: number; type: "qualifying" | "race" }> = [];
+  const allJobs: Array<{ custId: string; simsessionNumber: number; type: "qualifying" | "race" }> = [];
   for (const sess of simSessions) {
     for (const custId of sess.custIds) {
-      jobs.push({ custId, simsessionNumber: sess.simsessionNumber, type: sess.type });
+      allJobs.push({ custId, simsessionNumber: sess.simsessionNumber, type: sess.type });
     }
   }
 
-  if (jobs.length === 0) {
+  if (allJobs.length === 0) {
     throw new PaceIngestError(
       "no_participants",
       `Found ${simSessions.length} sim-session(s) but no participant cust_ids in them. Blocks seen: ${describeSimSessionBlocks(resultPayload)}`
     );
   }
+
+  // Already-stored (cust_id, simsession_number) pairs don't need refetching -
+  // this both keeps re-runs idempotent/cheap and makes ingestion resumable
+  // across multiple calls, since Cloudflare Workers caps subrequests per
+  // invocation and a large field can need far more lap_data calls than that.
+  const doneRows = await DB.prepare(
+    `SELECT DISTINCT cust_id as custId, simsession_number as simsessionNumber FROM pace_laps WHERE subsession_id = ?`
+  )
+    .bind(subsessionId)
+    .all<{ custId: string; simsessionNumber: number }>();
+  const doneKeys = new Set((doneRows.results ?? []).map((r) => `${r.custId}:${r.simsessionNumber}`));
+
+  const pendingJobs = allJobs.filter((j) => !doneKeys.has(`${j.custId}:${j.simsessionNumber}`));
+  const jobs = pendingJobs.slice(0, maxJobsPerRun);
+  const remainingJobs = pendingJobs.length - jobs.length;
 
   let processed = 0;
   const outcomes = await runWithConcurrency(jobs, concurrency, async (job) => {
@@ -150,7 +170,7 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
     processed += 1;
 
     const payload = await fetchLapData(subsessionId, job.custId, job.simsessionNumber, accessToken!);
-    const rows = extractLapRows(payload);
+    const rows = await extractLapRows(payload);
     const sample = rows.length === 0 ? JSON.stringify(payload).slice(0, 800) : undefined;
     const statements: any[] = [];
 
@@ -194,7 +214,7 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
     return { count: statements.length, sample };
   });
 
-  let simSessionsSeen = new Set<number>();
+  const simSessionsSeen = new Set<number>();
   let emptyLapPayloadSample: string | undefined;
   for (let i = 0; i < outcomes.length; i++) {
     const outcome = outcomes[i];
@@ -225,6 +245,7 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
     subsessionId,
     lapsIngested,
     driverFailures: driverFailures.length,
+    remainingJobs,
   });
 
   return {
@@ -235,5 +256,7 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
     lapsIngested,
     driverFailures,
     emptyLapPayloadSample,
+    totalJobs: allJobs.length,
+    remainingJobs,
   };
 }

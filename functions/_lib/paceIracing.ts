@@ -160,21 +160,53 @@ export type NormalizedLap = {
   lapTimeMs: number | null;
 };
 
-/**
- * Normalize a /data/results/lap_data payload into flat lap rows. Exact field
- * names have not been confirmed against a live payload in this environment
- * (see PRD §6/§11 spike step) - this tries the plausible shapes defensively,
- * same approach as extractParticipants() in the session import route.
- */
-export function extractLapRows(lapDataPayload: any): Array<Record<string, unknown>> {
+function rowsFromPayloadShape(payload: any): Array<Record<string, unknown>> {
   const rows: any[] =
-    (Array.isArray(lapDataPayload) && lapDataPayload) ||
-    (Array.isArray(lapDataPayload?.laps) && lapDataPayload.laps) ||
-    (Array.isArray(lapDataPayload?.lap_data) && lapDataPayload.lap_data) ||
-    (Array.isArray(lapDataPayload?.results) && lapDataPayload.results) ||
+    (Array.isArray(payload) && payload) ||
+    (Array.isArray(payload?.laps) && payload.laps) ||
+    (Array.isArray(payload?.lap_data) && payload.lap_data) ||
+    (Array.isArray(payload?.results) && payload.results) ||
     [];
 
   return rows.filter((r) => r && typeof r === "object");
+}
+
+async function fetchChunkFileContents(
+  chunkInfo: { baseDownloadUrl: string; chunkFileNames: string[] },
+  maxFiles = 50
+): Promise<unknown[]> {
+  const contents: unknown[] = [];
+
+  for (const fileName of chunkInfo.chunkFileNames.slice(0, maxFiles)) {
+    try {
+      const res = await fetch(`${chunkInfo.baseDownloadUrl}${fileName}`);
+      if (!res.ok) continue;
+      contents.push(JSON.parse(await res.text()));
+    } catch {
+      // Ignore a single bad chunk file; partial results are still useful.
+    }
+  }
+
+  return contents;
+}
+
+/**
+ * Normalize a /data/results/lap_data payload into flat lap rows. Confirmed
+ * live: the top-level payload is a summary (session_info + best-lap stats),
+ * not the actual laps - the real per-lap array lives behind the same
+ * chunk_info + base_download_url indirection as search_hosted (see
+ * extractSubsessionIds above). The direct-shape check stays as a fallback
+ * in case a small session ever returns laps inline.
+ */
+export async function extractLapRows(lapDataPayload: any): Promise<Array<Record<string, unknown>>> {
+  const rows = rowsFromPayloadShape(lapDataPayload);
+  if (rows.length > 0) return rows;
+
+  const chunkInfo = getChunkInfo(lapDataPayload);
+  if (!chunkInfo) return [];
+
+  const chunks = await fetchChunkFileContents(chunkInfo);
+  return chunks.flatMap((chunk) => rowsFromPayloadShape(chunk));
 }
 
 export function normalizeLapTimeMs(row: Record<string, unknown>): number | null {
@@ -305,16 +337,8 @@ export async function extractSubsessionIds(payload: any): Promise<string[]> {
 
   const chunkInfo = getChunkInfo(payload);
   if (chunkInfo) {
-    for (const fileName of chunkInfo.chunkFileNames.slice(0, 50)) {
-      try {
-        const res = await fetch(`${chunkInfo.baseDownloadUrl}${fileName}`);
-        if (!res.ok) continue;
-        const parsed = JSON.parse(await res.text());
-        scanForSubsessionIds(parsed, ids);
-      } catch {
-        // Ignore a single bad chunk file; partial results are still useful.
-      }
-    }
+    const chunks = await fetchChunkFileContents(chunkInfo);
+    for (const chunk of chunks) scanForSubsessionIds(chunk, ids);
   }
 
   return Array.from(ids);
