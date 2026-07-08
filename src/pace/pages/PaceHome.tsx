@@ -15,6 +15,7 @@ type SyncSummary = {
   sessionsIngested: number;
   cappedAt: number | null;
   failures: Array<{ leagueId: string; subsessionId?: string; message: string }>;
+  emptySearchSamples: Array<{ leagueId: string; sample: string }>;
 };
 
 export default function PaceHome() {
@@ -249,6 +250,15 @@ export default function PaceHome() {
                 {syncSummary.failures.map((f, i) => (
                   <li key={i}>
                     {f.subsessionId ? `Subsession ${f.subsessionId}` : `League ${f.leagueId}`}: {f.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {syncSummary.emptySearchSamples?.length > 0 && (
+              <ul className="pace-hint" style={{ marginTop: 4 }}>
+                {syncSummary.emptySearchSamples.map((s, i) => (
+                  <li key={i}>
+                    League {s.leagueId} search returned 0 matches — raw response: {s.sample}
                   </li>
                 ))}
               </ul>

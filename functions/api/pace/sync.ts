@@ -34,6 +34,7 @@ export async function onRequestPost(context: any) {
     sessionsIngested: 0,
     cappedAt: null as number | null,
     failures: [] as Array<{ leagueId: string; subsessionId?: string; message: string }>,
+    emptySearchSamples: [] as Array<{ leagueId: string; sample: string }>,
   };
 
   let ingestedThisRun = 0;
@@ -47,7 +48,10 @@ export async function onRequestPost(context: any) {
         hostCustId: league.hostCustId,
         sessionNameFilter: league.sessionNameFilter,
       });
-      subsessionIds = extractSubsessionIds(searchPayload);
+      subsessionIds = await extractSubsessionIds(searchPayload);
+      if (subsessionIds.length === 0) {
+        summary.emptySearchSamples.push({ leagueId: league.leagueId, sample: JSON.stringify(searchPayload).slice(0, 800) });
+      }
     } catch (err: any) {
       summary.failures.push({ leagueId: league.leagueId, message: `Search failed: ${describeIracingError(err)}` });
       continue;

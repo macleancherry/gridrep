@@ -244,8 +244,7 @@ export async function searchHostedSessionsForLeague(
   return iracingDataGet<any>(`/data/results/search_hosted?${params.toString()}`, accessToken);
 }
 
-export function extractSubsessionIds(payload: any): string[] {
-  const ids = new Set<string>();
+function scanForSubsessionIds(payload: unknown, ids: Set<string>) {
   const stack: unknown[] = [payload];
 
   while (stack.length > 0) {
@@ -266,6 +265,54 @@ export function extractSubsessionIds(payload: any): string[] {
     for (const nested of Object.values(row)) {
       if (nested && (Array.isArray(nested) || typeof nested === "object")) {
         stack.push(nested);
+      }
+    }
+  }
+}
+
+function getChunkInfo(payload: any): { baseDownloadUrl: string; chunkFileNames: string[] } | null {
+  const candidates = [payload?.data?.chunk_info, payload?.chunk_info, payload?.chunkInfo].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const baseDownloadUrl =
+      (typeof candidate?.base_download_url === "string" && candidate.base_download_url) ||
+      (typeof candidate?.baseDownloadUrl === "string" && candidate.baseDownloadUrl) ||
+      null;
+
+    const chunkFileNamesRaw = candidate?.chunk_file_names ?? candidate?.chunkFileNames;
+    const chunkFileNames = Array.isArray(chunkFileNamesRaw)
+      ? chunkFileNamesRaw.filter((item: unknown): item is string => typeof item === "string" && item.length > 0)
+      : [];
+
+    if (baseDownloadUrl && chunkFileNames.length > 0) {
+      return { baseDownloadUrl, chunkFileNames };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * List-returning endpoints like search_hosted often don't inline their
+ * results - they point at a chunked S3 download (payload.data.chunk_info),
+ * the same pattern functions/_lib/recent.ts already has to follow for
+ * member_recent_races/search_series. Without this, a successful search with
+ * real matches would still report 0 subsessions found.
+ */
+export async function extractSubsessionIds(payload: any): Promise<string[]> {
+  const ids = new Set<string>();
+  scanForSubsessionIds(payload, ids);
+
+  const chunkInfo = getChunkInfo(payload);
+  if (chunkInfo) {
+    for (const fileName of chunkInfo.chunkFileNames.slice(0, 50)) {
+      try {
+        const res = await fetch(`${chunkInfo.baseDownloadUrl}${fileName}`);
+        if (!res.ok) continue;
+        const parsed = JSON.parse(await res.text());
+        scanForSubsessionIds(parsed, ids);
+      } catch {
+        // Ignore a single bad chunk file; partial results are still useful.
       }
     }
   }
