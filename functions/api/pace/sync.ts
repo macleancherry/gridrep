@@ -2,10 +2,25 @@ import { getViewer, getValidAccessToken } from "../../_lib/auth";
 import { searchHostedSessionsForLeague, extractSubsessionIds, describeIracingError } from "../../_lib/paceIracing";
 import { ingestPaceSubsession, PaceIngestError } from "../../_lib/paceIngest";
 import { json, jsonError } from "../../_lib/httpJson";
-import { sleep } from "../../_lib/concurrency";
 
-const MAX_SESSIONS_PER_RUN = 25;
-const INGEST_DELAY_MS = 500;
+// Cloudflare Workers caps subrequests per invocation, and a single
+// subsession's own lap ingestion can already use most of that budget for a
+// large field - so this only fully attempts one subsession per call, same
+// as the per-subsession batching in paceIngest.ts. The frontend loops this
+// endpoint (mirroring the Pull flow) until nothing's left.
+const MAX_SESSIONS_ATTEMPTED_PER_RUN = 1;
+
+async function incompleteSubsessionIds(DB: any, subsessionIds: string[]): Promise<string[]> {
+  if (subsessionIds.length === 0) return [];
+  const placeholders = subsessionIds.map(() => "?").join(",");
+  const rows = await DB.prepare(
+    `SELECT subsession_id as subsessionId FROM pace_subsessions WHERE subsession_id IN (${placeholders}) AND laps_complete = 1`
+  )
+    .bind(...subsessionIds)
+    .all<{ subsessionId: string }>();
+  const completeSet = new Set((rows.results ?? []).map((r) => r.subsessionId));
+  return subsessionIds.filter((id) => !completeSet.has(id));
+}
 
 export async function onRequestPost(context: any) {
   const viewer = await getViewer(context);
@@ -32,12 +47,12 @@ export async function onRequestPost(context: any) {
     leaguesChecked: 0,
     sessionsFound: 0,
     sessionsIngested: 0,
-    cappedAt: null as number | null,
+    sessionsRemaining: 0,
     failures: [] as Array<{ leagueId: string; subsessionId?: string; message: string }>,
     emptySearchSamples: [] as Array<{ leagueId: string; sample: string }>,
   };
 
-  let ingestedThisRun = 0;
+  let attemptedThisRun = 0;
 
   for (const league of leagues.results ?? []) {
     summary.leaguesChecked += 1;
@@ -60,15 +75,11 @@ export async function onRequestPost(context: any) {
     summary.sessionsFound += subsessionIds.length;
 
     const runStartedAt = new Date().toISOString();
-    let leagueIngestedCount = 0;
+    const pendingIds = await incompleteSubsessionIds(DB, subsessionIds);
 
-    for (const subsessionId of subsessionIds) {
-      if (ingestedThisRun >= MAX_SESSIONS_PER_RUN) {
-        summary.cappedAt = MAX_SESSIONS_PER_RUN;
-        break;
-      }
-
-      if (ingestedThisRun > 0) await sleep(INGEST_DELAY_MS);
+    for (const subsessionId of pendingIds) {
+      if (attemptedThisRun >= MAX_SESSIONS_ATTEMPTED_PER_RUN) break;
+      attemptedThisRun += 1;
 
       try {
         await ingestPaceSubsession(context, subsessionId, {
@@ -76,24 +87,29 @@ export async function onRequestPost(context: any) {
           viewerUserId: viewer.user!.id,
           accessToken,
         });
-        summary.sessionsIngested += 1;
-        leagueIngestedCount += 1;
-        ingestedThisRun += 1;
       } catch (err: any) {
         const message = err instanceof PaceIngestError ? err.message : (err?.message ?? String(err));
         summary.failures.push({ leagueId: league.leagueId, subsessionId, message });
       }
     }
 
-    // Only advance the marker past what actually succeeded this run, so a
-    // capped/partial run picks up the remainder next time instead of skipping it.
-    if (leagueIngestedCount > 0 || subsessionIds.length === 0) {
+    // Re-check actual DB state rather than tracking it inline - a subsession
+    // can take several calls of its own to finish (large field), so "did we
+    // attempt it" doesn't mean "is it done".
+    const stillPendingIds = await incompleteSubsessionIds(DB, subsessionIds);
+    summary.sessionsIngested += pendingIds.length - stillPendingIds.length;
+    summary.sessionsRemaining += stillPendingIds.length;
+
+    // Only advance the marker once this league has nothing left pending -
+    // advancing early (e.g. just because 0 *new* sessions were attempted)
+    // would shrink the search window before the backlog is actually cleared.
+    if (stillPendingIds.length === 0) {
       await DB.prepare(`UPDATE pace_leagues SET last_synced_at = ? WHERE league_id = ?`)
-        .bind(summary.cappedAt ? league.lastSyncedAt ?? runStartedAt : runStartedAt, league.leagueId)
+        .bind(runStartedAt, league.leagueId)
         .run();
     }
 
-    if (summary.cappedAt) break;
+    if (attemptedThisRun >= MAX_SESSIONS_ATTEMPTED_PER_RUN) break;
   }
 
   return json({ ok: true, ...summary });

@@ -21,11 +21,20 @@ type League = {
   sessionNameFilter: string | null;
 };
 
-type SyncSummary = {
+type SyncResponse = {
+  ok: boolean;
+  message?: string;
   leaguesChecked: number;
   sessionsFound: number;
   sessionsIngested: number;
-  cappedAt: number | null;
+  sessionsRemaining: number;
+  failures: Array<{ leagueId: string; subsessionId?: string; message: string }>;
+  emptySearchSamples: Array<{ leagueId: string; sample: string }>;
+};
+
+type SyncSummary = {
+  sessionsFound: number;
+  sessionsIngested: number;
   failures: Array<{ leagueId: string; subsessionId?: string; message: string }>;
   emptySearchSamples: Array<{ leagueId: string; sample: string }>;
 };
@@ -45,6 +54,7 @@ export default function PaceHome() {
   const [leagueError, setLeagueError] = useState<string | null>(null);
 
   const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<string | null>(null);
   const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
 
@@ -176,20 +186,44 @@ export default function PaceHome() {
     setSyncing(true);
     setSyncError(null);
     setSyncSummary(null);
+    setSyncProgress(null);
+
+    // A followed league can have a large backlog of hosted sessions, and
+    // each one can itself need several calls to fully ingest (large field) -
+    // /api/pace/sync only attempts one subsession per call for the same
+    // subrequest-budget reason the Pull flow batches, so loop it here too
+    // until nothing's left, showing live progress along the way.
+    const MAX_ITERATIONS = 500;
+    const summary: SyncSummary = { sessionsFound: 0, sessionsIngested: 0, failures: [], emptySearchSamples: [] };
 
     try {
-      const r = await fetch("/api/pace/sync", { method: "POST" });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok || !data.ok) {
-        setSyncError(data.message ?? "Sync failed.");
-        return;
+      for (let i = 0; i < MAX_ITERATIONS; i++) {
+        const r = await fetch("/api/pace/sync", { method: "POST" });
+        const data: SyncResponse = await r.json().catch(() => ({}) as SyncResponse);
+        if (!r.ok || !data.ok) {
+          setSyncError(data.message ?? "Sync failed.");
+          return;
+        }
+
+        summary.sessionsFound = Math.max(summary.sessionsFound, data.sessionsFound ?? 0);
+        summary.sessionsIngested += data.sessionsIngested ?? 0;
+        summary.failures.push(...(data.failures ?? []));
+        summary.emptySearchSamples.push(...(data.emptySearchSamples ?? []));
+
+        const remaining = data.sessionsRemaining ?? 0;
+        if (remaining === 0) break;
+
+        setSyncProgress(`Syncing… ${summary.sessionsIngested} of ${summary.sessionsFound} session(s) ingested, ${remaining} left.`);
+        await loadLeagues();
       }
-      setSyncSummary(data);
+
+      setSyncSummary(summary);
       await loadLeagues();
     } catch {
       setSyncError("Network error. Please try again.");
     } finally {
       setSyncing(false);
+      setSyncProgress(null);
     }
   }
 
@@ -280,13 +314,12 @@ export default function PaceHome() {
           ))}
         </div>
 
+        {syncProgress && <p className="pace-hint" style={{ marginTop: 12 }}>{syncProgress}</p>}
         {syncError && <p className="pace-error" style={{ marginTop: 12 }}>{syncError}</p>}
         {syncSummary && (
           <>
             <p className="pace-hint" style={{ marginTop: 12 }}>
-              Checked {syncSummary.leaguesChecked} league(s), found {syncSummary.sessionsFound} session(s), ingested{" "}
-              {syncSummary.sessionsIngested}.
-              {syncSummary.cappedAt ? " Hit the per-run cap — click Sync again to continue." : ""}
+              Found {syncSummary.sessionsFound} session(s), ingested {syncSummary.sessionsIngested}.
               {syncSummary.failures.length > 0 ? ` ${syncSummary.failures.length} failure(s).` : ""}
             </p>
             {syncSummary.failures.length > 0 && (

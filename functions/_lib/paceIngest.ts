@@ -51,6 +51,8 @@ export type IngestSummary = {
   totalJobs: number;
   /** How many of totalJobs still have no stored laps and weren't attempted this run - call again to continue. */
   remainingJobs: number;
+  /** True if this call was a no-op because a prior call already finished this subsession (laps_complete=1). */
+  alreadyComplete?: boolean;
 };
 
 /**
@@ -76,6 +78,38 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
     } catch {
       throw new PaceIngestError("auth_required", "Please verify again to continue.");
     }
+  }
+
+  // Skip entirely (no iRacing calls at all) if a prior call already finished
+  // this subsession - matters most for league sync, which can rediscover the
+  // same backlog of subsessions across many resumed calls before its own
+  // search window advances, and shouldn't burn subrequests re-checking ones
+  // that are already done.
+  const existing = await DB.prepare(`SELECT laps_complete FROM pace_subsessions WHERE subsession_id = ?`)
+    .bind(subsessionId)
+    .first<{ laps_complete: number }>();
+
+  if (existing?.laps_complete) {
+    const stats = await DB.prepare(
+      `SELECT COUNT(*) as lapsIngested, COUNT(DISTINCT cust_id) as driversIngested,
+              COUNT(DISTINCT simsession_number) as simSessionsIngested,
+              COUNT(DISTINCT cust_id || ':' || simsession_number) as totalJobs
+       FROM pace_laps WHERE subsession_id = ?`
+    )
+      .bind(subsessionId)
+      .first<{ lapsIngested: number; driversIngested: number; simSessionsIngested: number; totalJobs: number }>();
+
+    return {
+      ok: true,
+      subsessionId,
+      simSessionsIngested: stats?.simSessionsIngested ?? 0,
+      driversIngested: stats?.driversIngested ?? 0,
+      lapsIngested: stats?.lapsIngested ?? 0,
+      driverFailures: [],
+      totalJobs: stats?.totalJobs ?? 0,
+      remainingJobs: 0,
+      alreadyComplete: true,
+    };
   }
 
   safeLog("log", debugId, "pace.ingest.start", { subsessionId });
@@ -163,7 +197,7 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
 
   const pendingJobs = allJobs.filter((j) => !doneKeys.has(`${j.custId}:${j.simsessionNumber}`));
   const jobs = pendingJobs.slice(0, maxJobsPerRun);
-  const remainingJobs = pendingJobs.length - jobs.length;
+  const unattemptedJobs = pendingJobs.length - jobs.length;
 
   let processed = 0;
   const outcomes = await runWithConcurrency(jobs, concurrency, async (job) => {
@@ -245,11 +279,19 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
     }
   }
 
+  // A failed job still needs a retry, same as one that was never attempted.
+  const remainingJobs = unattemptedJobs + driverFailures.length;
+  const fullyDone = remainingJobs === 0;
+  if (fullyDone) {
+    await DB.prepare(`UPDATE pace_subsessions SET laps_complete = 1 WHERE subsession_id = ?`).bind(subsessionId).run();
+  }
+
   safeLog("log", debugId, "pace.ingest.ok", {
     subsessionId,
     lapsIngested,
     driverFailures: driverFailures.length,
     remainingJobs,
+    fullyDone,
   });
 
   return {
