@@ -6,6 +6,9 @@ import Session from "./pages/Session";
 import Leaderboard from "./pages/Leaderboard";
 import About from "./pages/About";
 import Privacy from "./pages/Privacy";
+import PaceLayout from "./pace/PaceLayout";
+import PaceHome from "./pace/pages/PaceHome";
+import PaceSubsession from "./pace/pages/PaceSubsession";
 
 const AUTH_BASE = "https://gridrep.gg";
 
@@ -98,6 +101,7 @@ function Topbar() {
           <Link to="/leaderboard">Leaderboard</Link>
           <Link to="/about">About</Link>
           <Link to="/privacy">Privacy</Link>
+          <Link to="/pace">Pace</Link>
 
           <span className="badge" style={{ marginLeft: 10 }}>
             <span className="badge-dot" />
@@ -157,6 +161,9 @@ function Topbar() {
           <Link to="/privacy" className="mobile-link">
             Privacy
           </Link>
+          <Link to="/pace" className="mobile-link">
+            Pace
+          </Link>
 
           <div className="mobile-divider" />
 
@@ -175,7 +182,36 @@ function Topbar() {
   );
 }
 
+function PaceApp() {
+  return (
+    <Routes>
+      <Route
+        path="/pace"
+        element={
+          <PaceLayout>
+            <PaceHome />
+          </PaceLayout>
+        }
+      />
+      <Route
+        path="/pace/s/:subsessionId"
+        element={
+          <PaceLayout>
+            <PaceSubsession />
+          </PaceLayout>
+        }
+      />
+    </Routes>
+  );
+}
+
 export default function App() {
+  const location = useLocation();
+
+  if (location.pathname === "/pace" || location.pathname.startsWith("/pace/")) {
+    return <PaceApp />;
+  }
+
   return (
     <div className="shell bg-grid">
       <Topbar />

@@ -1,0 +1,165 @@
+/* Pace: standalone clean-pace product. Deliberately distinct from GridRep's
+   dark/glassy theme - flat, light, minimal. Scoped under .pace-shell so it
+   never leaks into (or is affected by) the rest of the GridRep SPA. */
+
+.pace-shell {
+  --pace-bg: #ffffff;
+  --pace-text: #14161a;
+  --pace-muted: #6b7280;
+  --pace-border: #e5e7eb;
+  --pace-accent: #1f2937;
+  --pace-danger: #b3261e;
+
+  --pace-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --pace-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+
+  background: var(--pace-bg);
+  color: var(--pace-text);
+  min-height: 100vh;
+  font-family: var(--pace-sans);
+  line-height: 1.6;
+}
+
+.pace-shell a { color: var(--pace-accent); }
+
+.pace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 28px;
+  border-bottom: 1px solid var(--pace-border);
+}
+
+.pace-header .pace-brand {
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  color: var(--pace-text);
+}
+
+.pace-header .pace-back {
+  font-size: 0.85rem;
+  color: var(--pace-muted);
+  text-decoration: none;
+}
+
+.pace-header .pace-status {
+  font-size: 0.85rem;
+  color: var(--pace-muted);
+}
+
+.pace-main {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 36px 28px 64px;
+}
+
+.pace-section {
+  margin-bottom: 40px;
+}
+
+.pace-section h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: var(--pace-text);
+}
+
+.pace-hint {
+  color: var(--pace-muted);
+  font-size: 0.9rem;
+  margin: 0 0 16px;
+}
+
+.pace-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.pace-input {
+  font: inherit;
+  padding: 9px 12px;
+  border: 1px solid var(--pace-border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--pace-text);
+  min-width: 220px;
+}
+
+.pace-btn {
+  font: inherit;
+  font-weight: 500;
+  padding: 9px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--pace-text);
+  background: var(--pace-text);
+  color: #fff;
+  cursor: pointer;
+}
+
+.pace-btn:hover { opacity: 0.85; }
+.pace-btn:disabled { opacity: 0.4; cursor: default; }
+
+.pace-btn-ghost {
+  background: transparent;
+  color: var(--pace-text);
+  border: 1px solid var(--pace-border);
+}
+
+.pace-list {
+  border: 1px solid var(--pace-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.pace-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--pace-border);
+  font-size: 0.92rem;
+}
+
+.pace-list-item:last-child { border-bottom: none; }
+
+.pace-list-empty {
+  padding: 20px 14px;
+  color: var(--pace-muted);
+  font-size: 0.9rem;
+}
+
+.pace-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.pace-table th,
+.pace-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--pace-border);
+}
+
+.pace-table th {
+  color: var(--pace-muted);
+  font-weight: 500;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.pace-mono { font-family: var(--pace-mono); }
+
+.pace-error {
+  color: var(--pace-danger);
+  font-size: 0.88rem;
+}
+
+.pace-muted { color: var(--pace-muted); }
