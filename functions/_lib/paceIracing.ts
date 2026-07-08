@@ -186,19 +186,22 @@ export function extractLeagueName(payload: any): string | undefined {
 /**
  * Search hosted sessions for a league since a given ISO timestamp. Mirrors
  * the already-working search_hosted call in functions/_lib/recent.ts (there
- * scoped by cust_id; here scoped by league_id) - exact params for
- * league-scoped search were not re-verified live (PRD §10.3).
+ * scoped by cust_id; here scoped by league_id). Confirmed live: this
+ * endpoint 400s if no date range is supplied at all, so a range is always
+ * sent - defaulting to a 90-day lookback (same window recent.ts uses) on a
+ * league's first sync, when there is no prior last_synced_at marker.
  */
 export async function searchHostedSessionsForLeague(
   leagueId: string,
   sinceIso: string | undefined,
   accessToken: string
 ): Promise<any> {
-  const params = new URLSearchParams({ league_id: leagueId });
-  if (sinceIso) {
-    params.set("finish_range_begin", sinceIso);
-    params.set("finish_range_end", new Date().toISOString());
-  }
+  const ninetyDaysAgoIso = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const params = new URLSearchParams({
+    league_id: leagueId,
+    finish_range_begin: sinceIso ?? ninetyDaysAgoIso,
+    finish_range_end: new Date().toISOString(),
+  });
   return iracingDataGet<any>(`/data/results/search_hosted?${params.toString()}`, accessToken);
 }
 
