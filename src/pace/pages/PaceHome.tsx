@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-type League = { leagueId: string; name: string; lastSyncedAt: string | null };
+type League = {
+  leagueId: string;
+  name: string;
+  lastSyncedAt: string | null;
+  hostCustId: string | null;
+  sessionNameFilter: string | null;
+};
 
 type SyncSummary = {
   leaguesChecked: number;
@@ -20,6 +26,8 @@ export default function PaceHome() {
 
   const [leagues, setLeagues] = useState<League[]>([]);
   const [leagueInput, setLeagueInput] = useState("");
+  const [hostCustIdInput, setHostCustIdInput] = useState("");
+  const [sessionNameInput, setSessionNameInput] = useState("");
   const [leagueError, setLeagueError] = useState<string | null>(null);
 
   const [syncing, setSyncing] = useState(false);
@@ -85,14 +93,21 @@ export default function PaceHome() {
 
   async function addLeague() {
     const id = leagueInput.trim();
+    const hostCustId = hostCustIdInput.trim();
+    const sessionNameFilter = sessionNameInput.trim();
     if (!id) return;
+
+    if (!hostCustId && !sessionNameFilter) {
+      setLeagueError("Enter a host cust_id and/or a session-name filter — iRacing requires at least one to search.");
+      return;
+    }
 
     setLeagueError(null);
     try {
       const r = await fetch("/api/pace/leagues", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ league_id: id }),
+        body: JSON.stringify({ league_id: id, host_cust_id: hostCustId || undefined, session_name_filter: sessionNameFilter || undefined }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.ok) {
@@ -100,6 +115,8 @@ export default function PaceHome() {
         return;
       }
       setLeagueInput("");
+      setHostCustIdInput("");
+      setSessionNameInput("");
       await loadLeagues();
     } catch {
       setLeagueError("Network error. Please try again.");
@@ -155,13 +172,31 @@ export default function PaceHome() {
 
       <section className="pace-section">
         <h2>Followed leagues</h2>
-        <div className="pace-row" style={{ marginBottom: 12 }}>
+        <p className="pace-hint">
+          iRacing requires a host cust_id and/or a session-name filter to search a league's hosted sessions — enter
+          at least one.
+        </p>
+        <div className="pace-row" style={{ marginBottom: 8 }}>
           <input
             className="pace-input"
             placeholder="League ID"
             value={leagueInput}
             onChange={(e) => setLeagueInput(e.target.value)}
           />
+          <input
+            className="pace-input"
+            placeholder="Host cust_id (optional)"
+            value={hostCustIdInput}
+            onChange={(e) => setHostCustIdInput(e.target.value)}
+          />
+          <input
+            className="pace-input"
+            placeholder="Session name filter (optional)"
+            value={sessionNameInput}
+            onChange={(e) => setSessionNameInput(e.target.value)}
+          />
+        </div>
+        <div className="pace-row" style={{ marginBottom: 12 }}>
           <button className="pace-btn-ghost pace-btn" onClick={addLeague} disabled={!leagueInput.trim()}>
             Follow
           </button>
@@ -177,6 +212,16 @@ export default function PaceHome() {
             <div className="pace-list-item" key={l.leagueId}>
               <span>
                 {l.name} <span className="pace-muted pace-mono">#{l.leagueId}</span>
+                {(l.hostCustId || l.sessionNameFilter) && (
+                  <>
+                    {" "}
+                    <span className="pace-muted">
+                      ({l.hostCustId ? `host ${l.hostCustId}` : ""}
+                      {l.hostCustId && l.sessionNameFilter ? ", " : ""}
+                      {l.sessionNameFilter ? `name contains "${l.sessionNameFilter}"` : ""})
+                    </span>
+                  </>
+                )}
               </span>
               <span className="pace-row">
                 <span className="pace-muted">

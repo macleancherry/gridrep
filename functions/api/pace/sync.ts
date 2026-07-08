@@ -23,7 +23,9 @@ export async function onRequestPost(context: any) {
   }
 
   const leagues = await DB.prepare(
-    `SELECT league_id as leagueId, name, last_synced_at as lastSyncedAt FROM pace_leagues`
+    `SELECT league_id as leagueId, name, last_synced_at as lastSyncedAt,
+            host_cust_id as hostCustId, session_name_filter as sessionNameFilter
+     FROM pace_leagues`
   ).all<any>();
 
   const summary = {
@@ -41,7 +43,10 @@ export async function onRequestPost(context: any) {
 
     let subsessionIds: string[] = [];
     try {
-      const searchPayload = await searchHostedSessionsForLeague(league.leagueId, league.lastSyncedAt ?? undefined, accessToken);
+      const searchPayload = await searchHostedSessionsForLeague(league.leagueId, league.lastSyncedAt ?? undefined, accessToken, {
+        hostCustId: league.hostCustId,
+        sessionNameFilter: league.sessionNameFilter,
+      });
       subsessionIds = extractSubsessionIds(searchPayload);
     } catch (err: any) {
       summary.failures.push({ leagueId: league.leagueId, message: `Search failed: ${describeIracingError(err)}` });
