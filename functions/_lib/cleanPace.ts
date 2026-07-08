@@ -11,8 +11,11 @@ export type StoredLap = {
 };
 
 export type CleanPaceResult =
-  | { ok: true; paceMs: number; lapsUsed: number; n: number }
-  | { ok: false; reason: "insufficient_clean_laps"; cleanLapCount: number; n: number };
+  // partial=true means fewer than n clean laps were available, so paceMs is
+  // an average over whatever was there rather than a full best-N sample -
+  // still shown, just flagged, per Mac's request rather than hidden outright.
+  | { ok: true; paceMs: number; lapsUsed: number; n: number; partial: boolean; lapTimesMs: number[] }
+  | { ok: false; reason: "no_clean_laps"; n: number };
 
 export function computeCleanPace(laps: StoredLap[], n = 5): CleanPaceResult {
   const cleanTimes = laps
@@ -20,14 +23,14 @@ export function computeCleanPace(laps: StoredLap[], n = 5): CleanPaceResult {
     .map((l) => l.lapTimeMs as number)
     .sort((a, b) => a - b);
 
-  if (cleanTimes.length < n) {
-    return { ok: false, reason: "insufficient_clean_laps", cleanLapCount: cleanTimes.length, n };
+  if (cleanTimes.length === 0) {
+    return { ok: false, reason: "no_clean_laps", n };
   }
 
-  const bestN = cleanTimes.slice(0, n);
+  const bestN = cleanTimes.slice(0, Math.min(n, cleanTimes.length));
   const paceMs = bestN.reduce((sum, t) => sum + t, 0) / bestN.length;
 
-  return { ok: true, paceMs, lapsUsed: bestN.length, n };
+  return { ok: true, paceMs, lapsUsed: bestN.length, n, partial: bestN.length < n, lapTimesMs: bestN };
 }
 
 const UNCLEAN_KEYWORDS = [

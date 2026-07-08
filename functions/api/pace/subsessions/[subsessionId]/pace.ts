@@ -54,18 +54,35 @@ export async function onRequestGet(context: any) {
     });
   }
 
-  // One row per driver, with qualifying and race pace side by side.
-  const byDriver = new Map<string, { custId: string; driverName: string; qualifying: unknown; race: unknown }>();
+  // One row per driver, with qualifying and race pace side by side, plus an
+  // overall average across whichever laps qualifying/race actually used.
+  const byDriver = new Map<
+    string,
+    { custId: string; driverName: string; qualifying: unknown; race: unknown; average: unknown }
+  >();
 
   for (const g of groups.values()) {
     if (!byDriver.has(g.custId)) {
-      byDriver.set(g.custId, { custId: g.custId, driverName: g.driverName, qualifying: null, race: null });
+      byDriver.set(g.custId, { custId: g.custId, driverName: g.driverName, qualifying: null, race: null, average: null });
     }
     const entry = byDriver.get(g.custId)!;
     const n = g.simsessionType === "qualifying" ? qualLaps : raceLaps;
-    const result = { ...computeCleanPace(g.laps, n) };
+    const result = computeCleanPace(g.laps, n);
     if (g.simsessionType === "qualifying") entry.qualifying = result;
     else entry.race = result;
+  }
+
+  for (const entry of byDriver.values()) {
+    const qual = entry.qualifying as ReturnType<typeof computeCleanPace>;
+    const race = entry.race as ReturnType<typeof computeCleanPace>;
+    const combinedLapTimesMs = [...(qual?.ok ? qual.lapTimesMs : []), ...(race?.ok ? race.lapTimesMs : [])];
+
+    if (combinedLapTimesMs.length === 0) {
+      entry.average = { ok: false, reason: "no_clean_laps" };
+    } else {
+      const paceMs = combinedLapTimesMs.reduce((sum, t) => sum + t, 0) / combinedLapTimesMs.length;
+      entry.average = { ok: true, paceMs, lapsUsed: combinedLapTimesMs.length };
+    }
   }
 
   return json({ ok: true, subsessionId, qualLaps, raceLaps, drivers: Array.from(byDriver.values()) });

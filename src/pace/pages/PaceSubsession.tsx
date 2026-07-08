@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
 type PaceResult =
-  | { ok: true; paceMs: number; lapsUsed: number; n: number }
-  | { ok: false; reason: string; cleanLapCount: number; n: number }
+  | { ok: true; paceMs: number; lapsUsed: number; n?: number; partial?: boolean }
+  | { ok: false; reason: string }
   | null;
 
 type DriverPaceRow = {
@@ -11,7 +11,10 @@ type DriverPaceRow = {
   driverName: string;
   qualifying: PaceResult;
   race: PaceResult;
+  average: PaceResult;
 };
+
+type SortColumn = "qualifying" | "race" | "average";
 
 function formatMs(ms: number): string {
   const totalMs = Math.round(ms);
@@ -22,16 +25,27 @@ function formatMs(ms: number): string {
 }
 
 function PaceCell({ result }: { result: PaceResult }) {
-  if (!result) return <span className="pace-muted">—</span>;
-  if (result.ok) {
-    return (
-      <>
-        <span className="pace-mono">{formatMs(result.paceMs)}</span>{" "}
-        <span className="pace-muted">({result.lapsUsed}/{result.n})</span>
-      </>
-    );
-  }
-  return <span className="pace-muted">insufficient ({result.cleanLapCount}/{result.n} clean)</span>;
+  if (!result || !result.ok) return <span className="pace-muted">—</span>;
+
+  return (
+    <>
+      <span className="pace-mono">{formatMs(result.paceMs)}</span>{" "}
+      <span className="pace-muted">({result.lapsUsed}{result.n ? `/${result.n}` : ""})</span>
+      {result.partial && (
+        <span
+          className="pace-error"
+          title={`Only ${result.lapsUsed} of the requested ${result.n} clean laps were available — this pace is an average of what's there.`}
+          style={{ marginLeft: 4, cursor: "help" }}
+        >
+          ⚠
+        </span>
+      )}
+    </>
+  );
+}
+
+function sortValue(result: PaceResult): number {
+  return result?.ok ? result.paceMs : Infinity;
 }
 
 export default function PaceSubsession() {
@@ -41,6 +55,8 @@ export default function PaceSubsession() {
   const [drivers, setDrivers] = useState<DriverPaceRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sortColumn, setSortColumn] = useState<SortColumn>("race");
+  const [sortAsc, setSortAsc] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,13 +91,34 @@ export default function PaceSubsession() {
     };
   }, [subsessionId, qualN, raceN]);
 
-  const sorted = drivers
-    ? [...drivers].sort((a, b) => {
-        const aMs = a.race?.ok ? a.race.paceMs : a.qualifying?.ok ? a.qualifying.paceMs : Infinity;
-        const bMs = b.race?.ok ? b.race.paceMs : b.qualifying?.ok ? b.qualifying.paceMs : Infinity;
-        return aMs - bMs;
-      })
-    : null;
+  function toggleSort(column: SortColumn) {
+    if (column === sortColumn) {
+      setSortAsc((v) => !v);
+    } else {
+      setSortColumn(column);
+      setSortAsc(true);
+    }
+  }
+
+  const sorted = useMemo(() => {
+    if (!drivers) return null;
+    const withSort = [...drivers].sort((a, b) => sortValue(a[sortColumn]) - sortValue(b[sortColumn]));
+    return sortAsc ? withSort : withSort.reverse();
+  }, [drivers, sortColumn, sortAsc]);
+
+  function SortHeader({ column, label }: { column: SortColumn; label: string }) {
+    const active = sortColumn === column;
+    return (
+      <th
+        onClick={() => toggleSort(column)}
+        style={{ cursor: "pointer", userSelect: "none" }}
+        title="Click to sort"
+      >
+        {label}
+        {active ? (sortAsc ? " ▲" : " ▼") : ""}
+      </th>
+    );
+  }
 
   return (
     <>
@@ -129,8 +166,9 @@ export default function PaceSubsession() {
               <thead>
                 <tr>
                   <th>Driver</th>
-                  <th>Qualifying pace</th>
-                  <th>Race pace</th>
+                  <SortHeader column="qualifying" label="Qualifying pace" />
+                  <SortHeader column="race" label="Race pace" />
+                  <SortHeader column="average" label="Average pace" />
                 </tr>
               </thead>
               <tbody>
@@ -142,6 +180,9 @@ export default function PaceSubsession() {
                     </td>
                     <td>
                       <PaceCell result={d.race} />
+                    </td>
+                    <td>
+                      <PaceCell result={d.average} />
                     </td>
                   </tr>
                 ))}
