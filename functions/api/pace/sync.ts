@@ -1,5 +1,5 @@
 import { getViewer, getValidAccessToken } from "../../_lib/auth";
-import { searchHostedSessionsForLeague, extractSubsessionIds } from "../../_lib/paceIracing";
+import { searchHostedSessionsForLeague, extractSubsessionIds, describeIracingError } from "../../_lib/paceIracing";
 import { ingestPaceSubsession, PaceIngestError } from "../../_lib/paceIngest";
 import { json, jsonError } from "../../_lib/httpJson";
 import { sleep } from "../../_lib/concurrency";
@@ -44,7 +44,7 @@ export async function onRequestPost(context: any) {
       const searchPayload = await searchHostedSessionsForLeague(league.leagueId, league.lastSyncedAt ?? undefined, accessToken);
       subsessionIds = extractSubsessionIds(searchPayload);
     } catch (err: any) {
-      summary.failures.push({ leagueId: league.leagueId, message: `Search failed: ${err?.message ?? String(err)}` });
+      summary.failures.push({ leagueId: league.leagueId, message: `Search failed: ${describeIracingError(err)}` });
       continue;
     }
 

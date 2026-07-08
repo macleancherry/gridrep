@@ -13,6 +13,7 @@ export async function onRequestPost(context: any) {
         not_verified: 401,
         auth_required: 401,
         no_sim_sessions: 404,
+        no_participants: 404,
         iracing_fetch_failed: 502,
       };
       const status = statusByCode[err.code] ?? 400;

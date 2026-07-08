@@ -50,6 +50,31 @@ export default function PaceHome() {
         setPullError(data.message ?? "Sync failed.");
         return;
       }
+
+      const issues: string[] = [];
+      if (data.lapsIngested === 0) {
+        issues.push(
+          `0 laps ingested (${data.simSessionsIngested} sim-session(s), ${data.driversIngested} driver(s) found).`
+        );
+      }
+      const driverFailures: Array<{ custId: string; simsessionNumber: number; message: string }> =
+        data.driverFailures ?? [];
+      if (driverFailures.length > 0) {
+        issues.push(
+          `${driverFailures.length} driver lap fetch failure(s): ${driverFailures
+            .map((f) => `cust ${f.custId} sim#${f.simsessionNumber}: ${f.message}`)
+            .join(" | ")}`
+        );
+      }
+      if (data.emptyLapPayloadSample) {
+        issues.push(`Sample lap_data payload for a driver with 0 laps: ${data.emptyLapPayloadSample}`);
+      }
+
+      if (issues.length > 0) {
+        setPullError(issues.join(" "));
+        return;
+      }
+
       navigate(`/pace/s/${encodeURIComponent(id)}`);
     } catch {
       setPullError("Network error. Please try again.");

@@ -13,6 +13,25 @@ export type SimSessionInfo = {
   custIds: string[];
 };
 
+/**
+ * iRacingHttpError's default .message only carries the HTTP status, which
+ * hides the actual reason iRacing rejected the request (e.g. a missing/bad
+ * parameter). Surface the raw response body (truncated) so failures are
+ * diagnosable from the sync/ingest summary alone, without server log access.
+ */
+export function describeIracingError(err: any): string {
+  const status = err?.status;
+  const raw = typeof err?.raw === "string" ? err.raw.trim() : "";
+  const base = err?.message ?? String(err);
+
+  if (raw && raw !== base) {
+    const truncated = raw.length > 300 ? `${raw.slice(0, 300)}…` : raw;
+    return status ? `${status}: ${truncated}` : `${base}: ${truncated}`;
+  }
+
+  return base;
+}
+
 function pickString(v: unknown): string | undefined {
   if (typeof v === "string" && v.trim()) return v;
   return undefined;
@@ -46,6 +65,21 @@ function classifySimSessionType(sr: any): "qualifying" | "race" | null {
   if (type === 5) return "qualifying";
 
   return null;
+}
+
+/** Diagnostic-only: summarize what sim-session blocks a payload actually has, for error messages. */
+export function describeSimSessionBlocks(resultPayload: any): string {
+  const blocks = Array.isArray(resultPayload?.session_results) ? resultPayload.session_results : [];
+  if (blocks.length === 0) return "none (no session_results array on payload)";
+
+  return blocks
+    .map((b: any) => {
+      const num = pickNumber(b?.simsession_number);
+      const name = pickString(b?.simsession_type_name) ?? pickString(b?.simsession_name) ?? "?";
+      const rowCount = pickRows(b).length;
+      return `#${num ?? "?"} "${name}" (${rowCount} rows)`;
+    })
+    .join(", ");
 }
 
 /** Scan every sim-session block for cust_id -> display_name pairs. */

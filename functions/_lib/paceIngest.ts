@@ -8,6 +8,8 @@ import {
   extractLapRows,
   extractLapNumber,
   normalizeLapTimeMs,
+  describeIracingError,
+  describeSimSessionBlocks,
 } from "./paceIracing";
 import { classifyLap } from "./cleanPace";
 import { runWithConcurrency, sleep } from "./concurrency";
@@ -40,6 +42,8 @@ export type IngestSummary = {
   driversIngested: number;
   lapsIngested: number;
   driverFailures: Array<{ custId: string; simsessionNumber: number; message: string }>;
+  /** Raw lap_data payload shape, captured once when a fetch succeeded but yielded zero laps - unverified field names (PRD §6/§10.5). */
+  emptyLapPayloadSample?: string;
 };
 
 /**
@@ -77,7 +81,7 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
       subsessionId,
       message: err?.message ?? String(err),
     });
-    throw new PaceIngestError("iracing_fetch_failed", "Failed to fetch subsession result from iRacing.");
+    throw new PaceIngestError("iracing_fetch_failed", `Failed to fetch subsession result from iRacing: ${describeIracingError(err)}`);
   }
 
   const header = extractSessionHeader(resultPayload);
@@ -85,7 +89,10 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
   const driverNames = extractDriverNames(resultPayload);
 
   if (simSessions.length === 0) {
-    throw new PaceIngestError("no_sim_sessions", "No qualifying or race sim-sessions found for this subsession.");
+    throw new PaceIngestError(
+      "no_sim_sessions",
+      `No qualifying or race sim-sessions found for this subsession. Blocks seen: ${describeSimSessionBlocks(resultPayload)}`
+    );
   }
 
   const now = new Date().toISOString();
@@ -130,6 +137,13 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
     }
   }
 
+  if (jobs.length === 0) {
+    throw new PaceIngestError(
+      "no_participants",
+      `Found ${simSessions.length} sim-session(s) but no participant cust_ids in them. Blocks seen: ${describeSimSessionBlocks(resultPayload)}`
+    );
+  }
+
   let processed = 0;
   const outcomes = await runWithConcurrency(jobs, concurrency, async (job) => {
     if (processed > 0 && delayMs > 0) await sleep(delayMs);
@@ -137,6 +151,7 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
 
     const payload = await fetchLapData(subsessionId, job.custId, job.simsessionNumber, accessToken!);
     const rows = extractLapRows(payload);
+    const sample = rows.length === 0 ? JSON.stringify(payload).slice(0, 800) : undefined;
     const statements: any[] = [];
 
     for (const row of rows) {
@@ -176,28 +191,32 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
     }
 
     if (statements.length > 0) await DB.batch(statements);
-    return statements.length;
+    return { count: statements.length, sample };
   });
 
   let simSessionsSeen = new Set<number>();
+  let emptyLapPayloadSample: string | undefined;
   for (let i = 0; i < outcomes.length; i++) {
     const outcome = outcomes[i];
     const job = jobs[i];
     if (outcome.ok) {
-      lapsIngested += outcome.value as number;
+      const { count, sample } = outcome.value as { count: number; sample?: string };
+      lapsIngested += count;
       simSessionsSeen.add(job.simsessionNumber);
+      if (count === 0 && sample && !emptyLapPayloadSample) emptyLapPayloadSample = sample;
     } else {
       const err: any = outcome.error;
+      const message = describeIracingError(err);
       safeLog("warn", debugId, "pace.ingest.driver_lap_fetch_failed", {
         subsessionId,
         custId: job.custId,
         simsessionNumber: job.simsessionNumber,
-        message: err?.message ?? String(err),
+        message,
       });
       driverFailures.push({
         custId: job.custId,
         simsessionNumber: job.simsessionNumber,
-        message: err?.message ?? String(err),
+        message,
       });
     }
   }
@@ -215,5 +234,6 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
     driversIngested: driverNames.size,
     lapsIngested,
     driverFailures,
+    emptyLapPayloadSample,
   };
 }
