@@ -149,8 +149,7 @@ export default function PaceSubsession() {
         </label>
         <input
           id="qual-n-input"
-          className="pace-input"
-          style={{ minWidth: 70, width: 70 }}
+          className="pace-input pace-input-sm"
           type="number"
           min={1}
           max={50}
@@ -163,8 +162,7 @@ export default function PaceSubsession() {
         </label>
         <input
           id="race-n-input"
-          className="pace-input"
-          style={{ minWidth: 70, width: 70 }}
+          className="pace-input pace-input-sm"
           type="number"
           min={1}
           max={50}
@@ -181,36 +179,38 @@ export default function PaceSubsession() {
           {sorted.length === 0 ? (
             <p className="pace-hint">No drivers found for this subsession.</p>
           ) : (
-            <table className="pace-table">
-              <thead>
-                <tr>
-                  <th>Driver</th>
-                  <SortHeader column="qualifying" label="Qualifying pace" />
-                  <SortHeader column="race" label="Race pace" />
-                  <SortHeader column="average" label="Average pace" />
-                  <SortHeader column="incidents" label="Incidents" />
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((d) => (
-                  <tr key={d.custId}>
-                    <td>{d.driverName}</td>
-                    <td>
-                      <PaceCell result={d.qualifying} />
-                    </td>
-                    <td>
-                      <PaceCell result={d.race} />
-                    </td>
-                    <td>
-                      <PaceCell result={d.average} />
-                    </td>
-                    <td>
-                      <IncidentsCell incidents={d.incidents} />
-                    </td>
+            <div className="pace-table-wrap">
+              <table className="pace-table">
+                <thead>
+                  <tr>
+                    <th>Driver</th>
+                    <SortHeader column="qualifying" label="Qualifying pace" />
+                    <SortHeader column="race" label="Race pace" />
+                    <SortHeader column="average" label="Average pace" />
+                    <SortHeader column="incidents" label="Incidents" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {sorted.map((d) => (
+                    <tr key={d.custId}>
+                      <td>{d.driverName}</td>
+                      <td>
+                        <PaceCell result={d.qualifying} />
+                      </td>
+                      <td>
+                        <PaceCell result={d.race} />
+                      </td>
+                      <td>
+                        <PaceCell result={d.average} />
+                      </td>
+                      <td>
+                        <IncidentsCell incidents={d.incidents} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
