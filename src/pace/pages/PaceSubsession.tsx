@@ -6,15 +6,18 @@ type PaceResult =
   | { ok: false; reason: string }
   | null;
 
+type IncidentStats = { count: number; types: Record<string, number> };
+
 type DriverPaceRow = {
   custId: string;
   driverName: string;
   qualifying: PaceResult;
   race: PaceResult;
   average: PaceResult;
+  incidents: IncidentStats;
 };
 
-type SortColumn = "qualifying" | "race" | "average";
+type SortColumn = "qualifying" | "race" | "average" | "incidents";
 
 function formatMs(ms: number): string {
   const totalMs = Math.round(ms);
@@ -46,6 +49,21 @@ function PaceCell({ result }: { result: PaceResult }) {
 
 function sortValue(result: PaceResult): number {
   return result?.ok ? result.paceMs : Infinity;
+}
+
+function IncidentsCell({ incidents }: { incidents: IncidentStats }) {
+  if (!incidents || incidents.count === 0) return <span className="pace-muted">0</span>;
+
+  const breakdown = Object.entries(incidents.types)
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, n]) => `${type}: ${n}`)
+    .join(", ");
+
+  return (
+    <span title={breakdown} style={{ cursor: "help" }}>
+      {incidents.count} <span className="pace-muted">({breakdown})</span>
+    </span>
+  );
 }
 
 export default function PaceSubsession() {
@@ -102,7 +120,8 @@ export default function PaceSubsession() {
 
   const sorted = useMemo(() => {
     if (!drivers) return null;
-    const withSort = [...drivers].sort((a, b) => sortValue(a[sortColumn]) - sortValue(b[sortColumn]));
+    const valueOf = (d: DriverPaceRow) => (sortColumn === "incidents" ? d.incidents.count : sortValue(d[sortColumn]));
+    const withSort = [...drivers].sort((a, b) => valueOf(a) - valueOf(b));
     return sortAsc ? withSort : withSort.reverse();
   }, [drivers, sortColumn, sortAsc]);
 
@@ -169,6 +188,7 @@ export default function PaceSubsession() {
                   <SortHeader column="qualifying" label="Qualifying pace" />
                   <SortHeader column="race" label="Race pace" />
                   <SortHeader column="average" label="Average pace" />
+                  <SortHeader column="incidents" label="Incidents" />
                 </tr>
               </thead>
               <tbody>
@@ -183,6 +203,9 @@ export default function PaceSubsession() {
                     </td>
                     <td>
                       <PaceCell result={d.average} />
+                    </td>
+                    <td>
+                      <IncidentsCell incidents={d.incidents} />
                     </td>
                   </tr>
                 ))}
