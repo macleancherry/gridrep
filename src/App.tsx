@@ -15,6 +15,7 @@ import ConditionsPage from "./racePlanner/pages/ConditionsPage";
 import LineupPage from "./racePlanner/pages/LineupPage";
 import StintsPage from "./racePlanner/pages/StintsPage";
 import AvailabilityPage from "./racePlanner/pages/AvailabilityPage";
+import PlanSummaryPage from "./racePlanner/pages/PlanSummaryPage";
 import PlaceholderPage from "./racePlanner/pages/PlaceholderPage";
 
 const AUTH_BASE = "https://gridrep.gg";
@@ -291,7 +292,15 @@ function RacePlannerApp() {
         path="/race-planner/plan"
         element={
           <RacePlannerLayout>
-            <PlaceholderPage title="Plan summary" note="Full stint table, ready to print or share with the team." />
+            <PlaceholderPage title="Plan summary" note="Select an event first — its plan summary lives at /race-planner/plan/:eventId." />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/plan/:eventId"
+        element={
+          <RacePlannerLayout>
+            <PlanSummaryPage />
           </RacePlannerLayout>
         }
       />

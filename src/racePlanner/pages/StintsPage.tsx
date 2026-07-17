@@ -452,7 +452,10 @@ export default function StintsPage() {
           ← Back to lineup
         </Link>
         <Link to={`/race-planner/availability/${eventId}`} className="rp-btn">
-          Availability →
+          Availability
+        </Link>
+        <Link to={`/race-planner/plan/${eventId}`} className="rp-btn rp-primary">
+          Plan summary →
         </Link>
       </div>
     </div>

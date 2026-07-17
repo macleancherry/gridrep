@@ -441,3 +441,15 @@
 .rp-shell[data-theme="dark"] .rp-warn-banner.rp-amber {
   color: #f0c888;
 }
+
+/* Plan summary's "Export / print" button should print just the plan, not the app chrome. */
+@media print {
+  .rp-sidebar,
+  .rp-viewer-strip,
+  .rp-btn {
+    display: none !important;
+  }
+  .rp-content {
+    padding: 0;
+  }
+}
