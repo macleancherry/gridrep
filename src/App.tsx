@@ -12,6 +12,7 @@ import PaceSubsession from "./pace/pages/PaceSubsession";
 import RacePlannerLayout from "./racePlanner/RacePlannerLayout";
 import EventsHome from "./racePlanner/pages/EventsHome";
 import ConditionsPage from "./racePlanner/pages/ConditionsPage";
+import LineupPage from "./racePlanner/pages/LineupPage";
 import PlaceholderPage from "./racePlanner/pages/PlaceholderPage";
 
 const AUTH_BASE = "https://gridrep.gg";
@@ -240,7 +241,15 @@ function RacePlannerApp() {
         path="/race-planner/lineup"
         element={
           <RacePlannerLayout>
-            <PlaceholderPage title="Driver lineup" note="Pace and fuel profiles, filtered to laps run in matching conditions." />
+            <PlaceholderPage title="Driver lineup" note="Select an event first — its lineup page lives at /race-planner/lineup/:eventId." />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/lineup/:eventId"
+        element={
+          <RacePlannerLayout>
+            <LineupPage />
           </RacePlannerLayout>
         }
       />

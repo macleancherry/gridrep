@@ -150,7 +150,12 @@ export default function ConditionsPage() {
 
   return (
     <div>
-      <h2>Conditions — {event?.name}</h2>
+      <div className="rp-row" style={{ justifyContent: "space-between", marginBottom: 4 }}>
+        <h2>Conditions — {event?.name}</h2>
+        <Link to={`/race-planner/lineup/${eventId}`} className="rp-btn rp-primary">
+          Continue to lineup →
+        </Link>
+      </div>
       <p className="rp-section-sub" style={{ marginBottom: 16 }}>
         Forecast captured once, shared with every team planning this event instance.
       </p>
