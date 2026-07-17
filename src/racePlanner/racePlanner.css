@@ -1,0 +1,297 @@
+/* Race Planner: standalone mini-app shell. Scoped entirely under .rp-shell so it
+   can't bleed into gridrep's global styles.css or Pace's pace.css, and vice versa -
+   same isolation approach src/pace/pace.css uses for its own shell. Color mapping
+   lifted from race-planner-mockup.html's :root variables. */
+
+.rp-shell {
+  --rp-bg: #101318;
+  --rp-surface: #171b22;
+  --rp-surface-alt: #1d222b;
+  --rp-surface-raised: #232935;
+  --rp-border: #2a303b;
+  --rp-border-soft: #20252e;
+  --rp-text: #eceef2;
+  --rp-text-dim: #93a0b4;
+  --rp-text-faint: #5c6576;
+  --rp-amber: #f5a623;
+  --rp-amber-dim: #7a5a24;
+  --rp-green: #34c98a;
+  --rp-green-dim: #1e5c42;
+  --rp-red: #e85d5d;
+  --rp-blue: #5b9df5;
+  --rp-d1: #f5a623;
+  --rp-d2: #5b9df5;
+  --rp-d3: #34c98a;
+  --rp-d4: #c77dff;
+  --rp-radius: 3px;
+
+  background: var(--rp-bg);
+  color: var(--rp-text);
+  font-family: "Inter", sans-serif;
+  font-size: 14px;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.rp-shell[data-theme="light"] {
+  --rp-bg: #f3f4f6;
+  --rp-surface: #ffffff;
+  --rp-surface-alt: #f6f7f9;
+  --rp-surface-raised: #edeff3;
+  --rp-border: #dcdfe5;
+  --rp-border-soft: #e7e9ed;
+  --rp-text: #14161b;
+  --rp-text-dim: #565e6c;
+  --rp-text-faint: #8991a0;
+  --rp-amber-dim: #f3d9a8;
+  --rp-green-dim: #b6ebd3;
+}
+
+.rp-shell * {
+  box-sizing: border-box;
+}
+
+.rp-shell h1,
+.rp-shell h2,
+.rp-shell h3,
+.rp-display {
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rp-mono {
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.rp-shell a {
+  color: inherit;
+}
+
+.rp-shell button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.rp-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.rp-sidebar {
+  width: 74px;
+  flex-shrink: 0;
+  background: var(--rp-surface);
+  border-right: 1px solid var(--rp-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 0;
+  gap: 6px;
+  min-height: 100vh;
+}
+
+.rp-mark {
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--rp-amber);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--rp-amber);
+  margin-bottom: 22px;
+  text-decoration: none;
+}
+
+.rp-navstack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  align-items: center;
+}
+
+.rp-navbtn {
+  width: 56px;
+  padding: 10px 4px 8px;
+  background: none;
+  border: none;
+  color: var(--rp-text-faint);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--rp-radius);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.rp-navbtn svg {
+  width: 19px;
+  height: 19px;
+  opacity: 0.75;
+}
+
+.rp-navbtn.rp-active {
+  color: var(--rp-amber);
+  background: rgba(245, 166, 35, 0.09);
+}
+
+.rp-navbtn.rp-active svg {
+  opacity: 1;
+}
+
+.rp-navbtn:hover:not(.rp-active) {
+  color: var(--rp-text-dim);
+}
+
+.rp-theme-toggle {
+  margin-top: auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--rp-surface-alt);
+  border: 1px solid var(--rp-border);
+  color: var(--rp-text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rp-theme-toggle:hover {
+  border-color: var(--rp-text-faint);
+  color: var(--rp-text);
+}
+
+.rp-theme-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.rp-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rp-ctxbar {
+  background: var(--rp-surface);
+  border-bottom: 1px solid var(--rp-border);
+  padding: 14px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.rp-ctx-eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  color: var(--rp-text-faint);
+  text-transform: uppercase;
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 600;
+}
+
+.rp-ctx-title {
+  font-size: 22px;
+  line-height: 1;
+  margin: 2px 0 0;
+}
+
+.rp-content {
+  padding: 26px 28px 60px;
+  flex: 1;
+}
+
+.rp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 20px;
+  font-size: 10.5px;
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.rp-badge.rp-green {
+  background: rgba(52, 201, 138, 0.12);
+  color: var(--rp-green);
+  border-color: rgba(52, 201, 138, 0.3);
+}
+
+.rp-badge.rp-amber {
+  background: rgba(245, 166, 35, 0.12);
+  color: var(--rp-amber);
+  border-color: rgba(245, 166, 35, 0.3);
+}
+
+.rp-badge.rp-dim {
+  background: var(--rp-surface-alt);
+  color: var(--rp-text-dim);
+  border-color: var(--rp-border);
+}
+
+.rp-btn {
+  border: 1px solid var(--rp-border);
+  background: var(--rp-surface-alt);
+  color: var(--rp-text);
+  padding: 9px 16px;
+  border-radius: var(--rp-radius);
+  font-size: 12.5px;
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.rp-btn:hover {
+  border-color: var(--rp-text-faint);
+}
+
+.rp-btn.rp-primary {
+  background: var(--rp-amber);
+  border-color: var(--rp-amber);
+  color: #1a1200;
+}
+
+.rp-btn.rp-primary:hover {
+  background: #ffb53c;
+}
+
+.rp-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.rp-card {
+  background: var(--rp-surface);
+  border: 1px solid var(--rp-border);
+  border-radius: var(--rp-radius);
+  padding: 18px;
+}
+
+.rp-section-sub {
+  color: var(--rp-text-faint);
+  font-size: 12px;
+  margin-top: 3px;
+}

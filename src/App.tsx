@@ -9,6 +9,9 @@ import Privacy from "./pages/Privacy";
 import PaceLayout from "./pace/PaceLayout";
 import PaceHome from "./pace/pages/PaceHome";
 import PaceSubsession from "./pace/pages/PaceSubsession";
+import RacePlannerLayout from "./racePlanner/RacePlannerLayout";
+import EventsHome from "./racePlanner/pages/EventsHome";
+import PlaceholderPage from "./racePlanner/pages/PlaceholderPage";
 
 const AUTH_BASE = "https://gridrep.gg";
 
@@ -205,11 +208,78 @@ function PaceApp() {
   );
 }
 
+function RacePlannerApp() {
+  return (
+    <Routes>
+      <Route
+        path="/race-planner"
+        element={
+          <RacePlannerLayout>
+            <EventsHome />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/conditions"
+        element={
+          <RacePlannerLayout>
+            <PlaceholderPage title="Conditions" note="Forecast captured once, shared with every team planning this event instance." />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/lineup"
+        element={
+          <RacePlannerLayout>
+            <PlaceholderPage title="Driver lineup" note="Pace and fuel profiles, filtered to laps run in matching conditions." />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/availability"
+        element={
+          <RacePlannerLayout>
+            <PlaceholderPage title="Availability & scheduling" note="Confirm the start time, then each driver logs in to mark when they can drive." />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/stints"
+        element={
+          <RacePlannerLayout>
+            <PlaceholderPage title="Stint plan" note="Assign drivers to time blocks; fuel, lap, and pit projections compute live." />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/plan"
+        element={
+          <RacePlannerLayout>
+            <PlaceholderPage title="Plan summary" note="Full stint table, ready to print or share with the team." />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/live"
+        element={
+          <RacePlannerLayout>
+            <PlaceholderPage title="Live" note="Phase 2 — plan-vs-actual fuel and pace tracking during the event." />
+          </RacePlannerLayout>
+        }
+      />
+    </Routes>
+  );
+}
+
 export default function App() {
   const location = useLocation();
 
   if (location.pathname === "/pace" || location.pathname.startsWith("/pace/")) {
     return <PaceApp />;
+  }
+
+  if (location.pathname === "/race-planner" || location.pathname.startsWith("/race-planner/")) {
+    return <RacePlannerApp />;
   }
 
   return (
