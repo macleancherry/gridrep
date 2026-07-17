@@ -1,5 +1,5 @@
 import { json, jsonError } from "../../../_lib/httpJson";
-import { computeStintProjections, type StintInput } from "../../../_lib/plannerRacePlan";
+import { computeStintProjections, computeDutyWarnings, type StintInput, type SpottingAssignment } from "../../../_lib/plannerRacePlan";
 
 /** Retrieve a plan for display/export (PRD §8) - stints + live-recomputed totals. */
 export async function onRequestGet(context: any) {
@@ -42,11 +42,30 @@ export async function onRequestGet(context: any) {
 
   const driverNameByCustId = new Map((stintRows.results ?? []).map((r: any) => [r.custId, r.driverName]));
 
+  const spottingRows = await DB.prepare(
+    `SELECT a.cust_id as custId, d.display_name as driverName, a.start_time_offset_minutes as startOffsetMinutes,
+            a.end_time_offset_minutes as endOffsetMinutes
+     FROM race_plan_duty_assignments a LEFT JOIN drivers d ON d.iracing_member_id = a.cust_id
+     WHERE a.race_plan_id = ? AND a.role = 'spotting' ORDER BY a.start_time_offset_minutes ASC`
+  )
+    .bind(planId)
+    .all<any>();
+
+  const spottingAssignments: SpottingAssignment[] = (spottingRows.results ?? []).map((r: any) => ({
+    custId: r.custId,
+    startOffsetMinutes: r.startOffsetMinutes,
+    endOffsetMinutes: r.endOffsetMinutes,
+  }));
+
+  const warnings = computeDutyWarnings(stints, spottingAssignments, plan.fatigue_threshold_minutes ?? 120);
+
   return json({
     ok: true,
     plan,
     lineup: lineupRows.results ?? [],
     stints: stints.map((s) => ({ ...s, driverName: driverNameByCustId.get(s.custId) ?? `Driver ${s.custId}` })),
     totals,
+    spotting: spottingRows.results ?? [],
+    warnings,
   });
 }

@@ -33,6 +33,13 @@ type Totals = {
   stintCountByDriver: Record<string, number>;
 };
 
+type SpottingAssignment = { custId: string; driverName?: string; startOffsetMinutes: number; endOffsetMinutes: number };
+
+type Warnings = {
+  spotterGaps: { startOffsetMinutes: number; endOffsetMinutes: number }[];
+  extendedStretches: { custId: string; startOffsetMinutes: number; endOffsetMinutes: number; durationMinutes: number }[];
+};
+
 function formatOffset(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = Math.floor(minutes % 60);
@@ -56,6 +63,12 @@ export default function StintsPage() {
   const [error, setError] = useState<string | null>(null);
   const [creatingPlan, setCreatingPlan] = useState(false);
   const [tankCapacity, setTankCapacity] = useState("120");
+  const [spotting, setSpotting] = useState<SpottingAssignment[]>([]);
+  const [warnings, setWarnings] = useState<Warnings | null>(null);
+  const [newSpotterId, setNewSpotterId] = useState("");
+  const [newSpotStart, setNewSpotStart] = useState("");
+  const [newSpotEnd, setNewSpotEnd] = useState("");
+  const [savingSpotting, setSavingSpotting] = useState(false);
 
   async function loadDriverProfiles(custIds: string[], conditionProfileId: string) {
     if (!eventId || custIds.length === 0) return;
@@ -78,6 +91,8 @@ export default function StintsPage() {
     setLineup(data.lineup ?? []);
     setStints(data.stints ?? []);
     setTotals(data.totals ?? null);
+    setSpotting(data.spotting ?? []);
+    setWarnings(data.warnings ?? null);
     await loadDriverProfiles((data.lineup ?? []).map((d: LineupDriver) => d.custId), selectedProfileId);
   }
 
@@ -184,10 +199,51 @@ export default function StintsPage() {
       }
       setStints(data.stints ?? []);
       setTotals(data.totals ?? null);
+      await loadPlan(planId); // refresh warnings against the newly saved stints
     } catch {
       setError("Network error. Please try again.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  function addSpotting() {
+    const driver = lineup.find((d) => d.custId === newSpotterId);
+    const start = Number(newSpotStart);
+    const end = Number(newSpotEnd);
+    if (!driver || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
+    setSpotting([...spotting, { custId: driver.custId, driverName: driver.driverName, startOffsetMinutes: start, endOffsetMinutes: end }]);
+    setNewSpotStart("");
+    setNewSpotEnd("");
+  }
+
+  function removeSpotting(index: number) {
+    setSpotting(spotting.filter((_, i) => i !== index));
+  }
+
+  async function saveSpotting() {
+    if (!planId) return;
+    setSavingSpotting(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/duty-assignments`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          assignments: spotting.map((s) => ({ custId: s.custId, startOffsetMinutes: s.startOffsetMinutes, endOffsetMinutes: s.endOffsetMinutes })),
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setError(data.message ?? "Could not save spotter assignments.");
+        return;
+      }
+      await loadPlan(planId);
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSavingSpotting(false);
     }
   }
 
@@ -223,6 +279,21 @@ export default function StintsPage() {
     <div>
       <h2>Stint plan</h2>
       {error && <p className="rp-error">{error}</p>}
+
+      {warnings?.spotterGaps.map((g, i) => (
+        <div className="rp-warn-banner" key={`gap-${i}`}>
+          ⚠ No spotter scheduled, {formatOffset(g.startOffsetMinutes)}–{formatOffset(g.endOffsetMinutes)}.
+        </div>
+      ))}
+      {warnings?.extendedStretches.map((s, i) => {
+        const name = lineup.find((d) => d.custId === s.custId)?.driverName ?? s.custId;
+        return (
+          <div className="rp-warn-banner rp-amber" key={`stretch-${i}`}>
+            ⚠ {name} driving {formatOffset(s.durationMinutes)} continuous ({formatOffset(s.startOffsetMinutes)}–
+            {formatOffset(s.endOffsetMinutes)}) — beyond the fatigue threshold.
+          </div>
+        );
+      })}
 
       <div className="rp-card" style={{ marginBottom: 16 }}>
         <div className="rp-row" style={{ marginBottom: 10 }}>
@@ -304,6 +375,49 @@ export default function StintsPage() {
         </button>
       </div>
 
+      <h3 style={{ marginTop: 28, fontSize: 15 }}>Spotting</h3>
+      <p className="rp-section-sub" style={{ marginBottom: 12 }}>
+        Freeform windows, deliberately overlapping driver handoffs — they don't need to line up with stint boundaries.
+      </p>
+      <div className="rp-card" style={{ marginBottom: 16 }}>
+        <div className="rp-row" style={{ marginBottom: 10 }}>
+          <select className="rp-input" value={newSpotterId} onChange={(e) => setNewSpotterId(e.target.value)}>
+            <option value="">Select spotter…</option>
+            {lineup.map((d) => (
+              <option key={d.custId} value={d.custId}>
+                {d.driverName}
+              </option>
+            ))}
+          </select>
+          <input className="rp-input" style={{ width: 90 }} type="number" placeholder="Start (min)" value={newSpotStart} onChange={(e) => setNewSpotStart(e.target.value)} />
+          <input className="rp-input" style={{ width: 90 }} type="number" placeholder="End (min)" value={newSpotEnd} onChange={(e) => setNewSpotEnd(e.target.value)} />
+          <button className="rp-btn rp-primary" onClick={addSpotting} disabled={!newSpotterId}>
+            + Add
+          </button>
+        </div>
+        {spotting.length === 0 ? (
+          <span className="rp-text-faint">No spotter windows yet.</span>
+        ) : (
+          <div className="rp-profile-list">
+            {spotting.map((s, i) => (
+              <div className="rp-row" key={i} style={{ justifyContent: "space-between" }}>
+                <span className="rp-mono">
+                  {s.driverName ?? s.custId}: {formatOffset(s.startOffsetMinutes)}–{formatOffset(s.endOffsetMinutes)}
+                </span>
+                <button className="rp-btn" onClick={() => removeSpotting(i)}>
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="rp-row" style={{ marginTop: 10 }}>
+          <button className="rp-btn rp-primary" onClick={saveSpotting} disabled={savingSpotting}>
+            {savingSpotting ? "Saving…" : "Save spotting"}
+          </button>
+        </div>
+      </div>
+
       {totals && (
         <div className="rp-row" style={{ marginTop: 20, flexWrap: "wrap", gap: 14 }}>
           <div className="rp-card" style={{ minWidth: 140 }}>
@@ -333,9 +447,12 @@ export default function StintsPage() {
         </div>
       )}
 
-      <div style={{ marginTop: 20 }}>
+      <div className="rp-row" style={{ marginTop: 20, justifyContent: "space-between" }}>
         <Link to={`/race-planner/lineup/${eventId}`} className="rp-btn">
           ← Back to lineup
+        </Link>
+        <Link to={`/race-planner/availability/${eventId}`} className="rp-btn">
+          Availability →
         </Link>
       </div>
     </div>

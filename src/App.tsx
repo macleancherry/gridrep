@@ -14,6 +14,7 @@ import EventsHome from "./racePlanner/pages/EventsHome";
 import ConditionsPage from "./racePlanner/pages/ConditionsPage";
 import LineupPage from "./racePlanner/pages/LineupPage";
 import StintsPage from "./racePlanner/pages/StintsPage";
+import AvailabilityPage from "./racePlanner/pages/AvailabilityPage";
 import PlaceholderPage from "./racePlanner/pages/PlaceholderPage";
 
 const AUTH_BASE = "https://gridrep.gg";
@@ -258,7 +259,15 @@ function RacePlannerApp() {
         path="/race-planner/availability"
         element={
           <RacePlannerLayout>
-            <PlaceholderPage title="Availability & scheduling" note="Confirm the start time, then each driver logs in to mark when they can drive." />
+            <PlaceholderPage title="Availability & scheduling" note="Select an event first — its availability page lives at /race-planner/availability/:eventId." />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/availability/:eventId"
+        element={
+          <RacePlannerLayout>
+            <AvailabilityPage />
           </RacePlannerLayout>
         }
       />
