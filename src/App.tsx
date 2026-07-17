@@ -13,6 +13,7 @@ import RacePlannerLayout from "./racePlanner/RacePlannerLayout";
 import EventsHome from "./racePlanner/pages/EventsHome";
 import ConditionsPage from "./racePlanner/pages/ConditionsPage";
 import LineupPage from "./racePlanner/pages/LineupPage";
+import StintsPage from "./racePlanner/pages/StintsPage";
 import PlaceholderPage from "./racePlanner/pages/PlaceholderPage";
 
 const AUTH_BASE = "https://gridrep.gg";
@@ -265,7 +266,15 @@ function RacePlannerApp() {
         path="/race-planner/stints"
         element={
           <RacePlannerLayout>
-            <PlaceholderPage title="Stint plan" note="Assign drivers to time blocks; fuel, lap, and pit projections compute live." />
+            <PlaceholderPage title="Stint plan" note="Select an event first — its stint plan lives at /race-planner/stints/:eventId." />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/stints/:eventId"
+        element={
+          <RacePlannerLayout>
+            <StintsPage />
           </RacePlannerLayout>
         }
       />

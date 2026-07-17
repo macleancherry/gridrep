@@ -1,0 +1,343 @@
+import { useEffect, useState } from "react";
+import { useParams, Link } from "react-router-dom";
+
+type LineupDriver = { custId: string; driverName: string };
+type ConditionProfile = { id: string; label: string };
+
+type DriverProfile = {
+  custId: string;
+  driverName: string;
+  paceMs: number | null;
+  fuelPerLap: number | null;
+};
+
+type Stint = {
+  custId: string;
+  driverName: string;
+  lapCount: number;
+  paceMs: number;
+  fuelPerLap: number;
+  order: number;
+  startOffsetMinutes: number;
+  durationMinutes: number;
+  fuelLoadLiters: number;
+  pitTargetOffsetMinutes: number;
+  fuelWarning: boolean;
+};
+
+type Totals = {
+  totalStops: number;
+  totalFuelLiters: number;
+  totalDurationMinutes: number;
+  seatTimeMinutesByDriver: Record<string, number>;
+  stintCountByDriver: Record<string, number>;
+};
+
+function formatOffset(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = Math.floor(minutes % 60);
+  const s = Math.round((minutes % 1) * 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+export default function StintsPage() {
+  const { eventId } = useParams<{ eventId: string }>();
+  const [planId, setPlanId] = useState<string | null>(null);
+  const [lineup, setLineup] = useState<LineupDriver[]>([]);
+  const [conditionProfiles, setConditionProfiles] = useState<ConditionProfile[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>("");
+  const [driverProfiles, setDriverProfiles] = useState<DriverProfile[]>([]);
+  const [stints, setStints] = useState<Stint[]>([]);
+  const [totals, setTotals] = useState<Totals | null>(null);
+  const [newDriverId, setNewDriverId] = useState("");
+  const [newLapCount, setNewLapCount] = useState("30");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [creatingPlan, setCreatingPlan] = useState(false);
+  const [tankCapacity, setTankCapacity] = useState("120");
+
+  async function loadDriverProfiles(custIds: string[], conditionProfileId: string) {
+    if (!eventId || custIds.length === 0) return;
+    const params = new URLSearchParams({ custIds: custIds.join(",") });
+    if (conditionProfileId) params.set("conditionProfileId", conditionProfileId);
+    const r = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/driver-profiles?${params.toString()}`, {
+      credentials: "include",
+    });
+    const data = await r.json().catch(() => ({}));
+    setDriverProfiles(data.profiles ?? []);
+  }
+
+  async function loadPlan(id: string) {
+    const r = await fetch(`/api/planner/race-plans/${encodeURIComponent(id)}`, { credentials: "include" });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) {
+      setError(data.message ?? "Could not load this plan.");
+      return;
+    }
+    setLineup(data.lineup ?? []);
+    setStints(data.stints ?? []);
+    setTotals(data.totals ?? null);
+    await loadDriverProfiles((data.lineup ?? []).map((d: LineupDriver) => d.custId), selectedProfileId);
+  }
+
+  async function init() {
+    if (!eventId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [plansRes, conditionsRes] = await Promise.all([
+        fetch(`/api/planner/events/${encodeURIComponent(eventId)}/race-plans`, { credentials: "include" }),
+        fetch(`/api/planner/events/${encodeURIComponent(eventId)}/conditions`, { credentials: "include" }),
+      ]);
+      const plansData = await plansRes.json().catch(() => ({}));
+      const conditionsData = await conditionsRes.json().catch(() => ({}));
+      setConditionProfiles(conditionsData.profiles ?? []);
+
+      const plans = plansData.plans ?? [];
+      if (plans.length > 0) {
+        setPlanId(plans[0].id);
+        setTankCapacity(String(plans[0].fuelTankCapacityLiters ?? 120));
+        await loadPlan(plans[0].id);
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId]);
+
+  async function createPlan() {
+    if (!eventId) return;
+    setCreatingPlan(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/planner/race-plans", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ eventId, fuelTankCapacityLiters: Number(tankCapacity) || null }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setError(data.message ?? "Could not create a plan.");
+        return;
+      }
+      setPlanId(data.plan.id);
+      await loadPlan(data.plan.id);
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setCreatingPlan(false);
+    }
+  }
+
+  function addStint() {
+    const profile = driverProfiles.find((p) => p.custId === newDriverId);
+    const lapCount = Number(newLapCount);
+    if (!profile || !profile.paceMs || !profile.fuelPerLap || !lapCount) return;
+
+    setStints([
+      ...stints,
+      {
+        custId: profile.custId,
+        driverName: profile.driverName,
+        lapCount,
+        paceMs: profile.paceMs,
+        fuelPerLap: profile.fuelPerLap,
+        order: stints.length,
+        startOffsetMinutes: 0,
+        durationMinutes: 0,
+        fuelLoadLiters: 0,
+        pitTargetOffsetMinutes: 0,
+        fuelWarning: false,
+      },
+    ]);
+  }
+
+  function removeStint(index: number) {
+    setStints(stints.filter((_, i) => i !== index));
+  }
+
+  async function saveStints() {
+    if (!planId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/stints`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          stints: stints.map((s) => ({ custId: s.custId, lapCount: s.lapCount, paceMs: s.paceMs, fuelPerLap: s.fuelPerLap })),
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setError(data.message ?? "Could not save stints.");
+        return;
+      }
+      setStints(data.stints ?? []);
+      setTotals(data.totals ?? null);
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <p className="rp-section-sub">Loading…</p>;
+
+  if (!planId) {
+    return (
+      <div>
+        <h2>Stint plan</h2>
+        <p className="rp-section-sub" style={{ marginBottom: 16 }}>
+          No plan yet for this event. Create one to start building the stint timeline.
+        </p>
+        {error && <p className="rp-error">{error}</p>}
+        <div className="rp-card">
+          <div className="rp-form-field" style={{ maxWidth: 200, marginBottom: 12 }}>
+            <label>Fuel tank capacity (L)</label>
+            <input className="rp-input" type="number" value={tankCapacity} onChange={(e) => setTankCapacity(e.target.value)} />
+          </div>
+          <button className="rp-btn rp-primary" onClick={createPlan} disabled={creatingPlan}>
+            {creatingPlan ? "Creating…" : "Create plan"}
+          </button>
+        </div>
+        <div style={{ marginTop: 20 }}>
+          <Link to={`/race-planner/lineup/${eventId}`} className="rp-btn">
+            ← Back to lineup
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h2>Stint plan</h2>
+      {error && <p className="rp-error">{error}</p>}
+
+      <div className="rp-card" style={{ marginBottom: 16 }}>
+        <div className="rp-row" style={{ marginBottom: 10 }}>
+          <select
+            className="rp-input"
+            value={selectedProfileId}
+            onChange={async (e) => {
+              setSelectedProfileId(e.target.value);
+              await loadDriverProfiles(lineup.map((d) => d.custId), e.target.value);
+            }}
+          >
+            <option value="">All conditions (unfiltered)</option>
+            {conditionProfiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+          <select className="rp-input" value={newDriverId} onChange={(e) => setNewDriverId(e.target.value)}>
+            <option value="">Select driver…</option>
+            {driverProfiles.map((p) => (
+              <option key={p.custId} value={p.custId} disabled={!p.paceMs || !p.fuelPerLap}>
+                {p.driverName}
+                {!p.paceMs || !p.fuelPerLap ? " (no profile computed)" : ""}
+              </option>
+            ))}
+          </select>
+          <input
+            className="rp-input"
+            style={{ width: 90 }}
+            type="number"
+            placeholder="Laps"
+            value={newLapCount}
+            onChange={(e) => setNewLapCount(e.target.value)}
+          />
+          <button className="rp-btn rp-primary" onClick={addStint} disabled={!newDriverId}>
+            + Add stint
+          </button>
+        </div>
+        <p className="rp-section-sub">
+          Driver profiles come from the Lineup page — compute them there first if a driver shows "no profile computed".
+        </p>
+      </div>
+
+      {stints.length === 0 ? (
+        <div className="rp-card">No stints yet. Add one above.</div>
+      ) : (
+        <div className="rp-profile-list">
+          {stints.map((s, i) => (
+            <div className="rp-card" key={i}>
+              <div className="rp-profile-row">
+                <div>
+                  <span className="rp-badge rp-dim rp-mono" style={{ marginRight: 8 }}>
+                    #{String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span className="rp-profile-label">{s.driverName}</span>
+                  {s.fuelWarning && (
+                    <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
+                      Over fuel capacity
+                    </span>
+                  )}
+                  <div className="rp-mono rp-text-faint" style={{ marginTop: 4, fontSize: 12 }}>
+                    {s.lapCount} laps · start {formatOffset(s.startOffsetMinutes)} · pit target {formatOffset(s.pitTargetOffsetMinutes)} ·{" "}
+                    {s.fuelLoadLiters.toFixed(1)}L
+                  </div>
+                </div>
+                <button className="rp-btn" onClick={() => removeStint(i)}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="rp-row" style={{ marginTop: 16 }}>
+        <button className="rp-btn rp-primary" onClick={saveStints} disabled={saving || stints.length === 0}>
+          {saving ? "Saving…" : "Save stint plan"}
+        </button>
+      </div>
+
+      {totals && (
+        <div className="rp-row" style={{ marginTop: 20, flexWrap: "wrap", gap: 14 }}>
+          <div className="rp-card" style={{ minWidth: 140 }}>
+            <div className="rp-form-field">
+              <label>Total stops</label>
+            </div>
+            <div className="rp-mono" style={{ fontSize: 20 }}>
+              {totals.totalStops}
+            </div>
+          </div>
+          <div className="rp-card" style={{ minWidth: 140 }}>
+            <div className="rp-form-field">
+              <label>Total fuel</label>
+            </div>
+            <div className="rp-mono" style={{ fontSize: 20 }}>
+              {totals.totalFuelLiters.toFixed(1)}L
+            </div>
+          </div>
+          <div className="rp-card" style={{ minWidth: 140 }}>
+            <div className="rp-form-field">
+              <label>Race duration</label>
+            </div>
+            <div className="rp-mono" style={{ fontSize: 20 }}>
+              {formatOffset(totals.totalDurationMinutes)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginTop: 20 }}>
+        <Link to={`/race-planner/lineup/${eventId}`} className="rp-btn">
+          ← Back to lineup
+        </Link>
+      </div>
+    </div>
+  );
+}

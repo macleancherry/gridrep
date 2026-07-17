@@ -218,9 +218,12 @@ export default function LineupPage() {
         </div>
       )}
 
-      <div style={{ marginTop: 20 }}>
+      <div className="rp-row" style={{ marginTop: 20, justifyContent: "space-between" }}>
         <Link to={`/race-planner/conditions/${eventId}`} className="rp-btn">
           ← Back to conditions
+        </Link>
+        <Link to={`/race-planner/stints/${eventId}`} className="rp-btn rp-primary">
+          Continue to stints →
         </Link>
       </div>
     </div>
