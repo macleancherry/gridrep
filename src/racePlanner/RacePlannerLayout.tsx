@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
+import { useRacePlannerViewer } from "./useRacePlannerViewer";
 import "./racePlanner.css";
 
 type Theme = "light" | "dark";
@@ -98,10 +99,14 @@ export default function RacePlannerLayout({
   contextBar?: ReactNode;
 }) {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const viewer = useRacePlannerViewer();
+  const location = useLocation();
 
   useEffect(() => {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
+
+  const verifyHref = `/api/auth/start?returnTo=${encodeURIComponent(location.pathname + location.search)}`;
 
   return (
     <div className="rp-shell" data-theme={theme}>
@@ -142,6 +147,19 @@ export default function RacePlannerLayout({
         </div>
 
         <div className="rp-main">
+          <div className="rp-viewer-strip">
+            {viewer.loading ? (
+              <span className="rp-text-faint">Checking…</span>
+            ) : viewer.verified ? (
+              <span>
+                Signed in as <strong>{viewer.user.name}</strong>
+              </span>
+            ) : (
+              <a href={verifyHref} className="rp-viewer-link">
+                Sign in with iRacing →
+              </a>
+            )}
+          </div>
           {contextBar && <div className="rp-ctxbar">{contextBar}</div>}
           <div className="rp-content">{children}</div>
         </div>

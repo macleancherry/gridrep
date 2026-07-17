@@ -11,6 +11,7 @@ import PaceHome from "./pace/pages/PaceHome";
 import PaceSubsession from "./pace/pages/PaceSubsession";
 import RacePlannerLayout from "./racePlanner/RacePlannerLayout";
 import EventsHome from "./racePlanner/pages/EventsHome";
+import ConditionsPage from "./racePlanner/pages/ConditionsPage";
 import PlaceholderPage from "./racePlanner/pages/PlaceholderPage";
 
 const AUTH_BASE = "https://gridrep.gg";
@@ -223,7 +224,15 @@ function RacePlannerApp() {
         path="/race-planner/conditions"
         element={
           <RacePlannerLayout>
-            <PlaceholderPage title="Conditions" note="Forecast captured once, shared with every team planning this event instance." />
+            <PlaceholderPage title="Conditions" note="Select an event first — its conditions page lives at /race-planner/conditions/:eventId." />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/conditions/:eventId"
+        element={
+          <RacePlannerLayout>
+            <ConditionsPage />
           </RacePlannerLayout>
         }
       />

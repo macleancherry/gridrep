@@ -59,6 +59,11 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  /* gridrep's global styles.css has a bare `h2 { color: var(--muted) }` rule that
+     otherwise wins here (a direct rule always beats inherited color, regardless of
+     specificity) - Pace hits the same thing and fixes it the same way in pace.css. */
+  color: var(--rp-text);
+  margin: 0;
 }
 
 .rp-mono {
@@ -294,4 +299,118 @@
   color: var(--rp-text-faint);
   font-size: 12px;
   margin-top: 3px;
+}
+
+.rp-viewer-strip {
+  padding: 8px 28px;
+  border-bottom: 1px solid var(--rp-border-soft);
+  font-size: 11.5px;
+  color: var(--rp-text-dim);
+  background: var(--rp-surface-alt);
+}
+
+.rp-viewer-link {
+  color: var(--rp-amber);
+  text-decoration: none;
+}
+
+.rp-text-faint {
+  color: var(--rp-text-faint);
+}
+
+.rp-error {
+  color: var(--rp-red);
+  font-size: 12.5px;
+  margin-top: 8px;
+}
+
+.rp-input {
+  border: 1px solid var(--rp-border);
+  background: var(--rp-surface-alt);
+  color: var(--rp-text);
+  padding: 8px 10px;
+  border-radius: var(--rp-radius);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.rp-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.rp-event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.rp-event-card {
+  background: var(--rp-surface);
+  border: 1px solid var(--rp-border);
+  border-radius: var(--rp-radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rp-event-track {
+  font-size: 18px;
+  margin: 0;
+}
+
+.rp-event-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--rp-text-dim);
+}
+
+.rp-event-meta .rp-mono {
+  color: var(--rp-text);
+}
+
+.rp-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.rp-form-field label {
+  display: block;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--rp-text-faint);
+  margin-bottom: 4px;
+}
+
+.rp-form-field input,
+.rp-form-field select {
+  width: 100%;
+}
+
+.rp-profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.rp-profile-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rp-profile-row .rp-profile-label {
+  font-weight: 600;
+  min-width: 70px;
 }

@@ -420,7 +420,11 @@ export function extractDiscoveredEvents(payload: any, opts: { specialOnly?: bool
     const seriesId = pickNumber(row.series_id);
     const seasonId = pickNumber(row.season_id);
     const name = pickString(row.series_name) ?? pickString(row.season_name) ?? "Unknown event";
-    const id = seasonId !== undefined ? `season:${seasonId}` : `series:${seriesId ?? name}`;
+    // No ":" or other characters that need URL-encoding in a path segment - avoids a
+    // real Cloudflare Pages dev-router gotcha where an encoded id in the URL doesn't
+    // decode back to the stored id by the time it reaches context.params.
+    const idSuffix = seasonId !== undefined ? String(seasonId) : String(seriesId ?? name).replace(/[^a-zA-Z0-9_-]/g, "-");
+    const id = seasonId !== undefined ? `season-${idSuffix}` : `series-${idSuffix}`;
 
     return {
       id,
