@@ -27,7 +27,8 @@ function formatPace(ms: number | null): string {
 }
 
 export default function LineupPage() {
-  const { eventId } = useParams<{ eventId: string }>();
+  const { planId } = useParams<{ planId: string }>();
+  const [eventId, setEventId] = useState<string | null>(null);
   const [lineup, setLineup] = useState<{ custId: string; name: string }[]>([]);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<DriverSearchResult[]>([]);
@@ -35,8 +36,28 @@ export default function LineupPage() {
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
   const [profiles, setProfiles] = useState<DriverProfile[]>([]);
   const [computing, setComputing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fuelDrafts, setFuelDrafts] = useState<Record<string, string>>({});
+
+  // Load the plan (for its event_id + already-saved lineup) once on mount.
+  useEffect(() => {
+    if (!planId) return;
+    setLoading(true);
+    fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.ok) {
+          setError(data.message ?? "Could not load this plan.");
+          return;
+        }
+        setEventId(data.eventId);
+        setLineup((data.lineup ?? []).map((d: any) => ({ custId: d.custId, name: d.driverName ?? `Driver ${d.custId}` })));
+      })
+      .catch(() => setError("Network error. Please try again."))
+      .finally(() => setLoading(false));
+  }, [planId]);
 
   useEffect(() => {
     if (!eventId) return;
@@ -45,6 +66,23 @@ export default function LineupPage() {
       .then((data) => setConditionProfiles(data.profiles ?? []))
       .catch(() => setConditionProfiles([]));
   }, [eventId]);
+
+  async function saveLineup(next: { custId: string; name: string }[]) {
+    if (!planId) return;
+    setSaving(true);
+    try {
+      await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/lineup`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ custIds: next.map((d) => d.custId) }),
+      });
+    } catch {
+      setError("Could not save the lineup - your changes may not persist.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (!query.trim()) {
@@ -62,13 +100,17 @@ export default function LineupPage() {
 
   function addDriver(custId: string, name: string) {
     if (lineup.some((d) => d.custId === custId)) return;
-    setLineup([...lineup, { custId, name }]);
+    const next = [...lineup, { custId, name }];
+    setLineup(next);
     setQuery("");
     setSearchResults([]);
+    saveLineup(next);
   }
 
   function removeDriver(custId: string) {
-    setLineup(lineup.filter((d) => d.custId !== custId));
+    const next = lineup.filter((d) => d.custId !== custId);
+    setLineup(next);
+    saveLineup(next);
   }
 
   async function computeProfiles() {
@@ -107,9 +149,11 @@ export default function LineupPage() {
     }
   }
 
+  if (loading) return <p className="rp-section-sub">Loading…</p>;
+
   return (
     <div>
-      <h2>Driver lineup</h2>
+      <h2>Driver lineup {saving && <span className="rp-text-faint" style={{ fontSize: 12, fontWeight: 400, textTransform: "none" }}>(saving…)</span>}</h2>
       <p className="rp-section-sub" style={{ marginBottom: 16 }}>
         Pace and fuel profiles, filtered to laps run in conditions matching the selected segment.
       </p>
@@ -219,10 +263,12 @@ export default function LineupPage() {
       )}
 
       <div className="rp-row" style={{ marginTop: 20, justifyContent: "space-between" }}>
-        <Link to={`/race-planner/conditions/${eventId}`} className="rp-btn">
-          ← Back to conditions
-        </Link>
-        <Link to={`/race-planner/stints/${eventId}`} className="rp-btn rp-primary">
+        {eventId && (
+          <Link to={`/race-planner/conditions/${eventId}?planId=${planId}`} className="rp-btn">
+            ← Back to conditions
+          </Link>
+        )}
+        <Link to={`/race-planner/stints/${planId}`} className="rp-btn rp-primary">
           Continue to stints →
         </Link>
       </div>

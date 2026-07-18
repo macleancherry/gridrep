@@ -11,6 +11,7 @@ import PaceHome from "./pace/pages/PaceHome";
 import PaceSubsession from "./pace/pages/PaceSubsession";
 import RacePlannerLayout from "./racePlanner/RacePlannerLayout";
 import EventsHome from "./racePlanner/pages/EventsHome";
+import SeriesSessionsPage from "./racePlanner/pages/SeriesSessionsPage";
 import ConditionsPage from "./racePlanner/pages/ConditionsPage";
 import LineupPage from "./racePlanner/pages/LineupPage";
 import StintsPage from "./racePlanner/pages/StintsPage";
@@ -225,6 +226,14 @@ function RacePlannerApp() {
         }
       />
       <Route
+        path="/race-planner/series/:seriesId"
+        element={
+          <RacePlannerLayout>
+            <SeriesSessionsPage />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
         path="/race-planner/conditions"
         element={
           <RacePlannerLayout>
@@ -244,12 +253,12 @@ function RacePlannerApp() {
         path="/race-planner/lineup"
         element={
           <RacePlannerLayout>
-            <PlaceholderPage title="Driver lineup" note="Select an event first — its lineup page lives at /race-planner/lineup/:eventId." />
+            <PlaceholderPage title="Driver lineup" note="Select a session first — its lineup page lives at /race-planner/lineup/:planId." />
           </RacePlannerLayout>
         }
       />
       <Route
-        path="/race-planner/lineup/:eventId"
+        path="/race-planner/lineup/:planId"
         element={
           <RacePlannerLayout>
             <LineupPage />
@@ -260,12 +269,12 @@ function RacePlannerApp() {
         path="/race-planner/availability"
         element={
           <RacePlannerLayout>
-            <PlaceholderPage title="Availability & scheduling" note="Select an event first — its availability page lives at /race-planner/availability/:eventId." />
+            <PlaceholderPage title="Availability & scheduling" note="Select a session first — its availability page lives at /race-planner/availability/:planId." />
           </RacePlannerLayout>
         }
       />
       <Route
-        path="/race-planner/availability/:eventId"
+        path="/race-planner/availability/:planId"
         element={
           <RacePlannerLayout>
             <AvailabilityPage />
@@ -276,12 +285,12 @@ function RacePlannerApp() {
         path="/race-planner/stints"
         element={
           <RacePlannerLayout>
-            <PlaceholderPage title="Stint plan" note="Select an event first — its stint plan lives at /race-planner/stints/:eventId." />
+            <PlaceholderPage title="Stint plan" note="Select a session first — its stint plan lives at /race-planner/stints/:planId." />
           </RacePlannerLayout>
         }
       />
       <Route
-        path="/race-planner/stints/:eventId"
+        path="/race-planner/stints/:planId"
         element={
           <RacePlannerLayout>
             <StintsPage />
@@ -292,12 +301,12 @@ function RacePlannerApp() {
         path="/race-planner/plan"
         element={
           <RacePlannerLayout>
-            <PlaceholderPage title="Plan summary" note="Select an event first — its plan summary lives at /race-planner/plan/:eventId." />
+            <PlaceholderPage title="Plan summary" note="Select a session first — its plan summary lives at /race-planner/plan/:planId." />
           </RacePlannerLayout>
         }
       />
       <Route
-        path="/race-planner/plan/:eventId"
+        path="/race-planner/plan/:planId"
         element={
           <RacePlannerLayout>
             <PlanSummaryPage />

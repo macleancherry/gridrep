@@ -1,6 +1,7 @@
 import { getViewer } from "../../../../../_lib/auth";
 import { json, jsonError } from "../../../../../_lib/httpJson";
 import { buildAvailabilityBlocks, ORGANIZER_OVERVIEW_ZONES, type ConditionWindow } from "../../../../../_lib/plannerAvailability";
+import { isPlanVisible } from "../../../../../_lib/plannerRacePlan";
 
 /**
  * Block-by-block breakdown of the race (PRD §13.5) - used to render both the driver
@@ -8,9 +9,19 @@ import { buildAvailabilityBlocks, ORGANIZER_OVERVIEW_ZONES, type ConditionWindow
  * list, the organizer's sanity-check overview (PRD §13.3).
  */
 export async function onRequestGet(context: any) {
+  const viewer = await getViewer(context);
+  if (!viewer.verified) {
+    return jsonError(401, { error: "not_verified", message: "Sign in to view this plan's availability." });
+  }
+
   const planId = context.params.planId as string;
   const { DB } = context.env;
   const url = new URL(context.request.url);
+
+  const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
+  if (!(await isPlanVisible(DB, planId, viewerIdentity))) {
+    return jsonError(403, { error: "forbidden", message: "You don't have access to this plan." });
+  }
 
   const plan = await DB.prepare(
     `SELECT p.id, p.event_id as eventId, p.time_slot_id as timeSlotId, p.availability_block_minutes as blockMinutes,
@@ -39,9 +50,8 @@ export async function onRequestGet(context: any) {
 
   const durationMinutes = plan.raceDurationMinutes ?? plan.eventDurationMinutes ?? 1440;
 
-  const viewer = await getViewer(context);
   let timeZone = url.searchParams.get("tz") ?? "UTC";
-  if (!url.searchParams.get("tz") && viewer.verified) {
+  if (!url.searchParams.get("tz")) {
     const userRow = await DB.prepare(`SELECT timezone FROM users WHERE id = ?`).bind(viewer.user!.id).first<any>();
     if (userRow?.timezone) timeZone = userRow.timezone;
   }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 
 type EventRecord = {
   id: string;
@@ -20,11 +20,19 @@ type ConditionProfile = {
   trackState: string | null;
   precipPct: number | null;
   wind: string | null;
-  source: "screenshot_ai" | "manual";
+  source: "screenshot_ai" | "manual" | "iracing_data_api";
   submittedAt: string;
   wasEditedBeforeSave: boolean;
   flaggedAsOutdated: boolean;
 };
+
+type PlanSummary = { id: string; name: string };
+
+function sourceLabel(source: ConditionProfile["source"]): string {
+  if (source === "iracing_data_api") return "Real forecast";
+  if (source === "screenshot_ai") return "AI-extracted";
+  return "Manual entry";
+}
 
 const emptyForm = {
   label: "",
@@ -41,6 +49,9 @@ const emptyForm = {
 
 export default function ConditionsPage() {
   const { eventId } = useParams<{ eventId: string }>();
+  const [searchParams] = useSearchParams();
+  const planIdFromQuery = searchParams.get("planId");
+
   const [event, setEvent] = useState<EventRecord | null>(null);
   const [profiles, setProfiles] = useState<ConditionProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,15 +60,25 @@ export default function ConditionsPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Selecting a session normally arrives here with ?planId= already set. A bookmarked or
+  // shared /conditions/:eventId link without one falls back to resolving the viewer's own
+  // plan(s) for this event - exactly one -> use it, none -> offer to start one, more than
+  // one -> let them pick rather than guessing which.
+  const [myPlans, setMyPlans] = useState<PlanSummary[] | null>(null);
+  const [creatingPlan, setCreatingPlan] = useState(false);
+
   async function load() {
     if (!eventId) return;
     setLoading(true);
     setError(null);
     try {
-      const [eventRes, profilesRes] = await Promise.all([
+      const requests = [
         fetch(`/api/planner/events/${encodeURIComponent(eventId)}`, { credentials: "include" }),
         fetch(`/api/planner/events/${encodeURIComponent(eventId)}/conditions`, { credentials: "include" }),
-      ]);
+      ];
+      if (!planIdFromQuery) requests.push(fetch(`/api/planner/events/${encodeURIComponent(eventId)}/race-plans`, { credentials: "include" }));
+
+      const [eventRes, profilesRes, plansRes] = await Promise.all(requests);
       const eventData = await eventRes.json().catch(() => ({}));
       const profilesData = await profilesRes.json().catch(() => ({}));
 
@@ -68,6 +89,11 @@ export default function ConditionsPage() {
 
       setEvent(eventData.event);
       setProfiles(profilesData.profiles ?? []);
+
+      if (plansRes) {
+        const plansData = await plansRes.json().catch(() => ({}));
+        setMyPlans(plansData.plans ?? []);
+      }
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -79,6 +105,32 @@ export default function ConditionsPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
+
+  async function startPlan() {
+    if (!eventId) return;
+    setCreatingPlan(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/planner/race-plans`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ eventId }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setError(data.message ?? "Could not start a plan for this event.");
+        return;
+      }
+      setMyPlans([{ id: data.plan.id, name: data.plan.name }]);
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setCreatingPlan(false);
+    }
+  }
+
+  const resolvedPlanId = planIdFromQuery ?? (myPlans?.length === 1 ? myPlans[0].id : null);
 
   async function saveProfile() {
     if (!eventId || !form.label.trim()) return;
@@ -152,13 +204,34 @@ export default function ConditionsPage() {
     <div>
       <div className="rp-row" style={{ justifyContent: "space-between", marginBottom: 4 }}>
         <h2>Conditions — {event?.name}</h2>
-        <Link to={`/race-planner/lineup/${eventId}`} className="rp-btn rp-primary">
-          Continue to lineup →
-        </Link>
+        {resolvedPlanId ? (
+          <Link to={`/race-planner/lineup/${resolvedPlanId}`} className="rp-btn rp-primary">
+            Continue to lineup →
+          </Link>
+        ) : myPlans && myPlans.length === 0 ? (
+          <button className="rp-btn rp-primary" onClick={startPlan} disabled={creatingPlan}>
+            {creatingPlan ? "Starting…" : "Start a plan for this event"}
+          </button>
+        ) : null}
       </div>
       <p className="rp-section-sub" style={{ marginBottom: 16 }}>
         Forecast captured once, shared with every team planning this event instance.
       </p>
+
+      {myPlans && myPlans.length > 1 && !planIdFromQuery && (
+        <div className="rp-card" style={{ marginBottom: 16 }}>
+          <div className="rp-profile-label" style={{ marginBottom: 8 }}>
+            You have multiple plans for this event — pick one to continue:
+          </div>
+          <div className="rp-row" style={{ flexWrap: "wrap" }}>
+            {myPlans.map((p) => (
+              <Link key={p.id} to={`/race-planner/lineup/${p.id}`} className="rp-btn">
+                {p.name}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {error && <p className="rp-error">{error}</p>}
 
@@ -188,7 +261,7 @@ export default function ConditionsPage() {
                   {p.precipPct !== null ? ` · ${p.precipPct}% precip` : ""}
                 </div>
                 <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 4 }}>
-                  {p.source === "manual" ? "Manual entry" : "AI-extracted"} · {new Date(p.submittedAt).toLocaleString()}
+                  {sourceLabel(p.source)} · {new Date(p.submittedAt).toLocaleString()}
                 </div>
               </div>
               {!p.flaggedAsOutdated && (

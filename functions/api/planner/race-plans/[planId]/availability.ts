@@ -1,12 +1,25 @@
 import { getViewer } from "../../../../_lib/auth";
+import { isPlanVisible } from "../../../../_lib/plannerRacePlan";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 const VALID_STATUSES = new Set(["available", "maybe", "unavailable"]);
 
-/** All drivers' availability for this plan (PRD §13.5/§13.6) - used to overlay the stint builder. */
+/** All drivers' availability for this plan (PRD §13.5/§13.6) - used to overlay the stint
+ * builder. Team-visible by default (PRD §13.7.3) but still gated to the plan's own roster -
+ * not visible to unrelated teams planning the same shared event. */
 export async function onRequestGet(context: any) {
+  const viewer = await getViewer(context);
+  if (!viewer.verified) {
+    return jsonError(401, { error: "not_verified", message: "Sign in to view availability." });
+  }
+
   const planId = context.params.planId as string;
   const { DB } = context.env;
+
+  const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
+  if (!(await isPlanVisible(DB, planId, viewerIdentity))) {
+    return jsonError(403, { error: "forbidden", message: "You don't have access to this plan." });
+  }
 
   const rows = await DB.prepare(
     `SELECT a.cust_id as custId, d.display_name as driverName, a.block_start_offset_minutes as blockStartOffsetMinutes,
@@ -33,6 +46,11 @@ export async function onRequestPut(context: any) {
   const plan = await DB.prepare(`SELECT id FROM race_plans WHERE id = ?`).bind(planId).first<any>();
   if (!plan) {
     return jsonError(404, { error: "not_found", message: "Race plan not found." });
+  }
+
+  const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
+  if (!(await isPlanVisible(DB, planId, viewerIdentity))) {
+    return jsonError(403, { error: "forbidden", message: "You don't have access to this plan." });
   }
 
   const body = await context.request.json().catch(() => null);

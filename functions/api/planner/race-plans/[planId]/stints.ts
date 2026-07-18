@@ -1,6 +1,6 @@
 import { getViewer } from "../../../../_lib/auth";
 import { json, jsonError } from "../../../../_lib/httpJson";
-import { computeStintProjections, type StintInput } from "../../../../_lib/plannerRacePlan";
+import { computeStintProjections, isPlanVisible, type StintInput } from "../../../../_lib/plannerRacePlan";
 
 /**
  * Set/update the full stint assignment list (PRD §8) - replaces the plan's stints
@@ -19,6 +19,11 @@ export async function onRequestPut(context: any) {
   const plan = await DB.prepare(`SELECT * FROM race_plans WHERE id = ?`).bind(planId).first<any>();
   if (!plan) {
     return jsonError(404, { error: "not_found", message: "Race plan not found." });
+  }
+
+  const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
+  if (!(await isPlanVisible(DB, planId, viewerIdentity))) {
+    return jsonError(403, { error: "forbidden", message: "You don't have access to this plan." });
   }
 
   const body = await context.request.json().catch(() => null);

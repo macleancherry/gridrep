@@ -48,8 +48,8 @@ function formatOffset(minutes: number): string {
 }
 
 export default function StintsPage() {
-  const { eventId } = useParams<{ eventId: string }>();
-  const [planId, setPlanId] = useState<string | null>(null);
+  const { planId } = useParams<{ planId: string }>();
+  const [eventId, setEventId] = useState<string | null>(null);
   const [lineup, setLineup] = useState<LineupDriver[]>([]);
   const [conditionProfiles, setConditionProfiles] = useState<ConditionProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
@@ -61,8 +61,6 @@ export default function StintsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [creatingPlan, setCreatingPlan] = useState(false);
-  const [tankCapacity, setTankCapacity] = useState("120");
   const [spotting, setSpotting] = useState<SpottingAssignment[]>([]);
   const [warnings, setWarnings] = useState<Warnings | null>(null);
   const [newSpotterId, setNewSpotterId] = useState("");
@@ -70,11 +68,12 @@ export default function StintsPage() {
   const [newSpotEnd, setNewSpotEnd] = useState("");
   const [savingSpotting, setSavingSpotting] = useState(false);
 
-  async function loadDriverProfiles(custIds: string[], conditionProfileId: string) {
-    if (!eventId || custIds.length === 0) return;
+  async function loadDriverProfiles(custIds: string[], conditionProfileId: string, forEventId?: string) {
+    const targetEventId = forEventId ?? eventId;
+    if (!targetEventId || custIds.length === 0) return;
     const params = new URLSearchParams({ custIds: custIds.join(",") });
     if (conditionProfileId) params.set("conditionProfileId", conditionProfileId);
-    const r = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/driver-profiles?${params.toString()}`, {
+    const r = await fetch(`/api/planner/events/${encodeURIComponent(targetEventId)}/driver-profiles?${params.toString()}`, {
       credentials: "include",
     });
     const data = await r.json().catch(() => ({}));
@@ -88,32 +87,28 @@ export default function StintsPage() {
       setError(data.message ?? "Could not load this plan.");
       return;
     }
+    setEventId(data.eventId);
     setLineup(data.lineup ?? []);
     setStints(data.stints ?? []);
     setTotals(data.totals ?? null);
     setSpotting(data.spotting ?? []);
     setWarnings(data.warnings ?? null);
-    await loadDriverProfiles((data.lineup ?? []).map((d: LineupDriver) => d.custId), selectedProfileId);
+    await loadDriverProfiles((data.lineup ?? []).map((d: LineupDriver) => d.custId), selectedProfileId, data.eventId);
+    return data.eventId as string;
   }
 
+  // The plan already exists by the time this page loads - it's created at series/session
+  // select time (or via Conditions' own "start a plan" fallback), never lazily here.
   async function init() {
-    if (!eventId) return;
+    if (!planId) return;
     setLoading(true);
     setError(null);
     try {
-      const [plansRes, conditionsRes] = await Promise.all([
-        fetch(`/api/planner/events/${encodeURIComponent(eventId)}/race-plans`, { credentials: "include" }),
-        fetch(`/api/planner/events/${encodeURIComponent(eventId)}/conditions`, { credentials: "include" }),
-      ]);
-      const plansData = await plansRes.json().catch(() => ({}));
-      const conditionsData = await conditionsRes.json().catch(() => ({}));
-      setConditionProfiles(conditionsData.profiles ?? []);
-
-      const plans = plansData.plans ?? [];
-      if (plans.length > 0) {
-        setPlanId(plans[0].id);
-        setTankCapacity(String(plans[0].fuelTankCapacityLiters ?? 120));
-        await loadPlan(plans[0].id);
+      const loadedEventId = await loadPlan(planId);
+      if (loadedEventId) {
+        const conditionsRes = await fetch(`/api/planner/events/${encodeURIComponent(loadedEventId)}/conditions`, { credentials: "include" });
+        const conditionsData = await conditionsRes.json().catch(() => ({}));
+        setConditionProfiles(conditionsData.profiles ?? []);
       }
     } catch {
       setError("Network error. Please try again.");
@@ -125,32 +120,7 @@ export default function StintsPage() {
   useEffect(() => {
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId]);
-
-  async function createPlan() {
-    if (!eventId) return;
-    setCreatingPlan(true);
-    setError(null);
-    try {
-      const r = await fetch("/api/planner/race-plans", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ eventId, fuelTankCapacityLiters: Number(tankCapacity) || null }),
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok || !data.ok) {
-        setError(data.message ?? "Could not create a plan.");
-        return;
-      }
-      setPlanId(data.plan.id);
-      await loadPlan(data.plan.id);
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
-      setCreatingPlan(false);
-    }
-  }
+  }, [planId]);
 
   function addStint() {
     const profile = driverProfiles.find((p) => p.custId === newDriverId);
@@ -249,28 +219,14 @@ export default function StintsPage() {
 
   if (loading) return <p className="rp-section-sub">Loading…</p>;
 
-  if (!planId) {
+  if (error && !eventId) {
     return (
       <div>
         <h2>Stint plan</h2>
-        <p className="rp-section-sub" style={{ marginBottom: 16 }}>
-          No plan yet for this event. Create one to start building the stint timeline.
-        </p>
-        {error && <p className="rp-error">{error}</p>}
-        <div className="rp-card">
-          <div className="rp-form-field" style={{ maxWidth: 200, marginBottom: 12 }}>
-            <label>Fuel tank capacity (L)</label>
-            <input className="rp-input" type="number" value={tankCapacity} onChange={(e) => setTankCapacity(e.target.value)} />
-          </div>
-          <button className="rp-btn rp-primary" onClick={createPlan} disabled={creatingPlan}>
-            {creatingPlan ? "Creating…" : "Create plan"}
-          </button>
-        </div>
-        <div style={{ marginTop: 20 }}>
-          <Link to={`/race-planner/lineup/${eventId}`} className="rp-btn">
-            ← Back to lineup
-          </Link>
-        </div>
+        <p className="rp-error">{error}</p>
+        <Link to="/race-planner" className="rp-btn" style={{ marginTop: 12 }}>
+          ← Back to series
+        </Link>
       </div>
     );
   }
@@ -448,13 +404,13 @@ export default function StintsPage() {
       )}
 
       <div className="rp-row" style={{ marginTop: 20, justifyContent: "space-between" }}>
-        <Link to={`/race-planner/lineup/${eventId}`} className="rp-btn">
+        <Link to={`/race-planner/lineup/${planId}`} className="rp-btn">
           ← Back to lineup
         </Link>
-        <Link to={`/race-planner/availability/${eventId}`} className="rp-btn">
+        <Link to={`/race-planner/availability/${planId}`} className="rp-btn">
           Availability
         </Link>
-        <Link to={`/race-planner/plan/${eventId}`} className="rp-btn rp-primary">
+        <Link to={`/race-planner/plan/${planId}`} className="rp-btn rp-primary">
           Plan summary →
         </Link>
       </div>

@@ -1,4 +1,5 @@
 import { getViewer } from "../../../_lib/auth";
+import { upsertIracingEvent } from "../../../_lib/plannerIracing";
 import { json, jsonError } from "../../../_lib/httpJson";
 
 /**
@@ -23,38 +24,18 @@ export async function onRequestPost(context: any) {
   }
 
   const eventType = body?.eventType === "special" || body?.eventType === "hosted" ? body.eventType : "league";
-  const { DB } = context.env;
-  const now = new Date().toISOString();
 
-  await DB.prepare(
-    `INSERT INTO iracing_events (
-       id, name, track_name, track_config, event_type, scheduled_start_time,
-       duration_minutes, series_id, season_id, source, created_at
-     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'iracing_data_api', ?)
-     ON CONFLICT(id) DO UPDATE SET
-       name = excluded.name,
-       track_name = COALESCE(excluded.track_name, iracing_events.track_name),
-       track_config = COALESCE(excluded.track_config, iracing_events.track_config),
-       event_type = excluded.event_type,
-       scheduled_start_time = COALESCE(excluded.scheduled_start_time, iracing_events.scheduled_start_time),
-       series_id = COALESCE(excluded.series_id, iracing_events.series_id),
-       season_id = COALESCE(excluded.season_id, iracing_events.season_id)`
-  )
-    .bind(
-      id,
-      name,
-      body?.trackName ?? null,
-      body?.trackConfig ?? null,
-      eventType,
-      body?.scheduledStartTime ?? null,
-      body?.durationMinutes ?? null,
-      body?.seriesId ?? null,
-      body?.seasonId ?? null,
-      now
-    )
-    .run();
+  const event = await upsertIracingEvent(context.env.DB, {
+    id,
+    name,
+    trackName: body?.trackName ?? null,
+    trackConfig: body?.trackConfig ?? null,
+    eventType,
+    scheduledStartTime: body?.scheduledStartTime ?? null,
+    durationMinutes: body?.durationMinutes ?? null,
+    seriesId: body?.seriesId ?? null,
+    seasonId: body?.seasonId ?? null,
+  });
 
-  const event = await DB.prepare(`SELECT * FROM iracing_events WHERE id = ?`).bind(id).first<any>();
   return json({ ok: true, event });
 }

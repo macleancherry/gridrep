@@ -20,9 +20,8 @@ type Status = "available" | "maybe" | "unavailable";
 const detectedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export default function AvailabilityPage() {
-  const { eventId } = useParams<{ eventId: string }>();
+  const { planId } = useParams<{ planId: string }>();
   const [tab, setTab] = useState<"organizer" | "driver">("organizer");
-  const [planId, setPlanId] = useState<string | null>(null);
   const [lineup, setLineup] = useState<LineupDriver[]>([]);
   const [organizerZones, setOrganizerZones] = useState<OrganizerZone[]>([]);
   const [allAvailability, setAllAvailability] = useState<AvailabilityRow[]>([]);
@@ -32,8 +31,7 @@ export default function AvailabilityPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tankCapacity, setTankCapacity] = useState("120");
-  const [creatingPlan, setCreatingPlan] = useState(false);
+  const [planLoadFailed, setPlanLoadFailed] = useState(false);
 
   async function loadBlocks(tz: string) {
     if (!planId) return;
@@ -55,25 +53,24 @@ export default function AvailabilityPage() {
     setAllAvailability(rows);
   }
 
+  // The plan already exists by the time this page loads - created at series/session
+  // select time, never lazily here.
   async function init() {
-    if (!eventId) return;
+    if (!planId) return;
     setLoading(true);
     setError(null);
     try {
-      const plansRes = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/race-plans`, { credentials: "include" });
-      const plansData = await plansRes.json().catch(() => ({}));
-      const plans = plansData.plans ?? [];
-      if (plans.length > 0) {
-        const id = plans[0].id;
-        setPlanId(id);
-        setTankCapacity(String(plans[0].fuelTankCapacityLiters ?? 120));
-
-        const planRes = await fetch(`/api/planner/race-plans/${encodeURIComponent(id)}`, { credentials: "include" });
-        const planData = await planRes.json().catch(() => ({}));
-        setLineup(planData.lineup ?? []);
+      const planRes = await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}`, { credentials: "include" });
+      const planData = await planRes.json().catch(() => ({}));
+      if (!planRes.ok || !planData.ok) {
+        setError(planData.message ?? "Could not load this plan.");
+        setPlanLoadFailed(true);
+        return;
       }
+      setLineup(planData.lineup ?? []);
     } catch {
       setError("Network error. Please try again.");
+      setPlanLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -82,7 +79,7 @@ export default function AvailabilityPage() {
   useEffect(() => {
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId]);
+  }, [planId]);
 
   useEffect(() => {
     if (!planId) return;
@@ -90,30 +87,6 @@ export default function AvailabilityPage() {
     loadAvailability();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId]);
-
-  async function createPlan() {
-    if (!eventId) return;
-    setCreatingPlan(true);
-    setError(null);
-    try {
-      const r = await fetch("/api/planner/race-plans", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ eventId, fuelTankCapacityLiters: Number(tankCapacity) || null }),
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok || !data.ok) {
-        setError(data.message ?? "Could not create a plan.");
-        return;
-      }
-      setPlanId(data.plan.id);
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
-      setCreatingPlan(false);
-    }
-  }
 
   function setBlockStatus(offset: number, status: Status) {
     setMyStatuses({ ...myStatuses, [offset]: status });
@@ -151,23 +124,14 @@ export default function AvailabilityPage() {
 
   if (loading) return <p className="rp-section-sub">Loading…</p>;
 
-  if (!planId) {
+  if (planLoadFailed) {
     return (
       <div>
         <h2>Availability &amp; scheduling</h2>
-        <p className="rp-section-sub" style={{ marginBottom: 16 }}>
-          No plan yet for this event. Create one to start collecting availability.
-        </p>
-        {error && <p className="rp-error">{error}</p>}
-        <div className="rp-card">
-          <div className="rp-form-field" style={{ maxWidth: 200, marginBottom: 12 }}>
-            <label>Fuel tank capacity (L)</label>
-            <input className="rp-input" type="number" value={tankCapacity} onChange={(e) => setTankCapacity(e.target.value)} />
-          </div>
-          <button className="rp-btn rp-primary" onClick={createPlan} disabled={creatingPlan}>
-            {creatingPlan ? "Creating…" : "Create plan"}
-          </button>
-        </div>
+        <p className="rp-error">{error}</p>
+        <Link to="/race-planner" className="rp-btn" style={{ marginTop: 12 }}>
+          ← Back to series
+        </Link>
       </div>
     );
   }
@@ -286,7 +250,7 @@ export default function AvailabilityPage() {
       )}
 
       <div style={{ marginTop: 20 }}>
-        <Link to={`/race-planner/stints/${eventId}`} className="rp-btn">
+        <Link to={`/race-planner/stints/${planId}`} className="rp-btn">
           ← Back to stints
         </Link>
       </div>

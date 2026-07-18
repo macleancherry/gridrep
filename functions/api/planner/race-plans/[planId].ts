@@ -1,14 +1,27 @@
+import { getViewer } from "../../../_lib/auth";
 import { json, jsonError } from "../../../_lib/httpJson";
-import { computeStintProjections, computeDutyWarnings, type StintInput, type SpottingAssignment } from "../../../_lib/plannerRacePlan";
+import { computeStintProjections, computeDutyWarnings, isPlanVisible, type StintInput, type SpottingAssignment } from "../../../_lib/plannerRacePlan";
 
-/** Retrieve a plan for display/export (PRD §8) - stints + live-recomputed totals. */
+/** Retrieve a plan for display/export (PRD §8) - stints + live-recomputed totals.
+ * Only visible to the plan's creator or a driver in its lineup (never another team's
+ * plan for the same shared event, just by knowing its id). */
 export async function onRequestGet(context: any) {
+  const viewer = await getViewer(context);
+  if (!viewer.verified) {
+    return jsonError(401, { error: "not_verified", message: "Verification required to view this plan." });
+  }
+
   const planId = context.params.planId as string;
   const { DB } = context.env;
 
   const plan = await DB.prepare(`SELECT * FROM race_plans WHERE id = ?`).bind(planId).first<any>();
   if (!plan) {
     return jsonError(404, { error: "not_found", message: "Race plan not found." });
+  }
+
+  const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
+  if (!(await isPlanVisible(DB, planId, viewerIdentity))) {
+    return jsonError(403, { error: "forbidden", message: "You don't have access to this plan." });
   }
 
   const lineupRows = await DB.prepare(
@@ -62,6 +75,7 @@ export async function onRequestGet(context: any) {
   return json({
     ok: true,
     plan,
+    eventId: plan.event_id, // plan itself is a raw `SELECT *` row (snake_case) - this is the camelCase convenience field
     lineup: lineupRows.results ?? [],
     stints: stints.map((s) => ({ ...s, driverName: driverNameByCustId.get(s.custId) ?? `Driver ${s.custId}` })),
     totals,

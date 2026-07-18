@@ -468,3 +468,269 @@ export function extractDiscoveredEvents(payload: any, opts: { specialOnly?: bool
     };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Series -> session drill-down (confirmed live 2026-07-18, see plan report).
+// A season-level row has NO `track` field - it only exists per-`schedules[i]`
+// entry, one per race week. Everything below reads from `schedules[]`, not the
+// season row itself, to actually get real track/duration/forecast data.
+// ---------------------------------------------------------------------------
+
+export type UpsertEventInput = {
+  id: string;
+  name: string;
+  trackName?: string | null;
+  trackConfig?: string | null;
+  eventType: "special" | "hosted" | "league";
+  scheduledStartTime?: string | null;
+  durationMinutes?: number | null;
+  seriesId?: string | null;
+  seasonId?: string | null;
+};
+
+/**
+ * Upserts an event into iracing_events, keyed on its own id (per the PRD's "same event +
+ * scheduled start resolves to one record" rule, §7). Shared by both the shallow
+ * events/select.ts path and the richer series/select-session.ts path - the latter
+ * generally has better data (real track/duration from a schedule entry rather than a
+ * season row), so re-selecting the same event through it refreshes those fields.
+ */
+export async function upsertIracingEvent(DB: any, data: UpsertEventInput): Promise<any> {
+  const now = new Date().toISOString();
+
+  await DB.prepare(
+    `INSERT INTO iracing_events (
+       id, name, track_name, track_config, event_type, scheduled_start_time,
+       duration_minutes, series_id, season_id, source, created_at
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'iracing_data_api', ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       track_name = COALESCE(excluded.track_name, iracing_events.track_name),
+       track_config = COALESCE(excluded.track_config, iracing_events.track_config),
+       event_type = excluded.event_type,
+       scheduled_start_time = COALESCE(excluded.scheduled_start_time, iracing_events.scheduled_start_time),
+       duration_minutes = COALESCE(excluded.duration_minutes, iracing_events.duration_minutes),
+       series_id = COALESCE(excluded.series_id, iracing_events.series_id),
+       season_id = COALESCE(excluded.season_id, iracing_events.season_id)`
+  )
+    .bind(
+      data.id,
+      data.name,
+      data.trackName ?? null,
+      data.trackConfig ?? null,
+      data.eventType,
+      data.scheduledStartTime ?? null,
+      data.durationMinutes ?? null,
+      data.seriesId ?? null,
+      data.seasonId ?? null,
+      now
+    )
+    .run();
+
+  return DB.prepare(`SELECT * FROM iracing_events WHERE id = ?`).bind(data.id).first<any>();
+}
+
+export type SeriesSummary = { seriesId: string; name: string };
+
+/** Distinct special-event series, deduped by series_id across however many season
+ * rows reference it. Reuses looksLikeSpecialEvent - no separate heuristic. */
+export function extractSeriesList(payload: any): SeriesSummary[] {
+  const rows = extractSeasonRows(payload).filter(looksLikeSpecialEvent);
+  const bySeriesId = new Map<string, SeriesSummary>();
+
+  for (const row of rows) {
+    const seriesId = pickNumber(row.series_id);
+    if (seriesId === undefined) continue;
+    const key = String(seriesId);
+    if (!bySeriesId.has(key)) {
+      const name =
+        pickString((row.schedules as any)?.[0]?.series_name) ?? pickString(row.series_name) ?? pickString(row.season_name) ?? "Unknown series";
+      bySeriesId.set(key, { seriesId: key, name });
+    }
+  }
+
+  return Array.from(bySeriesId.values());
+}
+
+export type ScheduleSession = {
+  seasonId: string;
+  raceWeekNum: number;
+  scheduleName?: string;
+  trackName?: string;
+  trackConfig?: string;
+  specialEventType?: number;
+  scheduledStartTime?: string; // ISO, best-effort - see buildScheduledStartTime
+  durationMinutes?: number;
+  forecastAvailable: boolean;
+  weatherUrl?: string;
+};
+
+/** Combines a schedule entry's start_date + first_session_time into a UTC ISO
+ * timestamp. Confirmed-live fields (`start_date`, `race_time_descriptors[0].
+ * first_session_time`) - the combination itself (assuming both are already UTC,
+ * matching every other timestamp this codebase has seen from the Data API) is
+ * not separately confirmed for a genuine one-off special event, only for a
+ * regular repeating series - worth a spot-check against a real special event
+ * once one is selectable, per the plan's verification section. */
+function buildScheduledStartTime(row: Record<string, unknown>): string | undefined {
+  const startDate = pickString(row.start_date);
+  const descriptors = Array.isArray(row.race_time_descriptors) ? row.race_time_descriptors : [];
+  const firstTime = pickString((descriptors[0] as any)?.first_session_time);
+  if (!startDate) return undefined;
+  if (!firstTime) return `${startDate}T00:00:00Z`;
+  return `${startDate}T${firstTime}Z`;
+}
+
+/** Duration derivation - `race_time_descriptors[0].session_minutes` is the most
+ * direct field (confirmed present, 26min for a Mazda MX-5 sprint in the live
+ * probe). Falls back to week_end_time - start_date (less precise - that window
+ * can include surrounding practice time) if the descriptor is missing. */
+function deriveDurationMinutes(row: Record<string, unknown>): number | undefined {
+  const descriptors = Array.isArray(row.race_time_descriptors) ? row.race_time_descriptors : [];
+  const sessionMinutes = pickNumber((descriptors[0] as any)?.session_minutes);
+  if (sessionMinutes !== undefined) return sessionMinutes;
+
+  const startDate = pickString(row.start_date);
+  const weekEnd = pickString(row.week_end_time);
+  if (startDate && weekEnd) {
+    const ms = new Date(weekEnd).getTime() - new Date(`${startDate}T00:00:00Z`).getTime();
+    if (Number.isFinite(ms) && ms > 0) return Math.round(ms / 60000);
+  }
+
+  return undefined;
+}
+
+/** All schedule entries (race weeks) for a given series, across whichever season
+ * row(s) in the payload reference it - almost always exactly one for a genuine
+ * special event, since those are one-off rather than recurring weekly. */
+export function extractSchedulesForSeries(payload: any, seriesId: string): ScheduleSession[] {
+  const seasonRows = extractSeasonRows(payload).filter((row) => String(pickNumber(row.series_id) ?? "") === seriesId);
+  const out: ScheduleSession[] = [];
+
+  for (const seasonRow of seasonRows) {
+    const seasonId = pickNumber(seasonRow.season_id);
+    const schedules = Array.isArray(seasonRow.schedules) ? seasonRow.schedules : [];
+
+    for (const s of schedules as Record<string, unknown>[]) {
+      const track = s.track as any;
+      const weather = s.weather as any;
+      const weatherUrl = pickString(weather?.weather_url);
+
+      out.push({
+        seasonId: seasonId !== undefined ? String(seasonId) : "",
+        raceWeekNum: pickNumber(s.race_week_num) ?? 0,
+        scheduleName: pickString(s.schedule_name),
+        trackName: pickString(track?.track_name),
+        trackConfig: pickString(track?.config_name),
+        specialEventType: pickNumber(s.special_event_type),
+        scheduledStartTime: buildScheduledStartTime(s),
+        durationMinutes: deriveDurationMinutes(s),
+        forecastAvailable: Boolean(weatherUrl),
+        weatherUrl,
+      });
+    }
+  }
+
+  return out;
+}
+
+export type ForecastHour = {
+  timestamp: string;
+  timeOffsetMinutes: number;
+  isSunUp: boolean;
+  airTempC?: number;
+  cloudCoverPct?: number;
+  precipChancePct?: number;
+  windSpeed?: number;
+};
+
+/** Fetches the actual hourly forecast timeline a schedule entry's weather_url
+ * points to - confirmed live: it's a pre-signed public S3 link, no Authorization
+ * header needed (same two-step pattern the rest of the Data API uses, except the
+ * signing is already done by the time this URL is handed to us). */
+export async function fetchWeatherForecast(weatherUrl: string): Promise<ForecastHour[]> {
+  const res = await fetch(weatherUrl);
+  if (!res.ok) throw new Error(`Weather forecast fetch failed: ${res.status}`);
+  const rows = (await res.json()) as any[];
+
+  return (Array.isArray(rows) ? rows : [])
+    .map((r) => ({
+      timestamp: pickString(r.timestamp) ?? "",
+      timeOffsetMinutes: pickNumber(r.time_offset) ?? 0,
+      isSunUp: Boolean(r.is_sun_up),
+      // air_temp confirmed live as centi-degrees-Celsius (2593 -> 25.93degC for a
+      // real June reading) - unrelated to the temp_units field seen elsewhere,
+      // this file has no units field of its own.
+      airTempC: pickNumber(r.air_temp) !== undefined ? (pickNumber(r.air_temp) as number) / 100 : undefined,
+      cloudCoverPct: pickNumber(r.cloud_cover) !== undefined ? (pickNumber(r.cloud_cover) as number) / 10 : undefined,
+      precipChancePct: pickNumber(r.precip_chance),
+      windSpeed: pickNumber(r.wind_speed),
+    }))
+    .filter((r) => r.timestamp);
+}
+
+export type DerivedConditionProfile = {
+  label: string;
+  windowStartMin: number;
+  windowEndMin: number;
+  airTempMin?: number;
+  airTempMax?: number;
+  trackState?: string;
+  precipPct?: number;
+};
+
+/**
+ * Buckets an hourly forecast timeline into Day/Dusk/Night/Dawn segments (PRD §6).
+ * The raw data only has a boolean `is_sun_up`, not named phases, so this is a
+ * heuristic, not a confirmed mapping: a `true` run is "Day"; a `false` run gets
+ * its first hour labeled "Dusk", its last hour "Dawn", and the middle (if any)
+ * "Night" - short `false` runs (<3 hours, e.g. a brief evening dip) stay a
+ * single "Night" bucket rather than producing degenerate 0-length Dusk/Dawn
+ * slivers. Only tested against a short live window (a few hours of one series'
+ * forecast, not a full multi-day-cycle special event) - worth eyeballing
+ * against a real 24h+ event's output once one is selectable.
+ */
+export function deriveConditionProfilesFromForecast(hours: ForecastHour[]): DerivedConditionProfile[] {
+  const sorted = [...hours].sort((a, b) => a.timeOffsetMinutes - b.timeOffsetMinutes);
+  if (sorted.length === 0) return [];
+
+  type Run = { isSunUp: boolean; hours: ForecastHour[] };
+  const runs: Run[] = [];
+  for (const hour of sorted) {
+    const last = runs[runs.length - 1];
+    if (last && last.isSunUp === hour.isSunUp) last.hours.push(hour);
+    else runs.push({ isSunUp: hour.isSunUp, hours: [hour] });
+  }
+
+  function summarize(label: string, hours: ForecastHour[]): DerivedConditionProfile {
+    const temps = hours.map((h) => h.airTempC).filter((t): t is number => t !== undefined);
+    const precips = hours.map((h) => h.precipChancePct).filter((p): p is number => p !== undefined);
+    return {
+      label,
+      windowStartMin: hours[0].timeOffsetMinutes,
+      windowEndMin: hours[hours.length - 1].timeOffsetMinutes,
+      airTempMin: temps.length ? Math.min(...temps) : undefined,
+      airTempMax: temps.length ? Math.max(...temps) : undefined,
+      trackState: precips.some((p) => p > 50) ? "wet" : "dry",
+      precipPct: precips.length ? Math.round(Math.max(...precips)) : undefined,
+    };
+  }
+
+  const profiles: DerivedConditionProfile[] = [];
+  for (const run of runs) {
+    if (run.isSunUp) {
+      profiles.push(summarize("Day", run.hours));
+      continue;
+    }
+    if (run.hours.length < 3) {
+      profiles.push(summarize("Night", run.hours));
+      continue;
+    }
+    profiles.push(summarize("Dusk", [run.hours[0]]));
+    profiles.push(summarize("Night", run.hours.slice(1, -1)));
+    profiles.push(summarize("Dawn", [run.hours[run.hours.length - 1]]));
+  }
+
+  return profiles;
+}

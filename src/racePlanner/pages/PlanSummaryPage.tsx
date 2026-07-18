@@ -42,7 +42,7 @@ function spotterFor(stint: Stint, spotting: Spotting[]): Spotting | null {
 }
 
 export default function PlanSummaryPage() {
-  const { eventId } = useParams<{ eventId: string }>();
+  const { planId } = useParams<{ planId: string }>();
   const [event, setEvent] = useState<EventRecord | null>(null);
   const [stints, setStints] = useState<Stint[]>([]);
   const [spotting, setSpotting] = useState<Spotting[]>([]);
@@ -53,29 +53,11 @@ export default function PlanSummaryPage() {
   const [copied, setCopied] = useState(false);
 
   async function init() {
-    if (!eventId) return;
+    if (!planId) return;
     setLoading(true);
     setError(null);
     try {
-      const [eventRes, plansRes] = await Promise.all([
-        fetch(`/api/planner/events/${encodeURIComponent(eventId)}`, { credentials: "include" }),
-        fetch(`/api/planner/events/${encodeURIComponent(eventId)}/race-plans`, { credentials: "include" }),
-      ]);
-      const eventData = await eventRes.json().catch(() => ({}));
-      if (!eventRes.ok || !eventData.ok) {
-        setError(eventData.message ?? "Event not found.");
-        return;
-      }
-      setEvent(eventData.event);
-
-      const plansData = await plansRes.json().catch(() => ({}));
-      const plans = plansData.plans ?? [];
-      if (plans.length === 0) {
-        setError("No plan yet for this event — build one on the Stints page first.");
-        return;
-      }
-
-      const planRes = await fetch(`/api/planner/race-plans/${encodeURIComponent(plans[0].id)}`, { credentials: "include" });
+      const planRes = await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}`, { credentials: "include" });
       const planData = await planRes.json().catch(() => ({}));
       if (!planRes.ok || !planData.ok) {
         setError(planData.message ?? "Could not load this plan.");
@@ -89,6 +71,10 @@ export default function PlanSummaryPage() {
       const names: Record<string, string> = {};
       for (const s of planData.stints ?? []) names[s.custId] = s.driverName;
       setDriverNames(names);
+
+      const eventRes = await fetch(`/api/planner/events/${encodeURIComponent(planData.eventId)}`, { credentials: "include" });
+      const eventData = await eventRes.json().catch(() => ({}));
+      if (eventRes.ok && eventData.ok) setEvent(eventData.event);
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -99,7 +85,7 @@ export default function PlanSummaryPage() {
   useEffect(() => {
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId]);
+  }, [planId]);
 
   async function copyLink() {
     try {
@@ -118,7 +104,7 @@ export default function PlanSummaryPage() {
       <div>
         <h2>Race plan</h2>
         <p className="rp-error">{error}</p>
-        <Link to={`/race-planner/stints/${eventId}`} className="rp-btn" style={{ marginTop: 12 }}>
+        <Link to={`/race-planner/stints/${planId}`} className="rp-btn" style={{ marginTop: 12 }}>
           ← Back to stints
         </Link>
       </div>
@@ -241,7 +227,7 @@ export default function PlanSummaryPage() {
       </div>
 
       <div style={{ marginTop: 20 }}>
-        <Link to={`/race-planner/stints/${eventId}`} className="rp-btn">
+        <Link to={`/race-planner/stints/${planId}`} className="rp-btn">
           ← Back to stints
         </Link>
       </div>

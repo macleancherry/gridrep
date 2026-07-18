@@ -1,4 +1,5 @@
 import { getViewer } from "../../../../_lib/auth";
+import { isPlanVisible } from "../../../../_lib/plannerRacePlan";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /** Set the plan's chosen time slot (PRD §13.5) - null/omit to fall back to the event's own scheduled start. */
@@ -14,6 +15,11 @@ export async function onRequestPut(context: any) {
   const plan = await DB.prepare(`SELECT id, event_id as eventId FROM race_plans WHERE id = ?`).bind(planId).first<any>();
   if (!plan) {
     return jsonError(404, { error: "not_found", message: "Race plan not found." });
+  }
+
+  const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
+  if (!(await isPlanVisible(DB, planId, viewerIdentity))) {
+    return jsonError(403, { error: "forbidden", message: "You don't have access to this plan." });
   }
 
   const body = await context.request.json().catch(() => null);
