@@ -27,6 +27,16 @@ type ConditionProfile = {
 
 type PlanSummary = { id: string; name: string };
 
+type PitRules = {
+  tyreChangeIntervalStints: number | null;
+  simultaneousFuelTyres: boolean;
+  basePitTimeSeconds: number;
+  sequentialTimePenaltySeconds: number;
+  source: "preset" | "manual" | "derived";
+  submittedAt: string;
+  flaggedAsOutdated: boolean;
+};
+
 function sourceLabel(source: ConditionProfile["source"]): string {
   return source === "iracing_data_api" ? "Real forecast" : "Manual entry";
 }
@@ -44,6 +54,13 @@ const emptyForm = {
   wind: "",
 };
 
+const emptyPitRulesForm = {
+  tyreChangeIntervalStints: "",
+  simultaneousFuelTyres: "true",
+  basePitTimeSeconds: "55",
+  sequentialTimePenaltySeconds: "0",
+};
+
 export default function ConditionsPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const [searchParams] = useSearchParams();
@@ -57,6 +74,11 @@ export default function ConditionsPage() {
   const [form, setForm] = useState(emptyForm);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const [pitRules, setPitRules] = useState<PitRules | null>(null);
+  const [pitRulesForm, setPitRulesForm] = useState(emptyPitRulesForm);
+  const [showPitRulesForm, setShowPitRulesForm] = useState(false);
+  const [savingPitRules, setSavingPitRules] = useState(false);
 
   // Selecting a session normally arrives here with ?planId= already set. A bookmarked or
   // shared /conditions/:eventId link without one falls back to resolving the viewer's own
@@ -76,6 +98,8 @@ export default function ConditionsPage() {
       ];
       if (!planIdFromQuery) requests.push(fetch(`/api/planner/events/${encodeURIComponent(eventId)}/race-plans`, { credentials: "include" }));
 
+      const pitRulesRequest = fetch(`/api/planner/events/${encodeURIComponent(eventId)}/pit-rules`, { credentials: "include" });
+
       const [eventRes, profilesRes, plansRes] = await Promise.all(requests);
       const eventData = await eventRes.json().catch(() => ({}));
       const profilesData = await profilesRes.json().catch(() => ({}));
@@ -92,6 +116,10 @@ export default function ConditionsPage() {
         const plansData = await plansRes.json().catch(() => ({}));
         setMyPlans(plansData.plans ?? []);
       }
+
+      const pitRulesRes = await pitRulesRequest;
+      const pitRulesData = await pitRulesRes.json().catch(() => ({}));
+      if (pitRulesRes.ok && pitRulesData.ok) setPitRules(pitRulesData.rules ?? null);
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -176,6 +204,62 @@ export default function ConditionsPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function openPitRulesForm() {
+    setPitRulesForm(
+      pitRules
+        ? {
+            tyreChangeIntervalStints: pitRules.tyreChangeIntervalStints !== null ? String(pitRules.tyreChangeIntervalStints) : "",
+            simultaneousFuelTyres: String(pitRules.simultaneousFuelTyres),
+            basePitTimeSeconds: String(pitRules.basePitTimeSeconds),
+            sequentialTimePenaltySeconds: String(pitRules.sequentialTimePenaltySeconds),
+          }
+        : emptyPitRulesForm
+    );
+    setShowPitRulesForm(true);
+  }
+
+  async function savePitRules() {
+    if (!eventId) return;
+    setSavingPitRules(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/pit-rules`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          tyreChangeIntervalStints: pitRulesForm.tyreChangeIntervalStints.trim() === "" ? null : Number(pitRulesForm.tyreChangeIntervalStints),
+          simultaneousFuelTyres: pitRulesForm.simultaneousFuelTyres === "true",
+          basePitTimeSeconds: Number(pitRulesForm.basePitTimeSeconds),
+          sequentialTimePenaltySeconds: Number(pitRulesForm.sequentialTimePenaltySeconds),
+          source: "manual",
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+
+      if (!r.ok || !data.ok) {
+        setError(data.message ?? "Could not save pit rules.");
+        return;
+      }
+
+      setShowPitRulesForm(false);
+      await load();
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSavingPitRules(false);
+    }
+  }
+
+  async function flagPitRulesOutdated() {
+    if (!eventId) return;
+    await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/pit-rules/flag-outdated`, {
+      method: "POST",
+      credentials: "include",
+    });
+    await load();
   }
 
   // Practice/Qualifying/Warmup profiles are stored with a race-start-relative negative
@@ -392,6 +476,109 @@ export default function ConditionsPage() {
               {saving ? "Saving…" : "Confirm & save"}
             </button>
             <button className="rp-btn" onClick={() => setShowForm(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <h3 style={{ fontSize: 15, marginTop: 28, marginBottom: 8 }}>Pit rules</h3>
+      <p className="rp-section-sub" style={{ marginBottom: 12 }}>
+        Shared per event — new plans inherit their default pit-stop time from here.
+      </p>
+
+      {!showPitRulesForm && !pitRules && (
+        <div className="rp-card" style={{ marginBottom: 12 }}>No pit rules set for this event yet.</div>
+      )}
+
+      {!showPitRulesForm && pitRules && (
+        <div className="rp-card rp-profile-row" style={{ marginBottom: 12 }}>
+          <div>
+            <div className="rp-profile-label">
+              {pitRules.basePitTimeSeconds}s base pit time
+              {pitRules.flaggedAsOutdated && (
+                <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
+                  Flagged outdated
+                </span>
+              )}
+            </div>
+            <div className="rp-section-sub rp-mono">
+              {pitRules.simultaneousFuelTyres ? "Fuel + tyres simultaneous" : `Sequential · +${pitRules.sequentialTimePenaltySeconds}s`}
+              {pitRules.tyreChangeIntervalStints !== null
+                ? ` · Tyres every ${pitRules.tyreChangeIntervalStints} stint${pitRules.tyreChangeIntervalStints === 1 ? "" : "s"}`
+                : ""}
+            </div>
+            <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 4 }}>
+              Manual entry · {new Date(pitRules.submittedAt).toLocaleString()}
+            </div>
+          </div>
+          <div className="rp-row">
+            <button className="rp-btn" onClick={openPitRulesForm}>
+              Edit
+            </button>
+            {!pitRules.flaggedAsOutdated && (
+              <button className="rp-btn" onClick={flagPitRulesOutdated}>
+                Flag as outdated
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!showPitRulesForm ? (
+        <button className="rp-btn rp-primary" onClick={openPitRulesForm}>
+          {pitRules ? "Edit pit rules" : "+ Set pit rules"}
+        </button>
+      ) : (
+        <div className="rp-card">
+          <div className="rp-form-grid">
+            <div className="rp-form-field">
+              <label>Base pit time (s)</label>
+              <input
+                className="rp-input"
+                type="number"
+                value={pitRulesForm.basePitTimeSeconds}
+                onChange={(e) => setPitRulesForm({ ...pitRulesForm, basePitTimeSeconds: e.target.value })}
+              />
+            </div>
+            <div className="rp-form-field">
+              <label>Fuel &amp; tyres</label>
+              <select
+                className="rp-input"
+                value={pitRulesForm.simultaneousFuelTyres}
+                onChange={(e) => setPitRulesForm({ ...pitRulesForm, simultaneousFuelTyres: e.target.value })}
+              >
+                <option value="true">Simultaneous</option>
+                <option value="false">Sequential (adds a penalty)</option>
+              </select>
+            </div>
+            {pitRulesForm.simultaneousFuelTyres === "false" && (
+              <div className="rp-form-field">
+                <label>Sequential penalty (s)</label>
+                <input
+                  className="rp-input"
+                  type="number"
+                  value={pitRulesForm.sequentialTimePenaltySeconds}
+                  onChange={(e) => setPitRulesForm({ ...pitRulesForm, sequentialTimePenaltySeconds: e.target.value })}
+                />
+              </div>
+            )}
+            <div className="rp-form-field">
+              <label>Tyre change interval (stints)</label>
+              <input
+                className="rp-input"
+                type="number"
+                placeholder="e.g. 1 = every stint"
+                value={pitRulesForm.tyreChangeIntervalStints}
+                onChange={(e) => setPitRulesForm({ ...pitRulesForm, tyreChangeIntervalStints: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="rp-row">
+            <button className="rp-btn rp-primary" onClick={savePitRules} disabled={savingPitRules}>
+              {savingPitRules ? "Saving…" : "Confirm & save"}
+            </button>
+            <button className="rp-btn" onClick={() => setShowPitRulesForm(false)}>
               Cancel
             </button>
           </div>
