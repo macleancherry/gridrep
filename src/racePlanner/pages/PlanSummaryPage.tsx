@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import { usePlanContext } from "../PlanContext";
 
 type EventRecord = { id: string; name: string; track_name: string | null; scheduled_start_time: string | null };
 
@@ -43,6 +44,8 @@ function spotterFor(stint: Stint, spotting: Spotting[]): Spotting | null {
 
 export default function PlanSummaryPage() {
   const { planId } = useParams<{ planId: string }>();
+  const { setContext } = usePlanContext();
+  const [eventId, setEventId] = useState<string | null>(null);
   const [event, setEvent] = useState<EventRecord | null>(null);
   const [stints, setStints] = useState<Stint[]>([]);
   const [spotting, setSpotting] = useState<Spotting[]>([]);
@@ -72,6 +75,8 @@ export default function PlanSummaryPage() {
       for (const s of planData.stints ?? []) names[s.custId] = s.driverName;
       setDriverNames(names);
 
+      setEventId(planData.eventId ?? null);
+
       const eventRes = await fetch(`/api/planner/events/${encodeURIComponent(planData.eventId)}`, { credentials: "include" });
       const eventData = await eventRes.json().catch(() => ({}));
       if (eventRes.ok && eventData.ok) setEvent(eventData.event);
@@ -86,6 +91,11 @@ export default function PlanSummaryPage() {
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId]);
+
+  useEffect(() => {
+    setContext({ planId: planId ?? null, eventId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planId, eventId]);
 
   async function copyLink() {
     try {

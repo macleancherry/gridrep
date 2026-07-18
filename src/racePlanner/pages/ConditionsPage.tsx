@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
+import { usePlanContext } from "../PlanContext";
 
 type EventRecord = {
   id: string;
@@ -51,6 +52,7 @@ export default function ConditionsPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const [searchParams] = useSearchParams();
   const planIdFromQuery = searchParams.get("planId");
+  const { setContext } = usePlanContext();
 
   const [event, setEvent] = useState<EventRecord | null>(null);
   const [profiles, setProfiles] = useState<ConditionProfile[]>([]);
@@ -131,6 +133,11 @@ export default function ConditionsPage() {
   }
 
   const resolvedPlanId = planIdFromQuery ?? (myPlans?.length === 1 ? myPlans[0].id : null);
+
+  useEffect(() => {
+    setContext({ eventId: eventId ?? null, planId: resolvedPlanId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId, resolvedPlanId]);
 
   async function saveProfile() {
     if (!eventId || !form.label.trim()) return;

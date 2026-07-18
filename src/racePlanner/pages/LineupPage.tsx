@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import { usePlanContext } from "../PlanContext";
 
 type ConditionProfile = { id: string; label: string };
 
@@ -28,6 +29,7 @@ function formatPace(ms: number | null): string {
 
 export default function LineupPage() {
   const { planId } = useParams<{ planId: string }>();
+  const { setContext } = usePlanContext();
   const [eventId, setEventId] = useState<string | null>(null);
   const [lineup, setLineup] = useState<{ custId: string; name: string }[]>([]);
   const [query, setQuery] = useState("");
@@ -58,6 +60,11 @@ export default function LineupPage() {
       .catch(() => setError("Network error. Please try again."))
       .finally(() => setLoading(false));
   }, [planId]);
+
+  useEffect(() => {
+    setContext({ planId: planId ?? null, eventId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planId, eventId]);
 
   useEffect(() => {
     if (!eventId) return;

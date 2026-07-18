@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import { usePlanContext } from "../PlanContext";
 
 type LineupDriver = { custId: string; driverName: string };
 type ConditionProfile = { id: string; label: string };
@@ -49,6 +50,7 @@ function formatOffset(minutes: number): string {
 
 export default function StintsPage() {
   const { planId } = useParams<{ planId: string }>();
+  const { setContext } = usePlanContext();
   const [eventId, setEventId] = useState<string | null>(null);
   const [lineup, setLineup] = useState<LineupDriver[]>([]);
   const [conditionProfiles, setConditionProfiles] = useState<ConditionProfile[]>([]);
@@ -121,6 +123,11 @@ export default function StintsPage() {
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId]);
+
+  useEffect(() => {
+    setContext({ planId: planId ?? null, eventId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planId, eventId]);
 
   function addStint() {
     const profile = driverProfiles.find((p) => p.custId === newDriverId);

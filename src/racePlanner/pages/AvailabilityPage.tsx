@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import { usePlanContext } from "../PlanContext";
 
 type LineupDriver = { custId: string; driverName: string };
 
@@ -28,7 +29,9 @@ const detectedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export default function AvailabilityPage() {
   const { planId } = useParams<{ planId: string }>();
+  const { setContext } = usePlanContext();
   const [tab, setTab] = useState<"organizer" | "driver">("organizer");
+  const [eventId, setEventId] = useState<string | null>(null);
   const [lineup, setLineup] = useState<LineupDriver[]>([]);
   const [organizerZones, setOrganizerZones] = useState<OrganizerZone[]>([]);
   const [allAvailability, setAllAvailability] = useState<AvailabilityRow[]>([]);
@@ -75,6 +78,7 @@ export default function AvailabilityPage() {
         return;
       }
       setLineup(planData.lineup ?? []);
+      setEventId(planData.eventId ?? null);
     } catch {
       setError("Network error. Please try again.");
       setPlanLoadFailed(true);
@@ -87,6 +91,11 @@ export default function AvailabilityPage() {
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId]);
+
+  useEffect(() => {
+    setContext({ planId: planId ?? null, eventId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planId, eventId]);
 
   useEffect(() => {
     if (!planId) return;
