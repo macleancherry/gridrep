@@ -253,6 +253,18 @@ export async function onRequestGet(context: any) {
       .run();
   }
 
+  // Also seed the shared drivers table (Props/Pace/Planner search) with the same real
+  // name - otherwise a driver who's logged in but never appeared in a synced session (or
+  // been manually added to a lineup) stays unfindable in local search until some unrelated
+  // future sync happens to see them, even though we already have their name right here.
+  await DB.prepare(
+    `INSERT INTO drivers (iracing_member_id, display_name, last_seen_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(iracing_member_id) DO UPDATE SET display_name = excluded.display_name, last_seen_at = excluded.last_seen_at`
+  )
+    .bind(String(identity.iracingId), identity.name ?? `Driver ${identity.iracingId}`, now)
+    .run();
+
   // Store tokens
   await DB.prepare(
     `INSERT INTO oauth_tokens (user_id, access_token, refresh_token, access_expires_at, refresh_expires_at, scope, updated_at)
