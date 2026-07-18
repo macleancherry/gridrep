@@ -560,50 +560,80 @@ export type ScheduleSession = {
   trackName?: string;
   trackConfig?: string;
   specialEventType?: number;
-  scheduledStartTime?: string; // ISO, best-effort - see buildScheduledStartTime
-  durationMinutes?: number;
+  scheduledStartTime?: string; // ISO - this slot's real-world start (when practice opens, if attached)
+  slotIndex: number; // which alternative real-world start time this row represents
+  slotCount: number; // how many alternative start times this schedule entry offers in total
+  practiceLengthMinutes?: number;
+  qualifyLengthMinutes?: number;
+  warmupLengthMinutes?: number;
+  raceLengthMinutes?: number; // race-only duration - NOT the whole weekend's span
   forecastAvailable: boolean;
   weatherUrl?: string;
 };
 
-/** Combines a schedule entry's start_date + first_session_time into a UTC ISO
- * timestamp. Confirmed-live fields (`start_date`, `race_time_descriptors[0].
- * first_session_time`) - the combination itself (assuming both are already UTC,
- * matching every other timestamp this codebase has seen from the Data API) is
- * not separately confirmed for a genuine one-off special event, only for a
- * regular repeating series - worth a spot-check against a real special event
- * once one is selectable, per the plan's verification section. */
-function buildScheduledStartTime(row: Record<string, unknown>): string | undefined {
-  const startDate = pickString(row.start_date);
+/**
+ * Resolves the real-world start time(s) a schedule entry can be joined at. Two
+ * confirmed-live shapes (2026-07-18 live probe, "6 Hours of Road America"):
+ * - Special/endurance events: `race_time_descriptors[].session_times[]`, an array of
+ *   full ISO timestamps - a genuine special event offered 5 alternative start times
+ *   spaced 4-9h apart (each comfortably longer than the event itself), so a team can
+ *   join whichever real-world slot suits them. `first_session_time` does NOT exist on
+ *   this event type.
+ * - Regular repeating series (confirmed earlier this session, Mazda MX-5 Cup):
+ *   `race_time_descriptors[0].first_session_time`, a single time-of-day string
+ *   combined with `start_date` - one slot only.
+ * Tries every descriptor's `session_times` first (the richer, more common shape for
+ * anything this planner cares about - team/special events); falls back to the
+ * single first_session_time path only when no descriptor has session_times.
+ */
+function extractSessionTimes(row: Record<string, unknown>): string[] {
   const descriptors = Array.isArray(row.race_time_descriptors) ? row.race_time_descriptors : [];
+  const times: string[] = [];
+
+  for (const d of descriptors as Record<string, unknown>[]) {
+    const explicit = Array.isArray(d.session_times) ? d.session_times.filter((t): t is string => typeof t === "string") : [];
+    if (explicit.length > 0) times.push(...explicit);
+  }
+  if (times.length > 0) return times;
+
+  const startDate = pickString(row.start_date);
   const firstTime = pickString((descriptors[0] as any)?.first_session_time);
-  if (!startDate) return undefined;
-  if (!firstTime) return `${startDate}T00:00:00Z`;
-  return `${startDate}T${firstTime}Z`;
+  if (startDate && firstTime) return [`${startDate}T${firstTime}Z`];
+
+  return [];
 }
 
-/** Duration derivation - `race_time_descriptors[0].session_minutes` is the most
- * direct field (confirmed present, 26min for a Mazda MX-5 sprint in the live
- * probe). Falls back to week_end_time - start_date (less precise - that window
- * can include surrounding practice time) if the descriptor is missing. */
-function deriveDurationMinutes(row: Record<string, unknown>): number | undefined {
-  const descriptors = Array.isArray(row.race_time_descriptors) ? row.race_time_descriptors : [];
-  const sessionMinutes = pickNumber((descriptors[0] as any)?.session_minutes);
-  if (sessionMinutes !== undefined) return sessionMinutes;
+/** Race-only duration - `race_time_limit` (minutes, confirmed live). Deliberately no
+ * fallback to a week_end_time/start_date diff: that window includes practice and
+ * qualifying time, which is exactly the bug this replaces (see plan report, Bug #2).
+ * A lap-limited race with no time limit correctly comes back `undefined` rather than
+ * a wrong number - existing UI already renders "—" for a missing duration. */
+function deriveRaceLengthMinutes(row: Record<string, unknown>): number | undefined {
+  return pickNumber(row.race_time_limit);
+}
 
-  const startDate = pickString(row.start_date);
-  const weekEnd = pickString(row.week_end_time);
-  if (startDate && weekEnd) {
-    const ms = new Date(weekEnd).getTime() - new Date(`${startDate}T00:00:00Z`).getTime();
-    if (Number.isFinite(ms) && ms > 0) return Math.round(ms / 60000);
-  }
-
-  return undefined;
+/** practiceLengthMinutes + qualifyLengthMinutes + warmupLengthMinutes - the shared
+ * anchor for rebasing both stored condition-profile offsets (race-start-relative,
+ * per the DB column's documented meaning) and forecast-hour slicing (the forecast's
+ * own time_offset is weekend-relative, confirmed live via the `affects_session` flag
+ * bracketing practice-through-race). 0 for an event with no practice/qualifying data -
+ * makes every downstream offset calculation a no-op, same as today's behavior. */
+export function raceStartOffsetMinutes(lengths: {
+  practiceLengthMinutes?: number;
+  qualifyLengthMinutes?: number;
+  warmupLengthMinutes?: number;
+}): number {
+  return (lengths.practiceLengthMinutes ?? 0) + (lengths.qualifyLengthMinutes ?? 0) + (lengths.warmupLengthMinutes ?? 0);
 }
 
 /** All schedule entries (race weeks) for a given series, across whichever season
  * row(s) in the payload reference it - almost always exactly one for a genuine
- * special event, since those are one-off rather than recurring weekly. */
+ * special event, since those are one-off rather than recurring weekly. Flattened to
+ * one row per real-world start-time slot (see extractSessionTimes) rather than one
+ * per schedule entry, so a special event with multiple joinable times is fully
+ * representable - a schedule with no resolvable slot times still emits exactly one
+ * row (slotIndex 0, slotCount 1, scheduledStartTime undefined), matching today's
+ * behavior for events without this data. */
 export function extractSchedulesForSeries(payload: any, seriesId: string): ScheduleSession[] {
   const seasonRows = extractSeasonRows(payload).filter((row) => String(pickNumber(row.series_id) ?? "") === seriesId);
   const out: ScheduleSession[] = [];
@@ -616,18 +646,31 @@ export function extractSchedulesForSeries(payload: any, seriesId: string): Sched
       const track = s.track as any;
       const weather = s.weather as any;
       const weatherUrl = pickString(weather?.weather_url);
+      const qualAttached = s.qual_attached !== false;
 
-      out.push({
+      const base = {
         seasonId: seasonId !== undefined ? String(seasonId) : "",
         raceWeekNum: pickNumber(s.race_week_num) ?? 0,
         scheduleName: pickString(s.schedule_name),
         trackName: pickString(track?.track_name),
         trackConfig: pickString(track?.config_name),
         specialEventType: pickNumber(s.special_event_type),
-        scheduledStartTime: buildScheduledStartTime(s),
-        durationMinutes: deriveDurationMinutes(s),
+        practiceLengthMinutes: pickNumber(s.practice_length),
+        qualifyLengthMinutes: qualAttached ? pickNumber(s.qualify_length) : undefined,
+        warmupLengthMinutes: pickNumber(s.warmup_length),
+        raceLengthMinutes: deriveRaceLengthMinutes(s),
         forecastAvailable: Boolean(weatherUrl),
         weatherUrl,
+      };
+
+      const slotTimes = extractSessionTimes(s);
+      if (slotTimes.length === 0) {
+        out.push({ ...base, scheduledStartTime: undefined, slotIndex: 0, slotCount: 1 });
+        continue;
+      }
+
+      slotTimes.forEach((t, i) => {
+        out.push({ ...base, scheduledStartTime: t, slotIndex: i, slotCount: slotTimes.length });
       });
     }
   }
@@ -730,6 +773,76 @@ export function deriveConditionProfilesFromForecast(hours: ForecastHour[]): Deri
     profiles.push(summarize("Dusk", [run.hours[0]]));
     profiles.push(summarize("Night", run.hours.slice(1, -1)));
     profiles.push(summarize("Dawn", [run.hours[run.hours.length - 1]]));
+  }
+
+  return profiles;
+}
+
+type SessionPhaseLengths = {
+  practiceLengthMinutes?: number;
+  qualifyLengthMinutes?: number;
+  warmupLengthMinutes?: number;
+};
+
+/** Practice/Qualifying/Warmup windows, weekend-relative (offset 0 = when practice
+ * opens), in the order they run - whichever phases have a positive length. */
+function buildPreRacePhases(lengths: SessionPhaseLengths): { label: string; startOffsetMinutes: number; endOffsetMinutes: number }[] {
+  const phases: { label: string; startOffsetMinutes: number; endOffsetMinutes: number }[] = [];
+  let cursor = 0;
+  for (const [label, minutes] of [
+    ["Practice", lengths.practiceLengthMinutes],
+    ["Qualifying", lengths.qualifyLengthMinutes],
+    ["Warmup", lengths.warmupLengthMinutes],
+  ] as const) {
+    if (minutes) {
+      phases.push({ label, startOffsetMinutes: cursor, endOffsetMinutes: cursor + minutes });
+      cursor += minutes;
+    }
+  }
+  return phases;
+}
+
+/**
+ * Practice/Qualifying/Warmup weather - flat (non day/night-split) summaries, one per
+ * phase, matching hourly forecast samples whose implicit 60-minute bucket overlaps
+ * that phase's weekend-relative window. Falls back to the single nearest hour when a
+ * phase is shorter than the hourly sample spacing (e.g. an 8-minute Qualifying) so it
+ * never comes back empty just because it doesn't span a full sample.
+ *
+ * Stored offsets are rebased to be race-start-relative (subtracting
+ * raceStartOffsetMinutes), so they come out negative - e.g. Practice `[-38, -8]` for
+ * the confirmed live example (30min practice, 8min qualifying, race starting at
+ * offset 0). This matches event_condition_profiles's documented column meaning
+ * ("offset from race start") and how Availability's conditionForOffset already
+ * treats offsets - block offsets never go negative, so these rows simply never match
+ * a driving block, which is correct: they're informational only, not part of the
+ * race's own driver-rotation schedule.
+ */
+export function derivePreRacePhaseProfiles(hours: ForecastHour[], lengths: SessionPhaseLengths): DerivedConditionProfile[] {
+  const sorted = [...hours].sort((a, b) => a.timeOffsetMinutes - b.timeOffsetMinutes);
+  const raceStart = raceStartOffsetMinutes(lengths);
+  const profiles: DerivedConditionProfile[] = [];
+
+  for (const phase of buildPreRacePhases(lengths)) {
+    let matches = sorted.filter((h) => h.timeOffsetMinutes < phase.endOffsetMinutes && h.timeOffsetMinutes + 60 > phase.startOffsetMinutes);
+    if (matches.length === 0 && sorted.length > 0) {
+      const mid = (phase.startOffsetMinutes + phase.endOffsetMinutes) / 2;
+      matches = [[...sorted].sort((a, b) => Math.abs(a.timeOffsetMinutes - mid) - Math.abs(b.timeOffsetMinutes - mid))[0]];
+    }
+    if (matches.length === 0) continue;
+
+    const temps = matches.map((h) => h.airTempC).filter((t): t is number => t !== undefined);
+    const precips = matches.map((h) => h.precipChancePct).filter((p): p is number => p !== undefined);
+
+    profiles.push({
+      label: phase.label,
+      windowStartMin: phase.startOffsetMinutes - raceStart,
+      windowEndMin: phase.endOffsetMinutes - raceStart,
+      airTempMin: temps.length ? Math.min(...temps) : undefined,
+      airTempMax: temps.length ? Math.max(...temps) : undefined,
+      trackState: precips.some((p) => p > 50) ? "wet" : "dry",
+      precipPct: precips.length ? Math.round(Math.max(...precips)) : undefined,
+    });
   }
 
   return profiles;

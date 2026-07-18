@@ -193,6 +193,53 @@ export default function ConditionsPage() {
     await load();
   }
 
+  // Practice/Qualifying/Warmup profiles are stored with a race-start-relative negative
+  // offset (see plannerIracing.ts's derivePreRacePhaseProfiles) - everything else (the
+  // race's own Day/Dusk/Night/Dawn breakdown, or a manually-entered profile with no
+  // offset at all) renders in the existing single list, unchanged.
+  const preRaceProfiles = profiles.filter((p) => p.windowStartMin !== null && p.windowStartMin < 0);
+  const raceProfiles = profiles.filter((p) => !(p.windowStartMin !== null && p.windowStartMin < 0));
+
+  function renderConditionRow(p: ConditionProfile) {
+    return (
+      <div className="rp-card rp-profile-row" key={p.id}>
+        <div>
+          <div className="rp-profile-label">
+            {p.label}
+            {p.flaggedAsOutdated && (
+              <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
+                Flagged outdated
+              </span>
+            )}
+          </div>
+          <div className="rp-section-sub rp-mono">
+            {p.trackTempMin !== null ? (
+              <>
+                {p.trackTempMin}–{p.trackTempMax}°C track
+              </>
+            ) : p.airTempMin !== null ? (
+              <>
+                {p.airTempMin}–{p.airTempMax}°C air
+              </>
+            ) : (
+              "No temp data"
+            )}
+            {p.trackState ? ` · ${p.trackState}` : ""}
+            {p.precipPct !== null ? ` · ${p.precipPct}% precip` : ""}
+          </div>
+          <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 4 }}>
+            {sourceLabel(p.source)} · {new Date(p.submittedAt).toLocaleString()}
+          </div>
+        </div>
+        {!p.flaggedAsOutdated && (
+          <button className="rp-btn" onClick={() => flagOutdated(p.id)}>
+            Flag as outdated
+          </button>
+        )}
+      </div>
+    );
+  }
+
   if (loading) return <p className="rp-section-sub">Loading…</p>;
 
   if (error && !event) {
@@ -250,45 +297,23 @@ export default function ConditionsPage() {
       )}
 
       {profiles.length > 0 && (
-        <div className="rp-profile-list">
-          {profiles.map((p) => (
-            <div className="rp-card rp-profile-row" key={p.id}>
-              <div>
-                <div className="rp-profile-label">
-                  {p.label}
-                  {p.flaggedAsOutdated && (
-                    <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
-                      Flagged outdated
-                    </span>
-                  )}
-                </div>
-                <div className="rp-section-sub rp-mono">
-                  {p.trackTempMin !== null ? (
-                    <>
-                      {p.trackTempMin}–{p.trackTempMax}°C track
-                    </>
-                  ) : p.airTempMin !== null ? (
-                    <>
-                      {p.airTempMin}–{p.airTempMax}°C air
-                    </>
-                  ) : (
-                    "No temp data"
-                  )}
-                  {p.trackState ? ` · ${p.trackState}` : ""}
-                  {p.precipPct !== null ? ` · ${p.precipPct}% precip` : ""}
-                </div>
-                <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 4 }}>
-                  {sourceLabel(p.source)} · {new Date(p.submittedAt).toLocaleString()}
-                </div>
+        <>
+          {preRaceProfiles.length > 0 && (
+            <>
+              <h3 style={{ fontSize: 15, marginBottom: 8 }}>Before the green flag</h3>
+              <div className="rp-profile-list" style={{ marginBottom: 20 }}>
+                {preRaceProfiles.map((p) => renderConditionRow(p))}
               </div>
-              {!p.flaggedAsOutdated && (
-                <button className="rp-btn" onClick={() => flagOutdated(p.id)}>
-                  Flag as outdated
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
+            </>
+          )}
+
+          {raceProfiles.length > 0 && (
+            <>
+              {preRaceProfiles.length > 0 && <h3 style={{ fontSize: 15, marginBottom: 8 }}>During the race</h3>}
+              <div className="rp-profile-list">{raceProfiles.map((p) => renderConditionRow(p))}</div>
+            </>
+          )}
+        </>
       )}
 
       {!showForm ? (

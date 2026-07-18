@@ -9,7 +9,12 @@ type ScheduleSession = {
   trackConfig?: string;
   specialEventType?: number;
   scheduledStartTime?: string;
-  durationMinutes?: number;
+  slotIndex: number;
+  slotCount: number;
+  practiceLengthMinutes?: number;
+  qualifyLengthMinutes?: number;
+  warmupLengthMinutes?: number;
+  raceLengthMinutes?: number;
   forecastAvailable: boolean;
   weatherUrl?: string;
 };
@@ -21,6 +26,29 @@ function formatDuration(minutes?: number): string {
   const h = Math.floor(minutes / 60);
   const m = Math.round(minutes % 60);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function phaseSummary(s: ScheduleSession): string {
+  const parts: string[] = [];
+  if (s.practiceLengthMinutes) parts.push(`Practice ${formatDuration(s.practiceLengthMinutes)}`);
+  if (s.qualifyLengthMinutes) parts.push(`Qualifying ${formatDuration(s.qualifyLengthMinutes)}`);
+  if (s.warmupLengthMinutes) parts.push(`Warmup ${formatDuration(s.warmupLengthMinutes)}`);
+  parts.push(`Race ${formatDuration(s.raceLengthMinutes)}`);
+  return parts.join(" · ");
+}
+
+// The API returns one flat row per real-world start-time slot; group them back into
+// one card per schedule entry (same track/session lengths, different start times) so
+// the picker doesn't repeat identical track/duration info once per slot.
+function groupBySchedule(sessions: ScheduleSession[]): ScheduleSession[][] {
+  const groups = new Map<string, ScheduleSession[]>();
+  for (const s of sessions) {
+    const key = `${s.seasonId}:${s.raceWeekNum}`;
+    const existing = groups.get(key);
+    if (existing) existing.push(s);
+    else groups.set(key, [s]);
+  }
+  return Array.from(groups.values()).map((g) => [...g].sort((a, b) => a.slotIndex - b.slotIndex));
 }
 
 export default function SeriesSessionsPage() {
@@ -62,7 +90,7 @@ export default function SeriesSessionsPage() {
 
   async function selectSession(session: ScheduleSession) {
     if (!seriesId) return;
-    const key = `${session.seasonId}:${session.raceWeekNum}`;
+    const key = `${session.seasonId}:${session.raceWeekNum}:${session.slotIndex}`;
     setSelectingKey(key);
     setError(null);
     try {
@@ -172,10 +200,11 @@ export default function SeriesSessionsPage() {
 
       {sessions !== null && sessions.length > 0 && (
         <div className="rp-event-grid">
-          {sessions.map((s) => {
-            const key = `${s.seasonId}:${s.raceWeekNum}`;
+          {groupBySchedule(sessions).map((group) => {
+            const s = group[0];
+            const cardKey = `${s.seasonId}:${s.raceWeekNum}`;
             return (
-              <div className="rp-event-card" key={key}>
+              <div className="rp-event-card" key={cardKey}>
                 <h3 className="rp-event-track">{s.scheduleName ?? seriesName}</h3>
                 {(s.trackName || s.trackConfig) && (
                   <div className="rp-event-meta">
@@ -186,15 +215,9 @@ export default function SeriesSessionsPage() {
                     </span>
                   </div>
                 )}
-                {s.scheduledStartTime && (
-                  <div className="rp-event-meta">
-                    <span>Start</span>
-                    <span className="rp-mono">{new Date(s.scheduledStartTime).toLocaleString()}</span>
-                  </div>
-                )}
                 <div className="rp-event-meta">
-                  <span>Duration</span>
-                  <span className="rp-mono">{formatDuration(s.durationMinutes)}</span>
+                  <span>Sessions</span>
+                  <span className="rp-mono">{phaseSummary(s)}</span>
                 </div>
                 <div className="rp-event-meta">
                   <span>Forecast</span>
@@ -204,14 +227,47 @@ export default function SeriesSessionsPage() {
                     <span className="rp-badge rp-dim">Not available</span>
                   )}
                 </div>
-                <button
-                  className="rp-btn rp-primary"
-                  style={{ marginTop: 8, alignSelf: "flex-start" }}
-                  onClick={() => selectSession(s)}
-                  disabled={selectingKey === key}
-                >
-                  {selectingKey === key ? "Selecting…" : "Select"}
-                </button>
+
+                {group.length > 1 ? (
+                  <div style={{ marginTop: 8 }}>
+                    <div className="rp-text-faint" style={{ fontSize: 11, marginBottom: 6 }}>
+                      Pick the real-world start time your team is joining ({group.length} options):
+                    </div>
+                    <div className="rp-profile-list">
+                      {group.map((slot) => {
+                        const key = `${slot.seasonId}:${slot.raceWeekNum}:${slot.slotIndex}`;
+                        return (
+                          <div className="rp-row" key={key} style={{ justifyContent: "space-between" }}>
+                            <span className="rp-mono" style={{ fontSize: 12.5 }}>
+                              {slot.scheduledStartTime ? new Date(slot.scheduledStartTime).toLocaleString() : "Time TBD"}
+                              <span className="rp-text-faint"> (practice opens)</span>
+                            </span>
+                            <button className="rp-btn rp-primary" onClick={() => selectSession(slot)} disabled={selectingKey === key}>
+                              {selectingKey === key ? "Selecting…" : "Select"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {s.scheduledStartTime && (
+                      <div className="rp-event-meta">
+                        <span>Start</span>
+                        <span className="rp-mono">{new Date(s.scheduledStartTime).toLocaleString()}</span>
+                      </div>
+                    )}
+                    <button
+                      className="rp-btn rp-primary"
+                      style={{ marginTop: 8, alignSelf: "flex-start" }}
+                      onClick={() => selectSession(s)}
+                      disabled={selectingKey === `${s.seasonId}:${s.raceWeekNum}:${s.slotIndex}`}
+                    >
+                      {selectingKey === `${s.seasonId}:${s.raceWeekNum}:${s.slotIndex}` ? "Selecting…" : "Select"}
+                    </button>
+                  </>
+                )}
               </div>
             );
           })}

@@ -1,5 +1,11 @@
 import { getViewer } from "../../../../_lib/auth";
-import { upsertIracingEvent, fetchWeatherForecast, deriveConditionProfilesFromForecast } from "../../../../_lib/plannerIracing";
+import {
+  upsertIracingEvent,
+  fetchWeatherForecast,
+  deriveConditionProfilesFromForecast,
+  derivePreRacePhaseProfiles,
+  raceStartOffsetMinutes,
+} from "../../../../_lib/plannerIracing";
 import { createRacePlan, listVisiblePlansForEvent, CreateRacePlanError } from "../../../../_lib/plannerRacePlan";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
@@ -30,8 +36,31 @@ export async function onRequestPost(context: any) {
     return jsonError(400, { error: "invalid_session", message: "seasonId and seriesName are required." });
   }
 
-  const eventId = `season-${seasonId}`;
+  // A special event can offer several alternative real-world start times sharing one
+  // forecast (see plan report) - each is a genuinely independent event for scheduling
+  // purposes (different Availability windows), so only branch the id when there's
+  // actually more than one slot to disambiguate. Keeps the common single-slot case
+  // (regular series, and every already-selected event) resolving to the same id it
+  // always has.
+  const slotCount = typeof body?.slotCount === "number" ? body.slotCount : 1;
+  const slotIndex = typeof body?.slotIndex === "number" ? body.slotIndex : 0;
+  const eventId = slotCount > 1 ? `season-${seasonId}-slot${slotIndex}` : `season-${seasonId}`;
   const { DB } = context.env;
+
+  const lengths = {
+    practiceLengthMinutes: typeof body?.practiceLengthMinutes === "number" ? body.practiceLengthMinutes : undefined,
+    qualifyLengthMinutes: typeof body?.qualifyLengthMinutes === "number" ? body.qualifyLengthMinutes : undefined,
+    warmupLengthMinutes: typeof body?.warmupLengthMinutes === "number" ? body.warmupLengthMinutes : undefined,
+  };
+  const raceStart = raceStartOffsetMinutes(lengths);
+
+  // scheduledStartTime from the client is when PRACTICE opens (weekend/session start);
+  // every existing consumer (Availability block generation, PlanSummary's clock,
+  // driver-profile computation) assumes iracing_events.scheduled_start_time means RACE
+  // start, so shift it forward by the practice+qualifying+warmup lead-in here rather
+  // than touching any of those consumers.
+  const slotStartTime = typeof body?.scheduledStartTime === "string" && body.scheduledStartTime ? body.scheduledStartTime : null;
+  const raceStartTime = slotStartTime ? new Date(Date.parse(slotStartTime) + raceStart * 60_000).toISOString() : null;
 
   const event = await upsertIracingEvent(DB, {
     id: eventId,
@@ -39,8 +68,8 @@ export async function onRequestPost(context: any) {
     trackName: body?.trackName ?? null,
     trackConfig: body?.trackConfig ?? null,
     eventType: "special",
-    scheduledStartTime: body?.scheduledStartTime ?? null,
-    durationMinutes: typeof body?.durationMinutes === "number" ? body.durationMinutes : null,
+    scheduledStartTime: raceStartTime,
+    durationMinutes: typeof body?.raceLengthMinutes === "number" ? body.raceLengthMinutes : null,
     seriesId,
     seasonId,
   });
@@ -56,7 +85,21 @@ export async function onRequestPost(context: any) {
   if ((existingProfileCount?.n ?? 0) === 0 && typeof body?.weatherUrl === "string" && body.weatherUrl) {
     try {
       const hours = await fetchWeatherForecast(body.weatherUrl);
-      const derived = deriveConditionProfilesFromForecast(hours);
+
+      // Practice/Qualifying/Warmup: flat summaries straight off the weekend-relative
+      // timeline, offsets rebased to race-start-relative (comes out negative).
+      const preRaceProfiles = derivePreRacePhaseProfiles(hours, lengths);
+
+      // Race: same Day/Dusk/Night/Dawn bucketing as before, unchanged - just fed only
+      // the race's own hours (offset >= raceStart), remapped so offset 0 is race start
+      // rather than weekend start. For an event with no practice/qualifying data
+      // (raceStart === 0) this filter+remap is a no-op - today's exact behavior.
+      const raceHours = hours
+        .filter((h) => h.timeOffsetMinutes >= raceStart)
+        .map((h) => ({ ...h, timeOffsetMinutes: h.timeOffsetMinutes - raceStart }));
+      const raceProfiles = deriveConditionProfilesFromForecast(raceHours);
+
+      const derived = [...preRaceProfiles, ...raceProfiles];
       const now = new Date().toISOString();
 
       for (const p of derived) {
