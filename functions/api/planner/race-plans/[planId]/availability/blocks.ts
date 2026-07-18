@@ -58,7 +58,8 @@ export async function onRequestGet(context: any) {
 
   const conditionRows = await DB.prepare(
     `SELECT label, window_offset_start_minutes as windowStartMin, window_offset_end_minutes as windowEndMin,
-            expected_track_temp_min as trackTempMin, expected_track_temp_max as trackTempMax, expected_track_state as trackState
+            expected_track_temp_min as trackTempMin, expected_track_temp_max as trackTempMax,
+            expected_air_temp_min as airTempMin, expected_air_temp_max as airTempMax, expected_track_state as trackState
      FROM event_condition_profiles WHERE event_id = ?`
   )
     .bind(plan.eventId)

@@ -11,6 +11,8 @@ export type ConditionWindow = {
   windowEndMin: number | null;
   trackTempMin: number | null;
   trackTempMax: number | null;
+  airTempMin: number | null;
+  airTempMax: number | null;
   trackState: string | null;
 };
 
@@ -21,7 +23,14 @@ export type AvailabilityBlock = {
   utcEnd: string;
   localStart: string;
   localEnd: string;
-  condition: { label: string; trackTempMin: number | null; trackTempMax: number | null; trackState: string | null } | null;
+  condition: {
+    label: string;
+    trackTempMin: number | null;
+    trackTempMax: number | null;
+    airTempMin: number | null;
+    airTempMax: number | null;
+    trackState: string | null;
+  } | null;
 };
 
 function formatLocal(ms: number, timeZone: string): string {
@@ -73,7 +82,14 @@ export function buildAvailabilityBlocks(opts: {
       localStart: formatLocal(blockStartMs, opts.timeZone),
       localEnd: formatLocal(blockEndMs, opts.timeZone),
       condition: condition
-        ? { label: condition.label, trackTempMin: condition.trackTempMin, trackTempMax: condition.trackTempMax, trackState: condition.trackState }
+        ? {
+            label: condition.label,
+            trackTempMin: condition.trackTempMin,
+            trackTempMax: condition.trackTempMax,
+            airTempMin: condition.airTempMin,
+            airTempMax: condition.airTempMax,
+            trackState: condition.trackState,
+          }
         : null,
     });
   }

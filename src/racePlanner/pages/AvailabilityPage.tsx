@@ -8,7 +8,14 @@ type Block = {
   blockEndOffsetMinutes: number;
   localStart: string;
   localEnd: string;
-  condition: { label: string; trackTempMin: number | null; trackTempMax: number | null; trackState: string | null } | null;
+  condition: {
+    label: string;
+    trackTempMin: number | null;
+    trackTempMax: number | null;
+    airTempMin: number | null;
+    airTempMax: number | null;
+    trackState: string | null;
+  } | null;
 };
 
 type OrganizerZone = { zone: string; start: string; finish: string };
@@ -217,7 +224,11 @@ export default function AvailabilityPage() {
                     <div className="rp-text-faint" style={{ fontSize: 11 }}>
                       R+{Math.floor(b.blockStartOffsetMinutes / 60)}:{String(b.blockStartOffsetMinutes % 60).padStart(2, "0")}
                       {b.condition ? ` · ${b.condition.label}` : ""}
-                      {b.condition?.trackTempMin != null ? ` · ${b.condition.trackTempMin}–${b.condition.trackTempMax}°C` : ""}
+                      {b.condition?.trackTempMin != null
+                        ? ` · ${b.condition.trackTempMin}–${b.condition.trackTempMax}°C track`
+                        : b.condition?.airTempMin != null
+                          ? ` · ${b.condition.airTempMin}–${b.condition.airTempMax}°C air`
+                          : ""}
                     </div>
                   </div>
                   <div className="rp-row">

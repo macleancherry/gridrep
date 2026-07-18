@@ -256,7 +256,17 @@ export default function ConditionsPage() {
                   )}
                 </div>
                 <div className="rp-section-sub rp-mono">
-                  {p.trackTempMin ?? "?"}–{p.trackTempMax ?? "?"}°C track
+                  {p.trackTempMin !== null ? (
+                    <>
+                      {p.trackTempMin}–{p.trackTempMax}°C track
+                    </>
+                  ) : p.airTempMin !== null ? (
+                    <>
+                      {p.airTempMin}–{p.airTempMax}°C air
+                    </>
+                  ) : (
+                    "No temp data"
+                  )}
                   {p.trackState ? ` · ${p.trackState}` : ""}
                   {p.precipPct !== null ? ` · ${p.precipPct}% precip` : ""}
                 </div>
