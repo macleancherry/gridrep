@@ -90,11 +90,13 @@ export default function LineupPage() {
     if (!planId) return;
     setSaving(true);
     try {
+      const driverNames: Record<string, string> = {};
+      for (const d of next) driverNames[d.custId] = d.name;
       await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/lineup`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ custIds: next.map((d) => d.custId) }),
+        body: JSON.stringify({ custIds: next.map((d) => d.custId), driverNames }),
       });
     } catch {
       setError("Could not save the lineup - your changes may not persist.");
@@ -103,16 +105,29 @@ export default function LineupPage() {
     }
   }
 
+  // Merges gridrep's local drivers table (only knows drivers who've already appeared in a
+  // synced session) with a live iRacing name search (functions/api/planner/drivers/search.ts)
+  // - closes the "can't add a driver we've never seen before" gap. Local matches come first
+  // since they're already known to gridrep; live-only matches are appended, deduped by id.
   useEffect(() => {
     if (!query.trim()) {
       setSearchResults([]);
       return;
     }
     const handle = setTimeout(() => {
-      fetch(`/api/drivers/search?q=${encodeURIComponent(query.trim())}`)
-        .then((r) => r.json())
-        .then((data) => setSearchResults(data.results ?? []))
-        .catch(() => setSearchResults([]));
+      Promise.all([
+        fetch(`/api/drivers/search?q=${encodeURIComponent(query.trim())}`)
+          .then((r) => r.json())
+          .then((data) => data.results ?? [])
+          .catch(() => []),
+        fetch(`/api/planner/drivers/search?q=${encodeURIComponent(query.trim())}`, { credentials: "include" })
+          .then((r) => r.json())
+          .then((data) => data.results ?? [])
+          .catch(() => []),
+      ]).then(([local, live]: [DriverSearchResult[], DriverSearchResult[]]) => {
+        const seen = new Set(local.map((d) => d.id));
+        setSearchResults([...local, ...live.filter((d) => !seen.has(d.id))]);
+      });
     }, 250);
     return () => clearTimeout(handle);
   }, [query]);

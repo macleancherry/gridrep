@@ -29,6 +29,22 @@ export async function onRequestPut(context: any) {
   const body = await context.request.json().catch(() => null);
   const custIds: string[] = Array.isArray(body?.custIds) ? [...new Set(body.custIds.map(String).filter(Boolean))] : [];
 
+  // Names for any driver just picked from the iRacing lookup (functions/api/planner/
+  // drivers/search.ts) rather than gridrep's local drivers table - caches the real name
+  // now instead of showing "Driver 123456" until some future sync happens to see them.
+  const driverNames: Record<string, string> = body?.driverNames && typeof body.driverNames === "object" ? body.driverNames : {};
+  const now = new Date().toISOString();
+  for (const [custId, name] of Object.entries(driverNames)) {
+    if (typeof name !== "string" || !name.trim()) continue;
+    await DB.prepare(
+      `INSERT INTO drivers (iracing_member_id, display_name, last_seen_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(iracing_member_id) DO UPDATE SET display_name = excluded.display_name, last_seen_at = excluded.last_seen_at`
+    )
+      .bind(custId, name.trim(), now)
+      .run();
+  }
+
   await DB.prepare(`DELETE FROM race_plan_lineup WHERE race_plan_id = ?`).bind(planId).run();
   for (const custId of custIds) {
     await DB.prepare(`INSERT OR IGNORE INTO race_plan_lineup (race_plan_id, cust_id) VALUES (?, ?)`).bind(planId, custId).run();

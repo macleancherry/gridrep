@@ -969,3 +969,25 @@ export function derivePreRacePhaseProfiles(hours: ForecastHour[], lengths: Sessi
 
   return profiles;
 }
+
+export type DriverLookupResult = { custId: string; name: string };
+
+/**
+ * Real-name driver lookup - confirmed live (2026-07-18): `/data/lookup/drivers?
+ * search_term=` accepts a cust_id or partial name (per the Data API's own /data/doc
+ * description), case-insensitive substring match against the full display name, capped at
+ * 100 raw results server-side. Complements the app's local `drivers` table search
+ * (functions/api/drivers/search.ts), which only knows about drivers who've already
+ * appeared in a synced session - this reaches every real iRacing member, including ones
+ * a team is adding to a lineup for the first time.
+ */
+export async function fetchDriverLookup(searchTerm: string, accessToken: string): Promise<DriverLookupResult[]> {
+  const payload = await iracingDataGet<any>(`/data/lookup/drivers?search_term=${encodeURIComponent(searchTerm)}`, accessToken);
+  const rows: any[] = Array.isArray(payload) ? payload : [];
+
+  return rows
+    .filter((r) => r?.profile_disabled !== true)
+    .map((r) => ({ custId: String(pickNumber(r?.cust_id) ?? ""), name: pickString(r?.display_name) ?? "" }))
+    .filter((r) => r.custId && r.name)
+    .slice(0, 20);
+}
