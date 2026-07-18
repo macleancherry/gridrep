@@ -17,6 +17,9 @@ type ScheduleSession = {
   raceLengthMinutes?: number;
   forecastAvailable: boolean;
   weatherUrl?: string;
+  forecastSummary?: { tempLowC: number; tempHighC: number; precipChancePct: number };
+  minTeamDrivers?: number;
+  maxTeamDrivers?: number;
 };
 
 type ExistingPlan = { id: string; name: string; updatedAt: string };
@@ -222,11 +225,24 @@ export default function SeriesSessionsPage() {
                 <div className="rp-event-meta">
                   <span>Forecast</span>
                   {s.forecastAvailable ? (
-                    <span className="rp-badge rp-green">Available</span>
+                    <span className="rp-badge rp-green">
+                      {s.forecastSummary
+                        ? `${s.forecastSummary.tempLowC}–${s.forecastSummary.tempHighC}°C · ${s.forecastSummary.precipChancePct}% rain`
+                        : "Available"}
+                    </span>
                   ) : (
                     <span className="rp-badge rp-dim">Not available</span>
                   )}
                 </div>
+                {s.minTeamDrivers !== undefined && (
+                  <div className="rp-event-meta">
+                    <span>Team size</span>
+                    <span className="rp-mono">
+                      {s.minTeamDrivers}
+                      {s.maxTeamDrivers !== undefined && s.maxTeamDrivers !== s.minTeamDrivers ? `–${s.maxTeamDrivers}` : ""} drivers
+                    </span>
+                  </div>
+                )}
 
                 {group.length > 1 ? (
                   <div style={{ marginTop: 8 }}>

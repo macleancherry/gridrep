@@ -486,6 +486,13 @@ export type UpsertEventInput = {
   durationMinutes?: number | null;
   seriesId?: string | null;
   seasonId?: string | null;
+  seriesName?: string | null;
+  minTeamDrivers?: number | null;
+  maxTeamDrivers?: number | null;
+  minFuelFillPct?: number | null;
+  maxFuelFillPct?: number | null;
+  minTireSets?: number | null;
+  maxTireSets?: number | null;
 };
 
 /**
@@ -501,9 +508,10 @@ export async function upsertIracingEvent(DB: any, data: UpsertEventInput): Promi
   await DB.prepare(
     `INSERT INTO iracing_events (
        id, name, track_name, track_config, event_type, scheduled_start_time,
-       duration_minutes, series_id, season_id, source, created_at
+       duration_minutes, series_id, season_id, series_name, min_team_drivers, max_team_drivers,
+       min_fuel_fill_pct, max_fuel_fill_pct, min_tire_sets, max_tire_sets, source, created_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'iracing_data_api', ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'iracing_data_api', ?)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        track_name = COALESCE(excluded.track_name, iracing_events.track_name),
@@ -512,7 +520,14 @@ export async function upsertIracingEvent(DB: any, data: UpsertEventInput): Promi
        scheduled_start_time = COALESCE(excluded.scheduled_start_time, iracing_events.scheduled_start_time),
        duration_minutes = COALESCE(excluded.duration_minutes, iracing_events.duration_minutes),
        series_id = COALESCE(excluded.series_id, iracing_events.series_id),
-       season_id = COALESCE(excluded.season_id, iracing_events.season_id)`
+       season_id = COALESCE(excluded.season_id, iracing_events.season_id),
+       series_name = COALESCE(excluded.series_name, iracing_events.series_name),
+       min_team_drivers = COALESCE(excluded.min_team_drivers, iracing_events.min_team_drivers),
+       max_team_drivers = COALESCE(excluded.max_team_drivers, iracing_events.max_team_drivers),
+       min_fuel_fill_pct = COALESCE(excluded.min_fuel_fill_pct, iracing_events.min_fuel_fill_pct),
+       max_fuel_fill_pct = COALESCE(excluded.max_fuel_fill_pct, iracing_events.max_fuel_fill_pct),
+       min_tire_sets = COALESCE(excluded.min_tire_sets, iracing_events.min_tire_sets),
+       max_tire_sets = COALESCE(excluded.max_tire_sets, iracing_events.max_tire_sets)`
   )
     .bind(
       data.id,
@@ -524,6 +539,13 @@ export async function upsertIracingEvent(DB: any, data: UpsertEventInput): Promi
       data.durationMinutes ?? null,
       data.seriesId ?? null,
       data.seasonId ?? null,
+      data.seriesName ?? null,
+      data.minTeamDrivers ?? null,
+      data.maxTeamDrivers ?? null,
+      data.minFuelFillPct ?? null,
+      data.maxFuelFillPct ?? null,
+      data.minTireSets ?? null,
+      data.maxTireSets ?? null,
       now
     )
     .run();
@@ -569,7 +591,103 @@ export type ScheduleSession = {
   raceLengthMinutes?: number; // race-only duration - NOT the whole weekend's span
   forecastAvailable: boolean;
   weatherUrl?: string;
+  forecastSummary?: { tempLowC: number; tempHighC: number; precipChancePct: number };
+  minTeamDrivers?: number;
+  maxTeamDrivers?: number;
+  minFuelFillPct?: number;
+  maxFuelFillPct?: number;
+  minTireSets?: number;
+  maxTireSets?: number;
 };
+
+/** Pre-computed temp-high/low + precip-chance summary iRacing already provides right next
+ * to weather_url - confirmed live (2026-07-18) alongside the same "6 Hours of Road
+ * America" probe. Cheaper than fetching the full hourly timeline just to preview a
+ * session before selecting it. Same temp_units 0=F/1=C convention as extractSessionConditions. */
+function extractForecastSummary(schedule: Record<string, unknown>): ScheduleSession["forecastSummary"] {
+  const weather = schedule.weather as any;
+  const summary = weather?.weather_summary;
+  if (!summary) return undefined;
+
+  const tempUnits = pickNumber(summary.temp_units);
+  const toC = (v: number | undefined) => (v === undefined ? undefined : tempUnits === 0 ? Math.round(((v - 32) * 5) / 9) : v);
+
+  const tempLowC = toC(pickNumber(summary.temp_low));
+  const tempHighC = toC(pickNumber(summary.temp_high));
+  const precipChancePct = pickNumber(summary.precip_chance);
+  if (tempLowC === undefined || tempHighC === undefined) return undefined;
+
+  return { tempLowC, tempHighC, precipChancePct: precipChancePct ?? 0 };
+}
+
+/** Fuel-fill/tyre-set caps, aggregated (min/max) across every car eligible for this
+ * schedule - confirmed live via car_restrictions[].max_pct_fuel_fill/max_dry_tire_sets.
+ * Aggregated rather than per-car because the planner has no car-selection feature to
+ * match a specific car against; shown as an informational range, not a per-plan check. */
+function extractCarRegulationSummary(schedule: Record<string, unknown>): {
+  minFuelFillPct?: number;
+  maxFuelFillPct?: number;
+  minTireSets?: number;
+  maxTireSets?: number;
+} {
+  const restrictions = Array.isArray(schedule.car_restrictions) ? (schedule.car_restrictions as Record<string, unknown>[]) : [];
+  const fuelPcts = restrictions.map((r) => pickNumber(r.max_pct_fuel_fill)).filter((v): v is number => v !== undefined);
+  const tireSets = restrictions.map((r) => pickNumber(r.max_dry_tire_sets)).filter((v): v is number => v !== undefined);
+
+  return {
+    minFuelFillPct: fuelPcts.length ? Math.min(...fuelPcts) : undefined,
+    maxFuelFillPct: fuelPcts.length ? Math.max(...fuelPcts) : undefined,
+    minTireSets: tireSets.length ? Math.min(...tireSets) : undefined,
+    maxTireSets: tireSets.length ? Math.max(...tireSets) : undefined,
+  };
+}
+
+/** Season-level roster size limits - confirmed live (min_team_drivers: 2, max_team_drivers:
+ * 16 for the probed event), sibling to schedules[] rather than nested inside a schedule
+ * entry, so threaded onto each ScheduleSession row from the season row, not the schedule. */
+function extractTeamSizeLimits(season: Record<string, unknown>): { minTeamDrivers?: number; maxTeamDrivers?: number } {
+  return {
+    minTeamDrivers: pickNumber(season.min_team_drivers),
+    maxTeamDrivers: pickNumber(season.max_team_drivers),
+  };
+}
+
+/**
+ * Pit-stop ruleset guess (PRD-adjacent, not PRD-sourced) - the Data API has no queryable
+ * field for this (exhaustively checked: a fresh series/seasons re-fetch, series/get,
+ * series/assets, and the full /data/doc endpoint catalog - no "rules"/"regulations"
+ * category exists anywhere). This is a real Season 3 sim feature per iRacing's own
+ * release notes (boxthislap.org/iracing-2026-season-3-release-notes, user-supplied), which
+ * name real series -> ruleset mappings explicitly - matched here by name, case-insensitive
+ * substring, never asserted as confirmed data. iRacing's own stated global default is
+ * sequential - only overridden when a real name match fires.
+ */
+export function guessPitRuleset(seriesName: string | null | undefined): { simultaneousFuelTyres: boolean; note: string } | null {
+  if (!seriesName) return null;
+  const name = seriesName.toLowerCase();
+
+  const IMSA = ["imsa", "bmw m2 cup", "watkins glen 6 hour", "6 hours of road america", "petit le mans"];
+  const NEC = ["nürburgring endurance", "nurburgring endurance", "nec"];
+  const DTM = ["dtm"];
+
+  if (IMSA.some((k) => name.includes(k))) {
+    return { simultaneousFuelTyres: true, note: "Guessed from iRacing's IMSA ruleset for this event - confirm with your team." };
+  }
+  if (NEC.some((k) => name.includes(k))) {
+    return {
+      simultaneousFuelTyres: true,
+      note: "Guessed from iRacing's Nürburgring Endurance ruleset (simultaneous, slower fuel rate) - confirm with your team.",
+    };
+  }
+  if (DTM.some((k) => name.includes(k))) {
+    return {
+      simultaneousFuelTyres: true,
+      note: "Guessed from iRacing's DTM ruleset (simultaneous, faster tyre changes) - confirm with your team.",
+    };
+  }
+
+  return null;
+}
 
 /**
  * Resolves the real-world start time(s) a schedule entry can be joined at. Two
@@ -641,6 +759,7 @@ export function extractSchedulesForSeries(payload: any, seriesId: string): Sched
   for (const seasonRow of seasonRows) {
     const seasonId = pickNumber(seasonRow.season_id);
     const schedules = Array.isArray(seasonRow.schedules) ? seasonRow.schedules : [];
+    const teamSizeLimits = extractTeamSizeLimits(seasonRow);
 
     for (const s of schedules as Record<string, unknown>[]) {
       const track = s.track as any;
@@ -661,6 +780,9 @@ export function extractSchedulesForSeries(payload: any, seriesId: string): Sched
         raceLengthMinutes: deriveRaceLengthMinutes(s),
         forecastAvailable: Boolean(weatherUrl),
         weatherUrl,
+        forecastSummary: extractForecastSummary(s),
+        ...teamSizeLimits,
+        ...extractCarRegulationSummary(s),
       };
 
       const slotTimes = extractSessionTimes(s);

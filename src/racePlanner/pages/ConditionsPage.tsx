@@ -7,7 +7,47 @@ type EventRecord = {
   name: string;
   track_name: string | null;
   scheduled_start_time: string | null;
+  series_name: string | null;
+  min_fuel_fill_pct: number | null;
+  max_fuel_fill_pct: number | null;
+  min_tire_sets: number | null;
+  max_tire_sets: number | null;
 };
+
+/**
+ * Frontend twin of functions/_lib/plannerIracing.ts's guessPitRuleset() - the Data API has
+ * no queryable field for this (checked exhaustively: series/seasons, series/get,
+ * series/assets, and the full /data/doc endpoint catalog - no "rules" category exists
+ * anywhere). Matched by name against iRacing's own Season 3 release notes
+ * (boxthislap.org/iracing-2026-season-3-release-notes, user-supplied), never asserted as
+ * confirmed data - only used to pre-fill a still-fully-editable form.
+ */
+function guessPitRuleset(seriesName: string | null | undefined): { simultaneousFuelTyres: boolean; note: string } | null {
+  if (!seriesName) return null;
+  const name = seriesName.toLowerCase();
+
+  const IMSA = ["imsa", "bmw m2 cup", "watkins glen 6 hour", "6 hours of road america", "petit le mans"];
+  const NEC = ["nürburgring endurance", "nurburgring endurance", "nec"];
+  const DTM = ["dtm"];
+
+  if (IMSA.some((k) => name.includes(k))) {
+    return { simultaneousFuelTyres: true, note: "Guessed from iRacing's IMSA ruleset for this event — confirm with your team." };
+  }
+  if (NEC.some((k) => name.includes(k))) {
+    return {
+      simultaneousFuelTyres: true,
+      note: "Guessed from iRacing's Nürburgring Endurance ruleset (simultaneous, slower fuel rate) — confirm with your team.",
+    };
+  }
+  if (DTM.some((k) => name.includes(k))) {
+    return {
+      simultaneousFuelTyres: true,
+      note: "Guessed from iRacing's DTM ruleset (simultaneous, faster tyre changes) — confirm with your team.",
+    };
+  }
+
+  return null;
+}
 
 type ConditionProfile = {
   id: string;
@@ -54,9 +94,11 @@ const emptyForm = {
   wind: "",
 };
 
+// iRacing's own stated global default is sequential (Season 3 release notes) - only
+// overridden to simultaneous when guessPitRuleset() matches a known ruleset by name.
 const emptyPitRulesForm = {
   tyreChangeIntervalStints: "",
-  simultaneousFuelTyres: "true",
+  simultaneousFuelTyres: "false",
   basePitTimeSeconds: "55",
   sequentialTimePenaltySeconds: "0",
 };
@@ -79,6 +121,7 @@ export default function ConditionsPage() {
   const [pitRulesForm, setPitRulesForm] = useState(emptyPitRulesForm);
   const [showPitRulesForm, setShowPitRulesForm] = useState(false);
   const [savingPitRules, setSavingPitRules] = useState(false);
+  const [pitRulesGuessNote, setPitRulesGuessNote] = useState<string | null>(null);
 
   // Selecting a session normally arrives here with ?planId= already set. A bookmarked or
   // shared /conditions/:eventId link without one falls back to resolving the viewer's own
@@ -207,16 +250,19 @@ export default function ConditionsPage() {
   }
 
   function openPitRulesForm() {
-    setPitRulesForm(
-      pitRules
-        ? {
-            tyreChangeIntervalStints: pitRules.tyreChangeIntervalStints !== null ? String(pitRules.tyreChangeIntervalStints) : "",
-            simultaneousFuelTyres: String(pitRules.simultaneousFuelTyres),
-            basePitTimeSeconds: String(pitRules.basePitTimeSeconds),
-            sequentialTimePenaltySeconds: String(pitRules.sequentialTimePenaltySeconds),
-          }
-        : emptyPitRulesForm
-    );
+    if (pitRules) {
+      setPitRulesForm({
+        tyreChangeIntervalStints: pitRules.tyreChangeIntervalStints !== null ? String(pitRules.tyreChangeIntervalStints) : "",
+        simultaneousFuelTyres: String(pitRules.simultaneousFuelTyres),
+        basePitTimeSeconds: String(pitRules.basePitTimeSeconds),
+        sequentialTimePenaltySeconds: String(pitRules.sequentialTimePenaltySeconds),
+      });
+      setPitRulesGuessNote(null);
+    } else {
+      const guess = guessPitRuleset(event?.series_name);
+      setPitRulesForm(guess ? { ...emptyPitRulesForm, simultaneousFuelTyres: String(guess.simultaneousFuelTyres) } : emptyPitRulesForm);
+      setPitRulesGuessNote(guess?.note ?? null);
+    }
     setShowPitRulesForm(true);
   }
 
@@ -487,6 +533,23 @@ export default function ConditionsPage() {
         Shared per event — new plans inherit their default pit-stop time from here.
       </p>
 
+      {(event?.min_fuel_fill_pct !== null && event?.min_fuel_fill_pct !== undefined) ||
+      (event?.min_tire_sets !== null && event?.min_tire_sets !== undefined) ? (
+        <p className="rp-text-faint" style={{ fontSize: 11.5, marginBottom: 12 }}>
+          Per iRacing's car regulations for this event —{" "}
+          {event?.min_fuel_fill_pct !== null && event?.min_fuel_fill_pct !== undefined && (
+            <>
+              fuel fill cap {event.min_fuel_fill_pct === event.max_fuel_fill_pct ? `${event.min_fuel_fill_pct}%` : `${event.min_fuel_fill_pct}–${event.max_fuel_fill_pct}%`} (varies by car){" "}
+            </>
+          )}
+          {event?.min_tire_sets !== null && event?.min_tire_sets !== undefined && (
+            <>
+              · tyre-set cap {event.min_tire_sets === event.max_tire_sets ? event.min_tire_sets : `${event.min_tire_sets}–${event.max_tire_sets}`} as reported (meaning of "0" unconfirmed — check your car's regs)
+            </>
+          )}
+        </p>
+      ) : null}
+
       {!showPitRulesForm && !pitRules && (
         <div className="rp-card" style={{ marginBottom: 12 }}>No pit rules set for this event yet.</div>
       )}
@@ -531,6 +594,11 @@ export default function ConditionsPage() {
         </button>
       ) : (
         <div className="rp-card">
+          {pitRulesGuessNote && (
+            <p className="rp-text-faint" style={{ fontSize: 11.5, marginBottom: 10 }}>
+              {pitRulesGuessNote}
+            </p>
+          )}
           <div className="rp-form-grid">
             <div className="rp-form-field">
               <label>Base pit time (s)</label>

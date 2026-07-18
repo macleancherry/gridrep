@@ -1,5 +1,5 @@
 import { getViewer } from "../../../../_lib/auth";
-import { computeDriverTrackProfile, type LapRow } from "../../../../_lib/plannerDriverProfile";
+import { computeDriverTrackProfile, computePitTimeSeconds, type LapRow } from "../../../../_lib/plannerDriverProfile";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 function profileRowId(custId: string, trackName: string, conditionProfileId: string | null): string {
@@ -83,6 +83,7 @@ export async function onRequestPost(context: any) {
     }));
 
     const computed = computeDriverTrackProfile(custId, event.trackName, laps, { tempMid });
+    const pitTimeSeconds = computePitTimeSeconds(laps, computed.paceMs);
 
     const rowId = profileRowId(custId, event.trackName, conditionProfileId);
     const existing = await DB.prepare(`SELECT fuel_per_lap as fuelPerLap, fuel_source as fuelSource FROM driver_track_profiles WHERE id = ?`)
@@ -92,12 +93,13 @@ export async function onRequestPost(context: any) {
     const overrideFuel = fuelOverrides[custId];
     const fuelPerLap = typeof overrideFuel === "number" && Number.isFinite(overrideFuel) ? overrideFuel : (existing?.fuelPerLap ?? null);
     const fuelSource = fuelPerLap === null ? null : typeof overrideFuel === "number" ? "manual" : (existing?.fuelSource ?? "manual");
+    const pitTimeSource = pitTimeSeconds === null ? null : "derived";
 
     await DB.prepare(
       `INSERT INTO driver_track_profiles (
          id, cust_id, track_name, condition_profile_id, pace_ms, laps_used, sample_size,
-         widened_band, fuel_per_lap, fuel_source, computed_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         widened_band, fuel_per_lap, fuel_source, pit_time_seconds, pit_time_source, computed_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          pace_ms = excluded.pace_ms,
          laps_used = excluded.laps_used,
@@ -105,6 +107,8 @@ export async function onRequestPost(context: any) {
          widened_band = excluded.widened_band,
          fuel_per_lap = excluded.fuel_per_lap,
          fuel_source = excluded.fuel_source,
+         pit_time_seconds = excluded.pit_time_seconds,
+         pit_time_source = excluded.pit_time_source,
          computed_at = excluded.computed_at`
     )
       .bind(
@@ -118,6 +122,8 @@ export async function onRequestPost(context: any) {
         computed.widenedBand ? 1 : 0,
         fuelPerLap,
         fuelSource,
+        pitTimeSeconds,
+        pitTimeSource,
         now
       )
       .run();
@@ -138,6 +144,8 @@ export async function onRequestPost(context: any) {
       bandWidthC: computed.bandWidthC,
       fuelPerLap,
       fuelSource,
+      pitTimeSeconds,
+      pitTimeSource,
     });
   }
 
@@ -168,7 +176,8 @@ export async function onRequestGet(context: any) {
     `SELECT p.cust_id as custId, d.display_name as driverName, p.track_name as trackName,
             p.condition_profile_id as conditionProfileId, p.pace_ms as paceMs, p.laps_used as lapsUsed,
             p.sample_size as sampleSize, p.widened_band as widenedBand, p.fuel_per_lap as fuelPerLap,
-            p.fuel_source as fuelSource, p.computed_at as computedAt
+            p.fuel_source as fuelSource, p.pit_time_seconds as pitTimeSeconds, p.pit_time_source as pitTimeSource,
+            p.computed_at as computedAt
      FROM driver_track_profiles p
      LEFT JOIN drivers d ON d.iracing_member_id = p.cust_id
      WHERE p.id IN (${placeholders})`

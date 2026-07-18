@@ -99,3 +99,36 @@ export function computeDriverTrackProfile(
     reason: "no_clean_laps",
   };
 }
+
+/**
+ * Derives an estimated real pit-stop time from lap-time deltas (migration 0012's
+ * driver_track_profiles.pit_time_seconds/pit_time_source were scaffolded for exactly this
+ * - "derive it from in-lap/out-lap deltas... follow-up work" - never computed until now).
+ *
+ * A pit lap's recorded lap_time_ms already includes the driver's own in/out-lap execution
+ * plus the stationary stop itself (confirmed live: is_pit_lap is a per-lap flag, not a
+ * separate in/out pair - unconfirmed whether iRacing ever splits it into two laps for some
+ * payload shapes, so this treats it as one combined lap, the more common case). Delta
+ * against the driver's own clean pace approximates total time lost to the stop.
+ *
+ * Sanity-bounded to (0, 3x clean pace) to exclude caution-lap/anomaly outliers (a full
+ * extra lap under yellow, a spin into the pits) - not a confirmed physical bound, just a
+ * generous filter. Takes the median across valid deltas (robust to one bad sample) and
+ * returns null with zero valid data points rather than guessing.
+ */
+export function computePitTimeSeconds(laps: StoredLap[], cleanPaceMs: number | null): number | null {
+  if (cleanPaceMs === null || cleanPaceMs <= 0) return null;
+
+  const deltas = laps
+    .filter((l) => l.isPitLap && typeof l.lapTimeMs === "number" && l.lapTimeMs > 0)
+    .map((l) => (l.lapTimeMs as number) - cleanPaceMs)
+    .filter((d) => d > 0 && d < cleanPaceMs * 3)
+    .sort((a, b) => a - b);
+
+  if (deltas.length === 0) return null;
+
+  const mid = Math.floor(deltas.length / 2);
+  const medianMs = deltas.length % 2 === 0 ? (deltas[mid - 1] + deltas[mid]) / 2 : deltas[mid];
+
+  return Math.round((medianMs / 1000) * 10) / 10; // one decimal place
+}

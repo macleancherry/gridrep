@@ -15,6 +15,8 @@ type DriverProfile = {
   widenedBand: boolean;
   fuelPerLap: number | null;
   fuelSource: string | null;
+  pitTimeSeconds: number | null;
+  pitTimeSource: string | null;
 };
 
 type DriverSearchResult = { id: string; name: string };
@@ -31,6 +33,7 @@ export default function LineupPage() {
   const { planId } = useParams<{ planId: string }>();
   const { setContext } = usePlanContext();
   const [eventId, setEventId] = useState<string | null>(null);
+  const [teamSize, setTeamSize] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
   const [lineup, setLineup] = useState<{ custId: string; name: string }[]>([]);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<DriverSearchResult[]>([]);
@@ -72,6 +75,15 @@ export default function LineupPage() {
       .then((r) => r.json())
       .then((data) => setConditionProfiles(data.profiles ?? []))
       .catch(() => setConditionProfiles([]));
+
+    fetch(`/api/planner/events/${encodeURIComponent(eventId)}`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok && data.event) {
+          setTeamSize({ min: data.event.min_team_drivers ?? null, max: data.event.max_team_drivers ?? null });
+        }
+      })
+      .catch(() => {});
   }, [eventId]);
 
   async function saveLineup(next: { custId: string; name: string }[]) {
@@ -209,6 +221,17 @@ export default function LineupPage() {
         </div>
       </div>
 
+      {(teamSize.min !== null || teamSize.max !== null) &&
+        (teamSize.min !== null && lineup.length < teamSize.min ? (
+          <div className="rp-warn-banner">
+            ⚠ This event requires at least {teamSize.min} drivers - {lineup.length} added so far.
+          </div>
+        ) : teamSize.max !== null && lineup.length > teamSize.max ? (
+          <div className="rp-warn-banner">
+            ⚠ This event allows at most {teamSize.max} drivers - {lineup.length} added.
+          </div>
+        ) : null)}
+
       <div className="rp-row" style={{ marginBottom: 16 }}>
         <select className="rp-input" value={selectedProfileId} onChange={(e) => setSelectedProfileId(e.target.value)}>
           <option value="">All conditions (unfiltered)</option>
@@ -247,6 +270,11 @@ export default function LineupPage() {
                   <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }}>
                     {p.lapsUsed} laps used · {p.sampleSize} in sample
                   </div>
+                  {p.pitTimeSeconds !== null && (
+                    <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }} title="Derived from this driver's own pit laps vs. their clean pace - includes in/out-lap execution, not just stationary time">
+                      ~{p.pitTimeSeconds}s in the pits (derived)
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <div className="rp-form-field">

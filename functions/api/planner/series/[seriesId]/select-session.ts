@@ -72,6 +72,13 @@ export async function onRequestPost(context: any) {
     durationMinutes: typeof body?.raceLengthMinutes === "number" ? body.raceLengthMinutes : null,
     seriesId,
     seasonId,
+    seriesName,
+    minTeamDrivers: typeof body?.minTeamDrivers === "number" ? body.minTeamDrivers : null,
+    maxTeamDrivers: typeof body?.maxTeamDrivers === "number" ? body.maxTeamDrivers : null,
+    minFuelFillPct: typeof body?.minFuelFillPct === "number" ? body.minFuelFillPct : null,
+    maxFuelFillPct: typeof body?.maxFuelFillPct === "number" ? body.maxFuelFillPct : null,
+    minTireSets: typeof body?.minTireSets === "number" ? body.minTireSets : null,
+    maxTireSets: typeof body?.maxTireSets === "number" ? body.maxTireSets : null,
   });
 
   // Auto-populate shared conditions from the real forecast, but only the first time -
