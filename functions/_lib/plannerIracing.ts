@@ -116,11 +116,31 @@ export function extractSessionHeader(payload: any): {
 }
 
 /**
- * Best-effort per-session weather/track-state extraction. NOT confirmed live - the PRD
- * flagged confirming whether /data/results/get carries these fields as a spike item, and
- * that spike couldn't complete without a real access token (see plan report §6). Every
- * field is nullable and this never throws; callers should treat all of it as optional
- * enrichment, not something to depend on being present.
+ * Per-session weather extraction - field names confirmed live (2026-07-18) against a real
+ * completed subsession (24 Hours of Spa), via a one-off authenticated probe run directly
+ * against members-ng.iracing.com, not through this codebase. Two real corrections versus
+ * the original best-effort guess:
+ *
+ * 1. The top-level `payload.weather` object is real and holds a single point-in-time
+ *    reading (`temp_value`, `time_of_day`, `skies`, `track_water`, `rel_humidity`,
+ *    `wind_dir`/`wind_value`, `fog`, `precip_*`, `simulated_start_time`). There's also a
+ *    richer per-sim-session `session_results[i].weather_result` (avg/min/max over that
+ *    block) - not used here since this function works off the subsession as a whole, but
+ *    worth knowing about if per-simsession granularity is ever needed.
+ * 2. `payload.track_state` is a REAL key but means rubber buildup
+ *    (`practice_rubber`/`qualify_rubber`/`race_rubber`/`leave_marbles`), not moisture -
+ *    a naming collision with our own `track_state` DB column (which means wetness, per
+ *    the PRD's §6 vocabulary). Wetness instead comes from `weather.track_water`.
+ *
+ * Two things the live probe could NOT confirm and are still guesses, documented as such:
+ * - No distinct "track temperature" field was found anywhere in the payload (only
+ *   `weather.temp_value`, which reads as ambient/air temp) - trackTempC is left unset
+ *   rather than guessed from the wrong field.
+ * - `weather.time_of_day` is a numeric enum with an unconfirmed value mapping (saw `2` for
+ *   a race that started at 15:40 local-simulated time) - rather than guess the enum,
+ *   timeOfDay is derived from the hour in `simulated_start_time` directly.
+ * - `weather.track_water`'s exact scale is unconfirmed beyond "0 was a real dry race" -
+ *   treated as a coarse dry/wet boundary at 0, not a finer band.
  */
 export function extractSessionConditions(payload: any): {
   trackTempC?: number;
@@ -128,22 +148,31 @@ export function extractSessionConditions(payload: any): {
   trackState?: string;
   timeOfDay?: string;
 } {
-  const weather = payload?.weather ?? payload?.weather_result ?? payload?.track_state ?? {};
+  const weather = payload?.weather ?? {};
 
-  const trackTempC = pickNumber(
-    weather?.track_temp ?? weather?.track_temp_c ?? payload?.track_temp ?? payload?.track_state_temp
-  );
-  const airTempC = pickNumber(weather?.temp_value ?? weather?.air_temp ?? payload?.weather?.temp_value);
+  const trackTempC = undefined; // no confirmed distinct track-temp field - see header comment
 
-  const trackStateRaw =
-    pickString(weather?.track_state) ??
-    pickString(weather?.track_moisture) ??
-    pickString(payload?.track_state?.description);
-  const trackState = trackStateRaw?.toLowerCase();
+  const rawTemp = pickNumber(weather?.temp_value);
+  // temp_units: confirmed live as `1` for a genuine ~19°C summer evening at Spa - `0`
+  // is assumed Fahrenheit by elimination (iRacing's only other common unit), converted
+  // for consistency since our schema stores a single Celsius column.
+  const airTempC =
+    rawTemp === undefined ? undefined : weather?.temp_units === 0 ? Math.round(((rawTemp - 32) * 5) / 9) : rawTemp;
 
-  const timeOfDayRaw =
-    pickString(payload?.time_of_day) ?? pickString(payload?.simulated_start_time_of_day) ?? undefined;
-  const timeOfDay = timeOfDayRaw?.toLowerCase();
+  const trackWater = pickNumber(weather?.track_water);
+  const trackState = trackWater === undefined ? undefined : trackWater === 0 ? "dry" : "wet";
+
+  const simulatedStart = pickString(weather?.simulated_start_time);
+  let timeOfDay: string | undefined;
+  if (simulatedStart) {
+    const hour = new Date(`${simulatedStart}Z`).getUTCHours();
+    if (Number.isFinite(hour)) {
+      if (hour >= 5 && hour < 7) timeOfDay = "dawn";
+      else if (hour >= 7 && hour < 18) timeOfDay = "day";
+      else if (hour >= 18 && hour < 21) timeOfDay = "dusk";
+      else timeOfDay = "night";
+    }
+  }
 
   return { trackTempC, airTempC, trackState, timeOfDay };
 }
