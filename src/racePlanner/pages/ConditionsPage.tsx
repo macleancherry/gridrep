@@ -21,18 +21,14 @@ type ConditionProfile = {
   trackState: string | null;
   precipPct: number | null;
   wind: string | null;
-  source: "screenshot_ai" | "manual" | "iracing_data_api";
+  source: "manual" | "iracing_data_api";
   submittedAt: string;
-  wasEditedBeforeSave: boolean;
-  flaggedAsOutdated: boolean;
 };
 
 type PlanSummary = { id: string; name: string };
 
 function sourceLabel(source: ConditionProfile["source"]): string {
-  if (source === "iracing_data_api") return "Real forecast";
-  if (source === "screenshot_ai") return "AI-extracted";
-  return "Manual entry";
+  return source === "iracing_data_api" ? "Real forecast" : "Manual entry";
 }
 
 const emptyForm = {
@@ -182,17 +178,6 @@ export default function ConditionsPage() {
     }
   }
 
-  async function flagOutdated(profileId: string) {
-    if (!eventId) return;
-    await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/conditions/flag-outdated`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ profileId }),
-    });
-    await load();
-  }
-
   // Practice/Qualifying/Warmup profiles are stored with a race-start-relative negative
   // offset (see plannerIracing.ts's derivePreRacePhaseProfiles) - everything else (the
   // race's own Day/Dusk/Night/Dawn breakdown, or a manually-entered profile with no
@@ -204,14 +189,7 @@ export default function ConditionsPage() {
     return (
       <div className="rp-card rp-profile-row" key={p.id}>
         <div>
-          <div className="rp-profile-label">
-            {p.label}
-            {p.flaggedAsOutdated && (
-              <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
-                Flagged outdated
-              </span>
-            )}
-          </div>
+          <div className="rp-profile-label">{p.label}</div>
           <div className="rp-section-sub rp-mono">
             {p.trackTempMin !== null ? (
               <>
@@ -231,11 +209,6 @@ export default function ConditionsPage() {
             {sourceLabel(p.source)} · {new Date(p.submittedAt).toLocaleString()}
           </div>
         </div>
-        {!p.flaggedAsOutdated && (
-          <button className="rp-btn" onClick={() => flagOutdated(p.id)}>
-            Flag as outdated
-          </button>
-        )}
       </div>
     );
   }
@@ -291,8 +264,8 @@ export default function ConditionsPage() {
 
       {profiles.length === 0 && !showForm && (
         <div className="rp-card" style={{ marginBottom: 16 }}>
-          No condition profile yet for this event. Add one manually below, or use the screenshot capture wizard
-          (coming soon — needs a Workers AI vision model picked against real forecast screenshots first).
+          No condition profile yet for this event — this event doesn't have a real forecast available yet. Add one
+          manually below.
         </div>
       )}
 
@@ -317,14 +290,9 @@ export default function ConditionsPage() {
       )}
 
       {!showForm ? (
-        <div className="rp-row">
-          <button className="rp-btn rp-primary" onClick={() => setShowForm(true)}>
-            + Add condition profile
-          </button>
-          <button className="rp-btn" disabled title="Needs a Workers AI vision model confirmed against real screenshots first">
-            Capture via screenshot (AI) — coming soon
-          </button>
-        </div>
+        <button className="rp-btn rp-primary" onClick={() => setShowForm(true)}>
+          + Add condition profile
+        </button>
       ) : (
         <div className="rp-card">
           <div className="rp-form-grid">

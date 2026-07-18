@@ -9,10 +9,10 @@ function pickNumber(v: unknown): number | null {
 
 /**
  * Shared condition profile(s) for an event instance (PRD §5.3/§9) - captured once,
- * reused by every team that plans the same event. Manual entry only for now: the
- * screenshot -> Workers AI extraction wizard (§5.3 steps 3-4) needs a Workers AI
- * binding and a chosen vision model/prompt that couldn't be picked without real
- * screenshots to test against (flagged in the audit/spike report as build-later).
+ * reused by every team that plans the same event. Real events get theirs auto-populated
+ * from the iRacing forecast API at session-select time (see plannerIracing.ts's
+ * derivePreRacePhaseProfiles/deriveConditionProfilesFromForecast); manual entry here is
+ * only the fallback for events without a forecast available.
  */
 export async function onRequestGet(context: any) {
   const eventId = context.params.eventId as string;
@@ -24,22 +24,13 @@ export async function onRequestGet(context: any) {
             expected_track_temp_max as trackTempMax, expected_air_temp_min as airTempMin,
             expected_air_temp_max as airTempMax, expected_track_state as trackState,
             expected_precip_pct as precipPct, expected_wind as wind, source, submitted_by as submittedBy,
-            submitted_at as submittedAt, was_edited_before_save as wasEditedBeforeSave,
-            flagged_as_outdated as flaggedAsOutdated
+            submitted_at as submittedAt
      FROM event_condition_profiles WHERE event_id = ? ORDER BY window_offset_start_minutes ASC NULLS LAST`
   )
     .bind(eventId)
     .all<any>();
 
-  return json({
-    ok: true,
-    eventId,
-    profiles: (rows.results ?? []).map((r: any) => ({
-      ...r,
-      wasEditedBeforeSave: Boolean(r.wasEditedBeforeSave),
-      flaggedAsOutdated: Boolean(r.flaggedAsOutdated),
-    })),
-  });
+  return json({ ok: true, eventId, profiles: rows.results ?? [] });
 }
 
 export async function onRequestPost(context: any) {
@@ -64,8 +55,6 @@ export async function onRequestPost(context: any) {
 
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  const source = body?.source === "screenshot_ai" ? "screenshot_ai" : "manual";
-  const wasEditedBeforeSave = Boolean(body?.wasEditedBeforeSave);
 
   await DB.prepare(
     `INSERT INTO event_condition_profiles (
@@ -73,7 +62,7 @@ export async function onRequestPost(context: any) {
        expected_track_temp_min, expected_track_temp_max, expected_air_temp_min, expected_air_temp_max,
        expected_track_state, expected_precip_pct, expected_wind, source, submitted_by, submitted_at,
        was_edited_before_save, flagged_as_outdated
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, 0, 0)`
   )
     .bind(
       id,
@@ -88,10 +77,8 @@ export async function onRequestPost(context: any) {
       typeof body?.trackState === "string" ? body.trackState : null,
       pickNumber(body?.precipPct),
       typeof body?.wind === "string" ? body.wind : null,
-      source,
       viewer.user!.id,
-      now,
-      wasEditedBeforeSave ? 1 : 0
+      now
     )
     .run();
 
