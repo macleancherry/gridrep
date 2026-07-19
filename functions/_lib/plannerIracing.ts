@@ -678,7 +678,12 @@ function extractForecastSummary(schedule: Record<string, unknown>): ScheduleSess
 
   const tempLowC = toC(pickNumber(summary.temp_low));
   const tempHighC = toC(pickNumber(summary.temp_high));
-  const precipChancePct = pickNumber(summary.precip_chance);
+  // Not independently confirmed live for this summary field specifically (every prior
+  // observation of it happened to be exactly 0, which can't reveal a scale bug) - scaled
+  // to match the now-confirmed centi-percent convention on the hourly precip_chance
+  // field below, since both plausibly come from the same weather pipeline.
+  const rawPrecipChance = pickNumber(summary.precip_chance);
+  const precipChancePct = rawPrecipChance === undefined ? undefined : rawPrecipChance / 100;
   if (tempLowC === undefined || tempHighC === undefined) return undefined;
 
   return { tempLowC, tempHighC, precipChancePct: precipChancePct ?? 0 };
@@ -893,7 +898,11 @@ export async function fetchWeatherForecast(weatherUrl: string): Promise<Forecast
       // this file has no units field of its own.
       airTempC: pickNumber(r.air_temp) !== undefined ? (pickNumber(r.air_temp) as number) / 100 : undefined,
       cloudCoverPct: pickNumber(r.cloud_cover) !== undefined ? (pickNumber(r.cloud_cover) as number) / 10 : undefined,
-      precipChancePct: pickNumber(r.precip_chance),
+      // precip_chance confirmed live as centi-percent (10000 -> 100.00%, 37 -> 0.37%) -
+      // found via a real captured forecast where every hour showed 9990%+ and every
+      // condition profile got wrongly marked "wet" (trackState's >50 threshold below
+      // trips on nearly any raw value without this).
+      precipChancePct: pickNumber(r.precip_chance) !== undefined ? (pickNumber(r.precip_chance) as number) / 100 : undefined,
       windSpeed: pickNumber(r.wind_speed),
     }))
     .filter((r) => r.timestamp);

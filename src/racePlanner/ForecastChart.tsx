@@ -208,20 +208,27 @@ export default function ForecastChart({
         {tempArea && <polygon points={tempArea} className="rp-fc-temp-area" />}
         {tempLine && <polyline points={tempLine} className="rp-fc-temp-line" />}
 
-        {sorted.map((h, i) =>
-          h.precipChancePct && h.precipChancePct > 0 ? (
+        {sorted.map((h, i) => {
+          if (!h.precipChancePct || h.precipChancePct <= 0) return null;
+          // Clamped defensively, not just trusted: a forecast field out of its expected
+          // 0-100 range (seen live - a units bug once put raw values up to 10000 here)
+          // must never blow up bar height past the SVG's overflow:visible bounds, which
+          // would tile ugly full-page-height stripes over the entire app, not just a
+          // malformed chart.
+          const pct = Math.min(100, h.precipChancePct);
+          return (
             <rect
               key={i}
               x={x(h.timeOffsetMinutes) - WIDTH / sorted.length / 2.5}
-              y={PRECIP_BOTTOM - (h.precipChancePct / 100) * (PRECIP_BOTTOM - PRECIP_TOP)}
+              y={PRECIP_BOTTOM - (pct / 100) * (PRECIP_BOTTOM - PRECIP_TOP)}
               width={Math.max(2, WIDTH / sorted.length / 1.3)}
-              height={(h.precipChancePct / 100) * (PRECIP_BOTTOM - PRECIP_TOP)}
+              height={(pct / 100) * (PRECIP_BOTTOM - PRECIP_TOP)}
               className="rp-fc-precip-bar"
             >
-              <title>{`${Math.round(h.precipChancePct)}% rain`}</title>
+              <title>{`${Math.round(pct)}% rain`}</title>
             </rect>
-          ) : null
-        )}
+          );
+        })}
 
         {maxTempPoint?.airTempC != null && (
           <text x={x(maxTempPoint.timeOffsetMinutes)} y={yTemp(maxTempPoint.airTempC) - 8} textAnchor="middle" className="rp-fc-temp-callout">
