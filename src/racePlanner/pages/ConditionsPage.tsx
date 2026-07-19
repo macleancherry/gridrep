@@ -113,6 +113,8 @@ export default function ConditionsPage() {
   const [event, setEvent] = useState<EventRecord | null>(null);
   const [profiles, setProfiles] = useState<ConditionProfile[]>([]);
   const [forecastHours, setForecastHours] = useState<ForecastHourPoint[]>([]);
+  const [refreshingForecast, setRefreshingForecast] = useState(false);
+  const [forecastRefreshMessage, setForecastRefreshMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -207,6 +209,34 @@ export default function ConditionsPage() {
       setError("Network error. Please try again.");
     } finally {
       setCreatingPlan(false);
+    }
+  }
+
+  async function refreshForecastChart() {
+    if (!eventId) return;
+    setRefreshingForecast(true);
+    setForecastRefreshMessage(null);
+    try {
+      const r = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/forecast-hours/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setForecastRefreshMessage(data.message ?? "Could not fetch the forecast chart.");
+        return;
+      }
+      if (data.hoursInserted > 0) {
+        const hoursRes = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/forecast-hours`, { credentials: "include" });
+        const hoursData = await hoursRes.json().catch(() => ({}));
+        setForecastHours(hoursRes.ok && hoursData.ok ? hoursData.hours ?? [] : []);
+      } else {
+        setForecastRefreshMessage(data.message ?? "No forecast available from iRacing for this event.");
+      }
+    } catch {
+      setForecastRefreshMessage("Network error. Please try again.");
+    } finally {
+      setRefreshingForecast(false);
     }
   }
 
@@ -404,6 +434,19 @@ export default function ConditionsPage() {
       {error && <p className="rp-error">{error}</p>}
 
       <ForecastChart hours={forecastHours} />
+
+      {!loading && forecastHours.length === 0 && profiles.some((p) => p.source === "iracing_data_api") && (
+        <div className="rp-card rp-card-narrow" style={{ marginBottom: 20 }}>
+          <div style={{ marginBottom: 8 }}>
+            No forecast chart captured for this event yet — it was selected before this feature existed. The
+            condition cards below are unaffected.
+          </div>
+          <button className="rp-btn rp-primary" onClick={refreshForecastChart} disabled={refreshingForecast}>
+            {refreshingForecast ? "Fetching…" : "Fetch forecast chart"}
+          </button>
+          {forecastRefreshMessage && <p className="rp-section-sub" style={{ marginTop: 8 }}>{forecastRefreshMessage}</p>}
+        </div>
+      )}
 
       {profiles.length === 0 && !showForm && (
         <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
