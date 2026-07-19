@@ -4,6 +4,11 @@ export async function onRequestGet(context: any) {
   const viewer = await getViewer(context);
   if (!viewer.verified) return Response.json({ verified: false }, { headers: { "Cache-Control": "no-store" } });
 
+  const { DB } = context.env;
+  const g61 = await DB.prepare(`SELECT 1 FROM garage61_oauth_tokens WHERE user_id = ?`)
+    .bind(viewer.user!.id)
+    .first<any>();
+
   return Response.json(
     {
       verified: true,
@@ -12,6 +17,7 @@ export async function onRequestGet(context: any) {
         iracingId: viewer.user!.iracingId,
         name: viewer.user!.name,
       },
+      garage61Connected: Boolean(g61),
     },
     { headers: { "Cache-Control": "no-store" } }
   );

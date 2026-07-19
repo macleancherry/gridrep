@@ -165,6 +165,21 @@ export default function RacePlannerLayout({
             ) : viewer.verified ? (
               <span>
                 Signed in as <strong>{viewer.user.name}</strong>
+                {viewer.garage61Connected ? (
+                  <span className="rp-text-faint"> · Garage 61 connected</span>
+                ) : (
+                  <>
+                    {" · "}
+                    <a
+                      href={`/api/auth/garage61/start?returnTo=${encodeURIComponent(
+                        location.pathname + location.search
+                      )}`}
+                      className="rp-viewer-link"
+                    >
+                      Connect Garage 61 →
+                    </a>
+                  </>
+                )}
               </span>
             ) : (
               <a href={verifyHref} className="rp-viewer-link">
