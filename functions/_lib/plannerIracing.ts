@@ -610,10 +610,12 @@ export type SeriesSummary = { seriesId: string; name: string; formats: RacingFor
 
 /** Distinct series, deduped by series_id across however many season rows reference it,
  * each tagged with its formats/disciplines for preference-tailored search. Special-event
- * series only by default (today's scope) - pass includeSprint to also surface regular
- * weekly series for a viewer who's opted into sprint racing. */
-export function extractSeriesList(payload: any, opts: { includeSprint?: boolean } = {}): SeriesSummary[] {
-  const rows = extractSeasonRows(payload).filter((row) => opts.includeSprint || looksLikeSpecialEvent(row));
+ * series only by default (today's scope) - pass includeRegularSeries to also surface
+ * regular (non-special) series, e.g. for a viewer who's opted into sprint or endurance
+ * racing (both formats show up on regular series, not just one-off specials - "Global
+ * Endurance Tour" is a real regular series, confirmed live). */
+export function extractSeriesList(payload: any, opts: { includeRegularSeries?: boolean } = {}): SeriesSummary[] {
+  const rows = extractSeasonRows(payload).filter((row) => opts.includeRegularSeries || looksLikeSpecialEvent(row));
   const bySeriesId = new Map<string, SeriesSummary>();
 
   for (const row of rows) {

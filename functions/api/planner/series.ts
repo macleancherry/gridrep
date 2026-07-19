@@ -43,8 +43,15 @@ export async function onRequestGet(context: any) {
     return jsonError(502, { error: "iracing_fetch_failed", message: `Could not list series from iRacing: ${describeIracingError(err)}` });
   }
 
-  const includeSprint = formats.includes("sprint");
-  const all = extractSeriesList(payload, { includeSprint });
+  // "special" only ever applies to special-flagged rows, but "sprint" and "endurance"
+  // both show up on plenty of regular (non-special) series too - confirmed live:
+  // "Global Endurance Tour", "Creventic Endurance Series" etc. are regular series, not
+  // one-off specials. Only skip fetching regular series when the viewer wants special
+  // events exclusively (or hasn't set a preference, matching the app's original
+  // special-only default) - gating on "sprint" alone was hiding every regular endurance
+  // series from a viewer who selected endurance without also selecting sprint.
+  const includeRegularSeries = formats.includes("sprint") || formats.includes("endurance");
+  const all = extractSeriesList(payload, { includeRegularSeries });
 
   function matchesPreferences(s: SeriesSummary): boolean {
     const formatOk = formats.length === 0 || s.formats.some((f) => formats.includes(f));
