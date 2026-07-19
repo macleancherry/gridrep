@@ -1,12 +1,22 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
-type SeriesSummary = { seriesId: string; name: string };
+type SeriesSummary = {
+  seriesId: string;
+  name: string;
+  formats: ("sprint" | "endurance" | "special")[];
+  disciplines: ("road" | "oval" | "dirt_road" | "dirt_oval")[];
+};
+
+const FORMAT_LABEL: Record<string, string> = { sprint: "Sprint", endurance: "Endurance", special: "Special Event" };
+const DISCIPLINE_LABEL: Record<string, string> = { road: "Road", oval: "Oval", dirt_road: "Dirt Road", dirt_oval: "Dirt Oval" };
 
 export default function EventsHome() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [series, setSeries] = useState<SeriesSummary[] | null>(null);
+  const [tailored, setTailored] = useState(false);
+  const [hasPreferences, setHasPreferences] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,6 +37,8 @@ export default function EventsHome() {
       }
 
       setSeries(data.series ?? []);
+      setTailored(Boolean(data.tailored));
+      setHasPreferences(Boolean(data.hasPreferences));
     } catch {
       setError("Network error. Please try again.");
       setSeries([]);
@@ -39,7 +51,7 @@ export default function EventsHome() {
     <div>
       <h2>Select a series</h2>
       <p className="rp-section-sub" style={{ marginBottom: 16 }}>
-        Special &amp; endurance team events — pick a series, then the exact scheduled running you're planning for.
+        Pick a series, then the exact scheduled running you're planning for.
       </p>
 
       <div className="rp-row" style={{ marginBottom: 8 }}>
@@ -58,8 +70,23 @@ export default function EventsHome() {
 
       {error && <p className="rp-error">{error}</p>}
 
+      {series !== null && !loading && (
+        <p className="rp-section-sub" style={{ marginBottom: 12 }}>
+          {tailored ? (
+            <span className="rp-badge rp-green">Tailored to your preferences</span>
+          ) : hasPreferences && series.length > 0 ? (
+            <>
+              Nothing matched your preferences — showing everything.{" "}
+              <Link to="/race-planner/welcome?edit=1">Update your preferences →</Link>
+            </>
+          ) : !hasPreferences ? (
+            <Link to="/race-planner/welcome?edit=1">Set your racing preferences to tailor these results →</Link>
+          ) : null}
+        </p>
+      )}
+
       {series === null && !loading && (
-        <div className="rp-card rp-card-narrow">Search to browse upcoming special/endurance team series from iRacing.</div>
+        <div className="rp-card rp-card-narrow">Search to browse upcoming series from iRacing.</div>
       )}
 
       {series !== null && series.length === 0 && !loading && (
@@ -71,6 +98,20 @@ export default function EventsHome() {
           {series.map((s) => (
             <div className="rp-event-card" key={s.seriesId}>
               <h3 className="rp-event-track">{s.name}</h3>
+              {(s.formats.length > 0 || s.disciplines.length > 0) && (
+                <div className="rp-row" style={{ flexWrap: "wrap", gap: 6 }}>
+                  {s.formats.map((f) => (
+                    <span className="rp-badge rp-dim" key={f}>
+                      {FORMAT_LABEL[f] ?? f}
+                    </span>
+                  ))}
+                  {s.disciplines.map((d) => (
+                    <span className="rp-badge rp-dim" key={d}>
+                      {DISCIPLINE_LABEL[d] ?? d}
+                    </span>
+                  ))}
+                </div>
+              )}
               <button
                 className="rp-btn rp-primary"
                 style={{ marginTop: 8, alignSelf: "flex-start" }}

@@ -11,6 +11,7 @@ import PaceHome from "./pace/pages/PaceHome";
 import PaceSubsession from "./pace/pages/PaceSubsession";
 import RacePlannerLayout from "./racePlanner/RacePlannerLayout";
 import { PlanContextProvider } from "./racePlanner/PlanContext";
+import WelcomePage from "./racePlanner/pages/WelcomePage";
 import EventsHome from "./racePlanner/pages/EventsHome";
 import SeriesSessionsPage from "./racePlanner/pages/SeriesSessionsPage";
 import ConditionsPage from "./racePlanner/pages/ConditionsPage";
@@ -224,6 +225,14 @@ function RacePlannerApp() {
         element={
           <RacePlannerLayout>
             <EventsHome />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/welcome"
+        element={
+          <RacePlannerLayout skipOnboardingGate>
+            <WelcomePage />
           </RacePlannerLayout>
         }
       />

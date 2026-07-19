@@ -8,6 +8,7 @@ export type ViewerState =
       verified: true;
       user: { id: string; iracingId: string; name: string };
       garage61Connected: boolean;
+      onboardingCompleted: boolean;
     };
 
 async function fetchViewer(): Promise<ViewerState> {
@@ -15,7 +16,13 @@ async function fetchViewer(): Promise<ViewerState> {
     const r = await fetch("/api/viewer", { method: "GET", credentials: "include" });
     const data = await r.json().catch(() => ({ verified: false }));
     if (data?.verified && data?.user)
-      return { loading: false, verified: true, user: data.user, garage61Connected: Boolean(data.garage61Connected) };
+      return {
+        loading: false,
+        verified: true,
+        user: data.user,
+        garage61Connected: Boolean(data.garage61Connected),
+        onboardingCompleted: Boolean(data.onboardingCompleted),
+      };
     return { loading: false, verified: false };
   } catch {
     return { loading: false, verified: false };

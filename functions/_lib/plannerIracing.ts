@@ -553,22 +553,84 @@ export async function upsertIracingEvent(DB: any, data: UpsertEventInput): Promi
   return DB.prepare(`SELECT * FROM iracing_events WHERE id = ?`).bind(data.id).first<any>();
 }
 
-export type SeriesSummary = { seriesId: string; name: string };
+export type RacingFormat = "sprint" | "endurance" | "special";
+export type RacingDiscipline = "road" | "oval" | "dirt_road" | "dirt_oval";
 
-/** Distinct special-event series, deduped by series_id across however many season
- * rows reference it. Reuses looksLikeSpecialEvent - no separate heuristic. */
-export function extractSeriesList(payload: any): SeriesSummary[] {
-  const rows = extractSeasonRows(payload).filter(looksLikeSpecialEvent);
+/** Sprint/endurance/special classification for the onboarding-preference tailored
+ * search. "Endurance" is judged by name (contains "endurance", or hour-named like "6
+ * Hours of Road America") independently of the one-off special-event flag - confirmed
+ * against real data this conflated case exists: "Creventic Endurance Series" and
+ * "Nurburgring Endurance Championship" are real, regular (non-special) recurring
+ * series, not one-off specials, and were wrongly falling through to "sprint" only
+ * before this was split out. A series can be special AND endurance (a one-off named
+ * "24 Hours of Spa"), endurance only (a regular multi-hour series), special only (a
+ * one-off that isn't hour/endurance-named), or sprint (neither signal). */
+export function classifyFormats(row: Record<string, unknown>): RacingFormat[] {
+  const name = (pickString(row.series_name) ?? pickString(row.season_name) ?? "").toLowerCase();
+  const isHourNamed = /\b\d+\s*hours?\b/.test(name) || /\b\d+h\b/.test(name);
+  const isEnduranceNamed = name.includes("endurance") || isHourNamed;
+  const isSpecial = looksLikeSpecialEvent(row);
+
+  const out: RacingFormat[] = [];
+  if (isSpecial) out.push("special");
+  if (isEnduranceNamed) out.push("endurance");
+  if (!isSpecial && !isEnduranceNamed) out.push("sprint");
+  return out;
+}
+
+/** Discipline classification from car_types/track_types tokens - confirmed live
+ * (2026-07-19, series/seasons payload) real token values include "road", "oval",
+ * "dirt", "dirtroad", "offroad", "offroadtruck", "nascar", mapped onto iRacing's own
+ * four license categories. NOT live-confirmed: the exact token(s) for dirt OVAL
+ * specifically (the one live example captured was off-road/rallycross-style, not a
+ * dirt oval series) - that mapping should be double-checked once a real dirt-oval
+ * series payload is seen. A series with no recognizable token returns an empty array
+ * rather than a guess - callers must never exclude an unclassified series when
+ * filtering, only ones that positively mismatch a stated preference. */
+export function classifyDisciplines(row: Record<string, unknown>): RacingDiscipline[] {
+  const carTypes = (Array.isArray(row.car_types) ? (row.car_types as any[]) : []).map((c) => String(c?.car_type ?? "").toLowerCase());
+  const trackTypes = (Array.isArray(row.track_types) ? (row.track_types as any[]) : []).map((t) => String(t?.track_type ?? "").toLowerCase());
+  const tokens = [...carTypes, ...trackTypes];
+
+  const hasDirt = tokens.some((t) => t.includes("dirt"));
+  const hasOffroad = tokens.some((t) => t.includes("offroad"));
+  const hasOval = tokens.some((t) => t === "oval" || t === "nascar");
+  const hasRoad = tokens.some((t) => t === "road" || t.includes("sportscar") || t.includes("formula"));
+
+  const out = new Set<RacingDiscipline>();
+  if (hasDirt && hasOval) out.add("dirt_oval");
+  if ((hasDirt && !hasOval) || hasOffroad) out.add("dirt_road");
+  if (hasOval && !hasDirt) out.add("oval");
+  if (hasRoad) out.add("road");
+
+  return Array.from(out);
+}
+
+export type SeriesSummary = { seriesId: string; name: string; formats: RacingFormat[]; disciplines: RacingDiscipline[] };
+
+/** Distinct series, deduped by series_id across however many season rows reference it,
+ * each tagged with its formats/disciplines for preference-tailored search. Special-event
+ * series only by default (today's scope) - pass includeSprint to also surface regular
+ * weekly series for a viewer who's opted into sprint racing. */
+export function extractSeriesList(payload: any, opts: { includeSprint?: boolean } = {}): SeriesSummary[] {
+  const rows = extractSeasonRows(payload).filter((row) => opts.includeSprint || looksLikeSpecialEvent(row));
   const bySeriesId = new Map<string, SeriesSummary>();
 
   for (const row of rows) {
     const seriesId = pickNumber(row.series_id);
     if (seriesId === undefined) continue;
     const key = String(seriesId);
-    if (!bySeriesId.has(key)) {
+    const formats = classifyFormats(row);
+    const disciplines = classifyDisciplines(row);
+
+    const existing = bySeriesId.get(key);
+    if (!existing) {
       const name =
         pickString((row.schedules as any)?.[0]?.series_name) ?? pickString(row.series_name) ?? pickString(row.season_name) ?? "Unknown series";
-      bySeriesId.set(key, { seriesId: key, name });
+      bySeriesId.set(key, { seriesId: key, name, formats, disciplines });
+    } else {
+      existing.formats = Array.from(new Set([...existing.formats, ...formats]));
+      existing.disciplines = Array.from(new Set([...existing.disciplines, ...disciplines]));
     }
   }
 

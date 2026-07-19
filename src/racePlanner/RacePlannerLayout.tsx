@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useRacePlannerViewer } from "./useRacePlannerViewer";
 import { usePlanContext } from "./PlanContext";
@@ -103,20 +103,33 @@ function buildNavItems(eventId: string | null, planId: string | null) {
 export default function RacePlannerLayout({
   children,
   contextBar,
+  skipOnboardingGate,
 }: {
   children: ReactNode;
   /** Event/plan-scoped header content (title, badges) - supplied by pages that have a selected plan. */
   contextBar?: ReactNode;
+  /** The wizard page itself, and only the wizard page, must not redirect back to itself. */
+  skipOnboardingGate?: boolean;
 }) {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const viewer = useRacePlannerViewer();
   const location = useLocation();
+  const navigate = useNavigate();
   const { eventId, planId } = usePlanContext();
   const navItems = buildNavItems(eventId, planId);
 
   useEffect(() => {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
+
+  // First thing after a fresh sign-in: send a driver who hasn't answered the preference
+  // wizard yet straight there, before they see anything else - "tailored from the start"
+  // rather than a settings page they might never find.
+  useEffect(() => {
+    if (skipOnboardingGate) return;
+    if (viewer.loading || !viewer.verified) return;
+    if (!viewer.onboardingCompleted) navigate("/race-planner/welcome", { replace: true });
+  }, [skipOnboardingGate, viewer, navigate]);
 
   const verifyHref = `/api/auth/start?returnTo=${encodeURIComponent(location.pathname + location.search)}`;
 
@@ -180,6 +193,10 @@ export default function RacePlannerLayout({
                     </a>
                   </>
                 )}
+                {" · "}
+                <NavLink to="/race-planner/welcome?edit=1" className="rp-viewer-link">
+                  Edit preferences
+                </NavLink>
               </span>
             ) : (
               <a href={verifyHref} className="rp-viewer-link">
