@@ -30,7 +30,22 @@ export async function onRequestGet(context: any) {
     .bind(planId)
     .all<any>();
 
-  return json({ ok: true, planId, availability: rows.results ?? [] });
+  // Roster condition preferences (night/wet/start) - joined through users.iracing_member_id
+  // since driver_condition_preferences is keyed by our internal user id, not cust_id.
+  // Only covers drivers who've signed in at least once; anyone else simply doesn't show up
+  // here (their availability rows/status are unaffected either way).
+  const preferenceRows = await DB.prepare(
+    `SELECT l.cust_id as custId, p.night_preference as nightPreference, p.wet_preference as wetPreference,
+            p.start_preference as startPreference
+     FROM race_plan_lineup l
+     JOIN users u ON u.iracing_member_id = l.cust_id
+     JOIN driver_condition_preferences p ON p.user_id = u.id
+     WHERE l.race_plan_id = ?`
+  )
+    .bind(planId)
+    .all<any>();
+
+  return json({ ok: true, planId, availability: rows.results ?? [], preferences: preferenceRows.results ?? [] });
 }
 
 /** Submit/update the authenticated driver's own availability (PRD §13.2/§13.5). */

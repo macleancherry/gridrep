@@ -23,9 +23,22 @@ type OrganizerZone = { zone: string; start: string; finish: string };
 
 type AvailabilityRow = { custId: string; driverName: string; blockStartOffsetMinutes: number; status: string };
 
+type RosterPreference = { custId: string; nightPreference: Pref; wetPreference: Pref; startPreference: Pref };
+
 type Status = "available" | "maybe" | "unavailable";
+type Pref = "prefer" | "neutral" | "avoid";
 
 const detectedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+const PREF_LABEL: Record<Pref, string> = { prefer: "Prefer", neutral: "No preference", avoid: "Avoid" };
+const PREF_COLOR: Record<Pref, string> = { prefer: "var(--rp-green)", neutral: "var(--rp-text-faint)", avoid: "var(--rp-red)" };
+
+function isNightBlock(condition: Block["condition"]): boolean {
+  return condition?.label === "Night";
+}
+function isWetBlock(condition: Block["condition"]): boolean {
+  return condition?.trackState === "wet";
+}
 
 export default function AvailabilityPage() {
   const { planId } = useParams<{ planId: string }>();
@@ -35,9 +48,16 @@ export default function AvailabilityPage() {
   const [lineup, setLineup] = useState<LineupDriver[]>([]);
   const [organizerZones, setOrganizerZones] = useState<OrganizerZone[]>([]);
   const [allAvailability, setAllAvailability] = useState<AvailabilityRow[]>([]);
+  const [rosterPreferences, setRosterPreferences] = useState<RosterPreference[]>([]);
   const [timeZone, setTimeZone] = useState(detectedTimeZone);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [myStatuses, setMyStatuses] = useState<Record<number, Status>>({});
+  const [myPrefs, setMyPrefs] = useState<{ nightPreference: Pref; wetPreference: Pref; startPreference: Pref }>({
+    nightPreference: "neutral",
+    wetPreference: "neutral",
+    startPreference: "neutral",
+  });
+  const [savingPrefs, setSavingPrefs] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +81,30 @@ export default function AvailabilityPage() {
     const data = await r.json().catch(() => ({}));
     const rows: AvailabilityRow[] = data.availability ?? [];
     setAllAvailability(rows);
+    setRosterPreferences(data.preferences ?? []);
+  }
+
+  async function loadMyPrefs() {
+    const r = await fetch(`/api/planner/driver-preferences`, { credentials: "include" });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.ok && data.preferences) setMyPrefs(data.preferences);
+  }
+
+  async function saveMyPref(field: "nightPreference" | "wetPreference" | "startPreference", value: Pref) {
+    const next = { ...myPrefs, [field]: value };
+    setMyPrefs(next);
+    setSavingPrefs(true);
+    try {
+      await fetch(`/api/planner/driver-preferences`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(next),
+      });
+      await loadAvailability();
+    } finally {
+      setSavingPrefs(false);
+    }
   }
 
   // The plan already exists by the time this page loads - created at series/session
@@ -101,6 +145,7 @@ export default function AvailabilityPage() {
     if (!planId) return;
     loadBlocks(timeZone);
     loadAvailability();
+    loadMyPrefs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId]);
 
@@ -197,13 +242,33 @@ export default function AvailabilityPage() {
           </div>
 
           <h3 style={{ fontSize: 15, marginBottom: 10 }}>Roster status</h3>
-          <div className="rp-row" style={{ flexWrap: "wrap" }}>
+          <div className="rp-profile-list">
             {lineup.length === 0 && <span className="rp-text-faint">No lineup yet — add drivers on the Lineup page.</span>}
-            {lineup.map((d) => (
-              <span className="rp-badge" key={d.custId} style={submittedCustIds.has(d.custId) ? { color: "var(--rp-green)", borderColor: "var(--rp-green)" } : { color: "var(--rp-text-faint)" }}>
-                {d.driverName} — {submittedCustIds.has(d.custId) ? "Submitted" : "Pending"}
-              </span>
-            ))}
+            {lineup.map((d) => {
+              const pref = rosterPreferences.find((p) => p.custId === d.custId);
+              return (
+                <div className="rp-row" key={d.custId} style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+                  <span className="rp-badge" style={submittedCustIds.has(d.custId) ? { color: "var(--rp-green)", borderColor: "var(--rp-green)" } : { color: "var(--rp-text-faint)" }}>
+                    {d.driverName} — {submittedCustIds.has(d.custId) ? "Submitted" : "Pending"}
+                  </span>
+                  {pref && (pref.nightPreference !== "neutral" || pref.wetPreference !== "neutral" || pref.startPreference !== "neutral") && (
+                    <span className="rp-text-faint" style={{ fontSize: 11 }}>
+                      {pref.nightPreference !== "neutral" && (
+                        <span style={{ color: PREF_COLOR[pref.nightPreference], marginRight: 8 }}>
+                          Night: {PREF_LABEL[pref.nightPreference]}
+                        </span>
+                      )}
+                      {pref.wetPreference !== "neutral" && (
+                        <span style={{ color: PREF_COLOR[pref.wetPreference], marginRight: 8 }}>Wet: {PREF_LABEL[pref.wetPreference]}</span>
+                      )}
+                      {pref.startPreference !== "neutral" && (
+                        <span style={{ color: PREF_COLOR[pref.startPreference] }}>Start: {PREF_LABEL[pref.startPreference]}</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -223,9 +288,56 @@ export default function AvailabilityPage() {
             </div>
           </div>
 
+          <div className="rp-card" style={{ marginBottom: 16 }}>
+            <div className="rp-form-field" style={{ marginBottom: 10 }}>
+              <label>Your stint preferences</label>
+            </div>
+            <p className="rp-section-sub" style={{ marginBottom: 12 }}>
+              Doesn't restrict what you can mark below — just flags blocks that match or clash with what you said here.
+            </p>
+            <div className="rp-form-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
+              {(
+                [
+                  ["nightPreference", "Night driving"],
+                  ["wetPreference", "Wet conditions"],
+                  ["startPreference", "Race start"],
+                ] as const
+              ).map(([field, label]) => (
+                <div key={field}>
+                  <div className="rp-text-faint" style={{ fontSize: 11, marginBottom: 4 }}>
+                    {label}
+                  </div>
+                  <div className="rp-row">
+                    {(["avoid", "neutral", "prefer"] as Pref[]).map((p) => (
+                      <button
+                        key={p}
+                        className="rp-btn"
+                        style={myPrefs[field] === p ? { borderColor: PREF_COLOR[p], color: PREF_COLOR[p] } : {}}
+                        onClick={() => saveMyPref(field, p)}
+                        disabled={savingPrefs}
+                      >
+                        {PREF_LABEL[p]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="rp-profile-list">
             {blocks.map((b) => {
               const status = myStatuses[b.blockStartOffsetMinutes] ?? "available";
+              const matches: { text: string; pref: Pref }[] = [];
+              if (isNightBlock(b.condition) && myPrefs.nightPreference !== "neutral") {
+                matches.push({ text: "Night", pref: myPrefs.nightPreference });
+              }
+              if (isWetBlock(b.condition) && myPrefs.wetPreference !== "neutral") {
+                matches.push({ text: "Wet", pref: myPrefs.wetPreference });
+              }
+              if (b.blockStartOffsetMinutes === 0 && myPrefs.startPreference !== "neutral") {
+                matches.push({ text: "Race start", pref: myPrefs.startPreference });
+              }
               return (
                 <div className="rp-card rp-profile-row" key={b.blockStartOffsetMinutes}>
                   <div>
@@ -239,6 +351,19 @@ export default function AvailabilityPage() {
                           ? ` · ${b.condition.airTempMin}–${b.condition.airTempMax}°C air`
                           : ""}
                     </div>
+                    {matches.length > 0 && (
+                      <div className="rp-row" style={{ marginTop: 4, gap: 4 }}>
+                        {matches.map((m) => (
+                          <span
+                            key={m.text}
+                            className={`rp-badge ${m.pref === "prefer" ? "rp-green" : ""}`}
+                            style={m.pref === "avoid" ? { color: "var(--rp-red)", borderColor: "var(--rp-red)" } : {}}
+                          >
+                            {m.pref === "prefer" ? "You prefer" : "You avoid"} {m.text.toLowerCase()}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="rp-row">
                     {(["available", "maybe", "unavailable"] as Status[]).map((s) => (
