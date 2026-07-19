@@ -51,6 +51,7 @@ type IngestOpts = {
 export type IngestSummary = {
   ok: true;
   subsessionId: string;
+  trackName?: string;
   simSessionsIngested: number;
   driversIngested: number;
   lapsIngested: number;
@@ -81,9 +82,9 @@ export async function ingestPlannerSubsession(context: any, subsessionId: string
     }
   }
 
-  const existing = await DB.prepare(`SELECT laps_complete FROM planner_iracing_subsessions WHERE subsession_id = ?`)
+  const existing = await DB.prepare(`SELECT laps_complete, track_name as trackName FROM planner_iracing_subsessions WHERE subsession_id = ?`)
     .bind(subsessionId)
-    .first<{ laps_complete: number }>();
+    .first<{ laps_complete: number; trackName: string | null }>();
 
   if (existing?.laps_complete) {
     const stats = await DB.prepare(
@@ -98,6 +99,7 @@ export async function ingestPlannerSubsession(context: any, subsessionId: string
     return {
       ok: true,
       subsessionId,
+      trackName: existing.trackName ?? undefined,
       simSessionsIngested: stats?.simSessionsIngested ?? 0,
       driversIngested: stats?.driversIngested ?? 0,
       lapsIngested: stats?.lapsIngested ?? 0,
@@ -309,6 +311,7 @@ export async function ingestPlannerSubsession(context: any, subsessionId: string
   return {
     ok: true,
     subsessionId,
+    trackName: header.track_name ?? undefined,
     simSessionsIngested: simSessionsSeen.size,
     driversIngested: driverNames.size,
     lapsIngested,

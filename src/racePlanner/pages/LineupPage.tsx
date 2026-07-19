@@ -33,6 +33,7 @@ export default function LineupPage() {
   const { planId } = useParams<{ planId: string }>();
   const { setContext } = usePlanContext();
   const [eventId, setEventId] = useState<string | null>(null);
+  const [eventTrackName, setEventTrackName] = useState<string | null>(null);
   const [teamSize, setTeamSize] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
   const [lineup, setLineup] = useState<{ custId: string; name: string }[]>([]);
   const [query, setQuery] = useState("");
@@ -45,6 +46,9 @@ export default function LineupPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fuelDrafts, setFuelDrafts] = useState<Record<string, string>>({});
+  const [syncSubsessionId, setSyncSubsessionId] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   // Load the plan (for its event_id + already-saved lineup) once on mount.
   useEffect(() => {
@@ -81,10 +85,50 @@ export default function LineupPage() {
       .then((data) => {
         if (data.ok && data.event) {
           setTeamSize({ min: data.event.min_team_drivers ?? null, max: data.event.max_team_drivers ?? null });
+          setEventTrackName(data.event.track_name ?? null);
         }
       })
       .catch(() => {});
   }, [eventId]);
+
+  async function syncLaps() {
+    const subsessionId = syncSubsessionId.trim();
+    if (!subsessionId) return;
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const r = await fetch(`/api/planner/iracing/subsessions/${encodeURIComponent(subsessionId)}/sync`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await r.json().catch(() => ({}));
+
+      if (!r.ok || !data.ok) {
+        setSyncMessage(data.message ?? "Could not sync this subsession.");
+        return;
+      }
+
+      const trackNote =
+        data.trackName && eventTrackName && data.trackName !== eventTrackName
+          ? ` ⚠ This subsession was at "${data.trackName}", not this event's track ("${eventTrackName}") - those laps won't show up below.`
+          : data.trackName
+            ? ` (${data.trackName})`
+            : "";
+
+      if (data.alreadyComplete) {
+        setSyncMessage(`Already fully synced — ${data.lapsIngested} laps across ${data.driversIngested} driver(s)${trackNote}.`);
+      } else {
+        const remaining = data.remainingJobs > 0 ? ` · ${data.remainingJobs} more to go, click Sync again to continue` : "";
+        const failures =
+          data.driverFailures?.length > 0 ? ` · ${data.driverFailures.length} driver(s) failed (${data.driverFailures[0].message})` : "";
+        setSyncMessage(`Synced ${data.lapsIngested} laps across ${data.driversIngested} driver(s)${trackNote}${remaining}${failures}.`);
+      }
+    } catch {
+      setSyncMessage("Network error. Please try again.");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   async function saveLineup(next: { custId: string; name: string }[]) {
     if (!planId) return;
@@ -246,6 +290,34 @@ export default function LineupPage() {
             ⚠ This event allows at most {teamSize.max} drivers - {lineup.length} added.
           </div>
         ) : null)}
+
+      <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
+        <div className="rp-form-field">
+          <label>Sync laps from a subsession</label>
+        </div>
+        <div className="rp-row">
+          <input
+            className="rp-input"
+            placeholder="Subsession ID, e.g. 123456789"
+            value={syncSubsessionId}
+            onChange={(e) => setSyncSubsessionId(e.target.value)}
+            style={{ width: 200 }}
+          />
+          <button className="rp-btn" onClick={syncLaps} disabled={syncing || !syncSubsessionId.trim()}>
+            {syncing ? "Syncing…" : "Sync laps"}
+          </button>
+        </div>
+        <p className="rp-section-sub" style={{ marginTop: 8 }}>
+          Pulls real lap times, pit stops, and clean-lap flags from a practice or race subsession so "Compute
+          profiles" below has laps to work with{eventTrackName ? ` at ${eventTrackName}` : ""} — find the subsession
+          ID on iRacing's own results page for that session. Large sessions may need a couple of clicks to finish.
+        </p>
+        {syncMessage && (
+          <p className="rp-section-sub" style={{ marginTop: 8 }}>
+            {syncMessage}
+          </p>
+        )}
+      </div>
 
       <div className="rp-row" style={{ marginBottom: 16 }}>
         <select className="rp-input" value={selectedProfileId} onChange={(e) => setSelectedProfileId(e.target.value)}>
