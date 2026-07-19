@@ -1,6 +1,6 @@
 import { getViewer, getValidAccessToken } from "../../../../../_lib/auth";
 import {
-  fetchSeasonList,
+  getCachedSeasonList,
   extractSchedulesForSeries,
   fetchWeatherForecast,
   raceStartOffsetMinutes,
@@ -49,7 +49,7 @@ export async function onRequestPost(context: any) {
 
   let payload: any;
   try {
-    payload = await fetchSeasonList(accessToken);
+    ({ payload } = await getCachedSeasonList(DB, accessToken));
   } catch (err: any) {
     return jsonError(502, { error: "iracing_fetch_failed", message: `Could not reach iRacing: ${describeIracingError(err)}` });
   }

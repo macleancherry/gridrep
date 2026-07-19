@@ -413,6 +413,48 @@ export async function fetchSeasonList(accessToken: string): Promise<any> {
   throw lastErr;
 }
 
+const SEASON_LIST_CACHE_ID = "season_list";
+const SEASON_LIST_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours - the catalog barely changes intra-day
+
+/**
+ * Read-through cache over fetchSeasonList (migration 0019). The season/series catalog is
+ * the same for every viewer, so one shared D1 row serves the whole team instead of every
+ * series/sessions page load paying for a live two-hop iRacing fetch. Refreshed by
+ * whichever request finds the cache missing/stale - no cron trigger or dedicated service
+ * token needed. A live-fetch failure with a stale row on hand serves the stale payload
+ * rather than erroring the page out; only a cold cache with no fallback propagates.
+ */
+export async function getCachedSeasonList(DB: any, accessToken: string): Promise<{ payload: any; cachedAt: string; stale: boolean }> {
+  const row = await DB.prepare(`SELECT payload_json as payloadJson, fetched_at as fetchedAt FROM iracing_series_cache WHERE id = ?`)
+    .bind(SEASON_LIST_CACHE_ID)
+    .first<any>();
+
+  const isFresh = row && Date.now() - Date.parse(row.fetchedAt) < SEASON_LIST_CACHE_TTL_MS;
+  if (isFresh) {
+    return { payload: JSON.parse(row.payloadJson), cachedAt: row.fetchedAt, stale: false };
+  }
+
+  try {
+    const payload = await fetchSeasonList(accessToken);
+    const fetchedAt = new Date().toISOString();
+    await DB.prepare(
+      `INSERT INTO iracing_series_cache (id, payload_json, fetched_at) VALUES (?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json, fetched_at = excluded.fetched_at`
+    )
+      .bind(SEASON_LIST_CACHE_ID, JSON.stringify(payload), fetchedAt)
+      .run();
+    return { payload, cachedAt: fetchedAt, stale: false };
+  } catch (err) {
+    if (row) {
+      // iRacing's API hiccuped but we have something to show - serve it rather than
+      // failing the whole page, same "degrade gracefully" pattern used for the live
+      // tracking proxy.
+      return { payload: JSON.parse(row.payloadJson), cachedAt: row.fetchedAt, stale: true };
+    }
+    throw err;
+  }
+}
+
 function extractSeasonRows(payload: any): Array<Record<string, unknown>> {
   const rows: any[] =
     (Array.isArray(payload) && payload) ||

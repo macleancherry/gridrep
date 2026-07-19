@@ -1,5 +1,5 @@
 import { getViewer, getValidAccessToken } from "../../_lib/auth";
-import { fetchSeasonList, extractSeriesList, describeIracingError, type SeriesSummary } from "../../_lib/plannerIracing";
+import { getCachedSeasonList, extractSeriesList, describeIracingError, type SeriesSummary } from "../../_lib/plannerIracing";
 import { json, jsonError } from "../../_lib/httpJson";
 
 /**
@@ -37,8 +37,10 @@ export async function onRequestGet(context: any) {
   }
 
   let payload: any;
+  let cachedAt: string;
+  let stale: boolean;
   try {
-    payload = await fetchSeasonList(accessToken);
+    ({ payload, cachedAt, stale } = await getCachedSeasonList(DB, accessToken));
   } catch (err: any) {
     return jsonError(502, { error: "iracing_fetch_failed", message: `Could not list series from iRacing: ${describeIracingError(err)}` });
   }
@@ -66,5 +68,5 @@ export async function onRequestGet(context: any) {
 
   if (q) series = series.filter((s) => s.name.toLowerCase().includes(q));
 
-  return json({ ok: true, series, tailored, hasPreferences });
+  return json({ ok: true, series, tailored, hasPreferences, cachedAt, stale });
 }
