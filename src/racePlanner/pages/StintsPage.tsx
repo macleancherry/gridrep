@@ -158,6 +158,18 @@ export default function StintsPage() {
     setStints(stints.filter((_, i) => i !== index));
   }
 
+  function moveStint(from: number, to: number) {
+    if (to < 0 || to >= stints.length || from === to) return;
+    setStints((prev) => {
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  }
+
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+
   async function generateStints() {
     if (!planId) return;
     if (stints.length > 0 && !window.confirm("Replace the current stint list with a generated one? This won't save until you click Save stint plan.")) {
@@ -355,30 +367,65 @@ export default function StintsPage() {
           </div>
 
           {stints.length === 0 ? (
-            <div className="rp-card rp-card-narrow">No stints yet. Add one above.</div>
+            <div className="rp-card rp-card-narrow">No stints yet. Add one above, or generate a starting order.</div>
           ) : (
             <div className="rp-profile-list">
+              {stints.length > 1 && (
+                <p className="rp-section-sub" style={{ marginBottom: 4 }}>
+                  Drag the handle (⠿) to reorder, or use the arrows — order updates once you save.
+                </p>
+              )}
               {stints.map((s, i) => (
-                <div className="rp-card" key={i}>
+                <div
+                  className="rp-card"
+                  key={i}
+                  draggable
+                  onDragStart={() => setDragIndex(i)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (dragIndex !== null) moveStint(dragIndex, i);
+                    setDragIndex(null);
+                  }}
+                  onDragEnd={() => setDragIndex(null)}
+                  style={{ opacity: dragIndex === i ? 0.5 : 1 }}
+                >
                   <div className="rp-profile-row">
-                    <div>
-                      <span className="rp-badge rp-dim rp-mono" style={{ marginRight: 8 }}>
-                        #{String(i + 1).padStart(2, "0")}
+                    <div className="rp-row" style={{ alignItems: "flex-start", gap: 10 }}>
+                      <span
+                        className="rp-mono rp-text-faint"
+                        style={{ cursor: "grab", fontSize: 18, lineHeight: "20px", userSelect: "none" }}
+                        title="Drag to reorder"
+                      >
+                        ⠿
                       </span>
-                      <span className="rp-profile-label">{s.driverName}</span>
-                      {s.fuelWarning && (
-                        <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
-                          Over fuel capacity
+                      <div>
+                        <span className="rp-badge rp-dim rp-mono" style={{ marginRight: 8 }}>
+                          #{String(i + 1).padStart(2, "0")}
                         </span>
-                      )}
-                      <div className="rp-mono rp-text-faint" style={{ marginTop: 4, fontSize: 12 }}>
-                        {s.lapCount} laps · start {formatOffset(s.startOffsetMinutes)} · pit target {formatOffset(s.pitTargetOffsetMinutes)} ·{" "}
-                        {s.fuelLoadLiters.toFixed(1)}L
+                        <span className="rp-profile-label">{s.driverName}</span>
+                        {s.fuelWarning && (
+                          <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
+                            Over fuel capacity
+                          </span>
+                        )}
+                        <div className="rp-mono rp-text-faint" style={{ marginTop: 4, fontSize: 12 }}>
+                          {s.lapCount} laps · start {formatOffset(s.startOffsetMinutes)} · pit target {formatOffset(s.pitTargetOffsetMinutes)} ·{" "}
+                          {s.fuelLoadLiters.toFixed(1)}L
+                        </div>
                       </div>
                     </div>
-                    <button className="rp-btn" onClick={() => removeStint(i)}>
-                      Remove
-                    </button>
+                    <div className="rp-row" style={{ gap: 6 }}>
+                      <button className="rp-btn" onClick={() => moveStint(i, i - 1)} disabled={i === 0} title="Move up">
+                        ↑
+                      </button>
+                      <button className="rp-btn" onClick={() => moveStint(i, i + 1)} disabled={i === stints.length - 1} title="Move down">
+                        ↓
+                      </button>
+                      <button className="rp-btn" onClick={() => removeStint(i)}>
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
