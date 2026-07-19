@@ -69,6 +69,8 @@ export default function StintsPage() {
   const [newSpotStart, setNewSpotStart] = useState("");
   const [newSpotEnd, setNewSpotEnd] = useState("");
   const [savingSpotting, setSavingSpotting] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generateNotes, setGenerateNotes] = useState<string[]>([]);
 
   async function loadDriverProfiles(custIds: string[], conditionProfileId: string, forEventId?: string) {
     const targetEventId = forEventId ?? eventId;
@@ -154,6 +156,37 @@ export default function StintsPage() {
 
   function removeStint(index: number) {
     setStints(stints.filter((_, i) => i !== index));
+  }
+
+  async function generateStints() {
+    if (!planId) return;
+    if (stints.length > 0 && !window.confirm("Replace the current stint list with a generated one? This won't save until you click Save stint plan.")) {
+      return;
+    }
+    setGenerating(true);
+    setError(null);
+    setGenerateNotes([]);
+    try {
+      const r = await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/generate-stints`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ conditionProfileId: selectedProfileId || undefined }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setError(data.message ?? "Could not generate a stint plan.");
+        return;
+      }
+      setStints(data.stints ?? []);
+      setTotals(data.totals ?? null);
+      setWarnings(data.warnings ?? null);
+      setGenerateNotes(data.notes ?? []);
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setGenerating(false);
+    }
   }
 
   async function saveStints() {
@@ -260,6 +293,24 @@ export default function StintsPage() {
 
       <div className="rp-two-col">
         <div>
+          <div className="rp-row" style={{ marginBottom: 16, justifyContent: "space-between", alignItems: "center" }}>
+            <p className="rp-section-sub" style={{ margin: 0 }}>
+              Auto-fill a starting stint order from driver pace/fuel, fatigue rules, and availability — then edit freely below.
+            </p>
+            <button className="rp-btn rp-primary" onClick={generateStints} disabled={generating || lineup.length === 0}>
+              {generating ? "Generating…" : "✨ Generate stint plan"}
+            </button>
+          </div>
+          {generateNotes.length > 0 && (
+            <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
+              {generateNotes.map((n, i) => (
+                <p className="rp-section-sub" key={i} style={{ margin: i === 0 ? 0 : "6px 0 0" }}>
+                  {n}
+                </p>
+              ))}
+            </div>
+          )}
+
           <div className="rp-card" style={{ marginBottom: 16 }}>
             <div className="rp-row" style={{ marginBottom: 10 }}>
               <select
