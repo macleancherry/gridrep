@@ -258,126 +258,132 @@ export default function StintsPage() {
         );
       })}
 
-      <div className="rp-card" style={{ marginBottom: 16 }}>
-        <div className="rp-row" style={{ marginBottom: 10 }}>
-          <select
-            className="rp-input"
-            value={selectedProfileId}
-            onChange={async (e) => {
-              setSelectedProfileId(e.target.value);
-              await loadDriverProfiles(lineup.map((d) => d.custId), e.target.value);
-            }}
-          >
-            <option value="">All conditions (unfiltered)</option>
-            {conditionProfiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-          <select className="rp-input" value={newDriverId} onChange={(e) => setNewDriverId(e.target.value)}>
-            <option value="">Select driver…</option>
-            {driverProfiles.map((p) => (
-              <option key={p.custId} value={p.custId} disabled={!p.paceMs || !p.fuelPerLap}>
-                {p.driverName}
-                {!p.paceMs || !p.fuelPerLap ? " (no profile computed)" : ""}
-              </option>
-            ))}
-          </select>
-          <input
-            className="rp-input"
-            style={{ width: 90 }}
-            type="number"
-            placeholder="Laps"
-            value={newLapCount}
-            onChange={(e) => setNewLapCount(e.target.value)}
-          />
-          <button className="rp-btn rp-primary" onClick={addStint} disabled={!newDriverId}>
-            + Add stint
-          </button>
-        </div>
-        <p className="rp-section-sub">
-          Driver profiles come from the Lineup page — compute them there first if a driver shows "no profile computed".
-        </p>
-      </div>
+      <div className="rp-two-col">
+        <div>
+          <div className="rp-card" style={{ marginBottom: 16 }}>
+            <div className="rp-row" style={{ marginBottom: 10 }}>
+              <select
+                className="rp-input"
+                value={selectedProfileId}
+                onChange={async (e) => {
+                  setSelectedProfileId(e.target.value);
+                  await loadDriverProfiles(lineup.map((d) => d.custId), e.target.value);
+                }}
+              >
+                <option value="">All conditions (unfiltered)</option>
+                {conditionProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              <select className="rp-input" value={newDriverId} onChange={(e) => setNewDriverId(e.target.value)}>
+                <option value="">Select driver…</option>
+                {driverProfiles.map((p) => (
+                  <option key={p.custId} value={p.custId} disabled={!p.paceMs || !p.fuelPerLap}>
+                    {p.driverName}
+                    {!p.paceMs || !p.fuelPerLap ? " (no profile computed)" : ""}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="rp-input"
+                style={{ width: 90 }}
+                type="number"
+                placeholder="Laps"
+                value={newLapCount}
+                onChange={(e) => setNewLapCount(e.target.value)}
+              />
+              <button className="rp-btn rp-primary" onClick={addStint} disabled={!newDriverId}>
+                + Add stint
+              </button>
+            </div>
+            <p className="rp-section-sub">
+              Driver profiles come from the Lineup page — compute them there first if a driver shows "no profile computed".
+            </p>
+          </div>
 
-      {stints.length === 0 ? (
-        <div className="rp-card">No stints yet. Add one above.</div>
-      ) : (
-        <div className="rp-profile-list">
-          {stints.map((s, i) => (
-            <div className="rp-card" key={i}>
-              <div className="rp-profile-row">
-                <div>
-                  <span className="rp-badge rp-dim rp-mono" style={{ marginRight: 8 }}>
-                    #{String(i + 1).padStart(2, "0")}
-                  </span>
-                  <span className="rp-profile-label">{s.driverName}</span>
-                  {s.fuelWarning && (
-                    <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
-                      Over fuel capacity
-                    </span>
-                  )}
-                  <div className="rp-mono rp-text-faint" style={{ marginTop: 4, fontSize: 12 }}>
-                    {s.lapCount} laps · start {formatOffset(s.startOffsetMinutes)} · pit target {formatOffset(s.pitTargetOffsetMinutes)} ·{" "}
-                    {s.fuelLoadLiters.toFixed(1)}L
+          {stints.length === 0 ? (
+            <div className="rp-card rp-card-narrow">No stints yet. Add one above.</div>
+          ) : (
+            <div className="rp-profile-list">
+              {stints.map((s, i) => (
+                <div className="rp-card" key={i}>
+                  <div className="rp-profile-row">
+                    <div>
+                      <span className="rp-badge rp-dim rp-mono" style={{ marginRight: 8 }}>
+                        #{String(i + 1).padStart(2, "0")}
+                      </span>
+                      <span className="rp-profile-label">{s.driverName}</span>
+                      {s.fuelWarning && (
+                        <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
+                          Over fuel capacity
+                        </span>
+                      )}
+                      <div className="rp-mono rp-text-faint" style={{ marginTop: 4, fontSize: 12 }}>
+                        {s.lapCount} laps · start {formatOffset(s.startOffsetMinutes)} · pit target {formatOffset(s.pitTargetOffsetMinutes)} ·{" "}
+                        {s.fuelLoadLiters.toFixed(1)}L
+                      </div>
+                    </div>
+                    <button className="rp-btn" onClick={() => removeStint(i)}>
+                      Remove
+                    </button>
                   </div>
                 </div>
-                <button className="rp-btn" onClick={() => removeStint(i)}>
-                  Remove
-                </button>
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+          )}
 
-      <div className="rp-row" style={{ marginTop: 16 }}>
-        <button className="rp-btn rp-primary" onClick={saveStints} disabled={saving || stints.length === 0}>
-          {saving ? "Saving…" : "Save stint plan"}
-        </button>
-      </div>
-
-      <h3 style={{ marginTop: 28, fontSize: 15 }}>Spotting</h3>
-      <p className="rp-section-sub" style={{ marginBottom: 12 }}>
-        Freeform windows, deliberately overlapping driver handoffs — they don't need to line up with stint boundaries.
-      </p>
-      <div className="rp-card" style={{ marginBottom: 16 }}>
-        <div className="rp-row" style={{ marginBottom: 10 }}>
-          <select className="rp-input" value={newSpotterId} onChange={(e) => setNewSpotterId(e.target.value)}>
-            <option value="">Select spotter…</option>
-            {lineup.map((d) => (
-              <option key={d.custId} value={d.custId}>
-                {d.driverName}
-              </option>
-            ))}
-          </select>
-          <input className="rp-input" style={{ width: 90 }} type="number" placeholder="Start (min)" value={newSpotStart} onChange={(e) => setNewSpotStart(e.target.value)} />
-          <input className="rp-input" style={{ width: 90 }} type="number" placeholder="End (min)" value={newSpotEnd} onChange={(e) => setNewSpotEnd(e.target.value)} />
-          <button className="rp-btn rp-primary" onClick={addSpotting} disabled={!newSpotterId}>
-            + Add
-          </button>
-        </div>
-        {spotting.length === 0 ? (
-          <span className="rp-text-faint">No spotter windows yet.</span>
-        ) : (
-          <div className="rp-profile-list">
-            {spotting.map((s, i) => (
-              <div className="rp-row" key={i} style={{ justifyContent: "space-between" }}>
-                <span className="rp-mono">
-                  {s.driverName ?? s.custId}: {formatOffset(s.startOffsetMinutes)}–{formatOffset(s.endOffsetMinutes)}
-                </span>
-                <button className="rp-btn" onClick={() => removeSpotting(i)}>
-                  Remove
-                </button>
-              </div>
-            ))}
+          <div className="rp-row" style={{ marginTop: 16 }}>
+            <button className="rp-btn rp-primary" onClick={saveStints} disabled={saving || stints.length === 0}>
+              {saving ? "Saving…" : "Save stint plan"}
+            </button>
           </div>
-        )}
-        <div className="rp-row" style={{ marginTop: 10 }}>
-          <button className="rp-btn rp-primary" onClick={saveSpotting} disabled={savingSpotting}>
-            {savingSpotting ? "Saving…" : "Save spotting"}
-          </button>
+        </div>
+
+        <div>
+          <h3 style={{ fontSize: 15 }}>Spotting</h3>
+          <p className="rp-section-sub" style={{ marginBottom: 12 }}>
+            Freeform windows, deliberately overlapping driver handoffs — they don't need to line up with stint boundaries.
+          </p>
+          <div className="rp-card" style={{ marginBottom: 16 }}>
+            <div className="rp-row" style={{ marginBottom: 10 }}>
+              <select className="rp-input" value={newSpotterId} onChange={(e) => setNewSpotterId(e.target.value)}>
+                <option value="">Select spotter…</option>
+                {lineup.map((d) => (
+                  <option key={d.custId} value={d.custId}>
+                    {d.driverName}
+                  </option>
+                ))}
+              </select>
+              <input className="rp-input" style={{ width: 90 }} type="number" placeholder="Start (min)" value={newSpotStart} onChange={(e) => setNewSpotStart(e.target.value)} />
+              <input className="rp-input" style={{ width: 90 }} type="number" placeholder="End (min)" value={newSpotEnd} onChange={(e) => setNewSpotEnd(e.target.value)} />
+              <button className="rp-btn rp-primary" onClick={addSpotting} disabled={!newSpotterId}>
+                + Add
+              </button>
+            </div>
+            {spotting.length === 0 ? (
+              <span className="rp-text-faint">No spotter windows yet.</span>
+            ) : (
+              <div className="rp-profile-list">
+                {spotting.map((s, i) => (
+                  <div className="rp-row" key={i} style={{ justifyContent: "space-between" }}>
+                    <span className="rp-mono">
+                      {s.driverName ?? s.custId}: {formatOffset(s.startOffsetMinutes)}–{formatOffset(s.endOffsetMinutes)}
+                    </span>
+                    <button className="rp-btn" onClick={() => removeSpotting(i)}>
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="rp-row" style={{ marginTop: 10 }}>
+              <button className="rp-btn rp-primary" onClick={saveSpotting} disabled={savingSpotting}>
+                {savingSpotting ? "Saving…" : "Save spotting"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

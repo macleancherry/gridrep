@@ -393,30 +393,28 @@ export default function ConditionsPage() {
       {error && <p className="rp-error">{error}</p>}
 
       {profiles.length === 0 && !showForm && (
-        <div className="rp-card" style={{ marginBottom: 16 }}>
+        <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
           No condition profile yet for this event — this event doesn't have a real forecast available yet. Add one
           manually below.
         </div>
       )}
 
       {profiles.length > 0 && (
-        <>
+        <div className={preRaceProfiles.length > 0 && raceProfiles.length > 0 ? "rp-two-col" : undefined} style={{ marginBottom: 20 }}>
           {preRaceProfiles.length > 0 && (
-            <>
+            <div>
               <h3 style={{ fontSize: 15, marginBottom: 8 }}>Before the green flag</h3>
-              <div className="rp-profile-list" style={{ marginBottom: 20 }}>
-                {preRaceProfiles.map((p) => renderConditionRow(p))}
-              </div>
-            </>
+              <div className="rp-profile-list">{preRaceProfiles.map((p) => renderConditionRow(p))}</div>
+            </div>
           )}
 
           {raceProfiles.length > 0 && (
-            <>
+            <div>
               {preRaceProfiles.length > 0 && <h3 style={{ fontSize: 15, marginBottom: 8 }}>During the race</h3>}
               <div className="rp-profile-list">{raceProfiles.map((p) => renderConditionRow(p))}</div>
-            </>
+            </div>
           )}
-        </>
+        </div>
       )}
 
       {!showForm ? (
@@ -551,7 +549,7 @@ export default function ConditionsPage() {
       ) : null}
 
       {!showPitRulesForm && !pitRules && (
-        <div className="rp-card" style={{ marginBottom: 12 }}>No pit rules set for this event yet.</div>
+        <div className="rp-card rp-card-narrow" style={{ marginBottom: 12 }}>No pit rules set for this event yet.</div>
       )}
 
       {!showPitRulesForm && pitRules && (

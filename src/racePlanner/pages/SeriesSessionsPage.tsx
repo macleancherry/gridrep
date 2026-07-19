@@ -198,7 +198,7 @@ export default function SeriesSessionsPage() {
       {loading && <p className="rp-section-sub">Loading…</p>}
 
       {sessions !== null && sessions.length === 0 && !loading && (
-        <div className="rp-card">No scheduled sessions found for this series.</div>
+        <div className="rp-card rp-card-narrow">No scheduled sessions found for this series.</div>
       )}
 
       {sessions !== null && sessions.length > 0 && (

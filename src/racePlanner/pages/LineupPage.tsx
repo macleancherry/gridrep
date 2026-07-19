@@ -194,7 +194,7 @@ export default function LineupPage() {
 
       {error && <p className="rp-error">{error}</p>}
 
-      <div className="rp-card" style={{ marginBottom: 16, position: "relative" }}>
+      <div className="rp-card rp-card-narrow" style={{ marginBottom: 16, position: "relative" }}>
         <div className="rp-row" style={{ marginBottom: 10 }}>
           <input
             className="rp-input"

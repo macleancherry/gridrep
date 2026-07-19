@@ -298,6 +298,13 @@
   padding: 18px;
 }
 
+/* Search bars, empty-state hints, and other single-line/short-form cards read as an
+   oversized, mostly-empty box when stretched to the full content width on desktop -
+   cap them to a readable line length instead. */
+.rp-card-narrow {
+  max-width: 640px;
+}
+
 .rp-section-sub {
   color: var(--rp-text-faint);
   font-size: 12px;
@@ -335,6 +342,12 @@
   border-radius: var(--rp-radius);
   font-family: inherit;
   font-size: 13px;
+  /* gridrep's global styles.css has a bare `select { width: 100% }` rule - same class
+     of leak as the h1/h2/h3 color fix above. Its other properties (border/background/
+     padding) already lose to this class selector's higher specificity, but width has no
+     competing declaration here, so a standalone <select> stretches full-width unless
+     explicitly reset. .rp-form-field select below intentionally opts back into 100%. */
+  width: auto;
 }
 
 .rp-row {
@@ -342,6 +355,22 @@
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+/* Two independent panels (e.g. Stint Plan + Spotting, or Before/During-race
+   conditions) side by side on desktop instead of stacked full-width - each panel's
+   controls are narrow, so stacking wastes most of a wide viewport's width. */
+.rp-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .rp-two-col {
+    grid-template-columns: 1fr;
+  }
 }
 
 .rp-event-grid {

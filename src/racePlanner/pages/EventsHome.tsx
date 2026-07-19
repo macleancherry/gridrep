@@ -59,11 +59,11 @@ export default function EventsHome() {
       {error && <p className="rp-error">{error}</p>}
 
       {series === null && !loading && (
-        <div className="rp-card">Search to browse upcoming special/endurance team series from iRacing.</div>
+        <div className="rp-card rp-card-narrow">Search to browse upcoming special/endurance team series from iRacing.</div>
       )}
 
       {series !== null && series.length === 0 && !loading && (
-        <div className="rp-card">No series found. Try a different search term.</div>
+        <div className="rp-card rp-card-narrow">No series found. Try a different search term.</div>
       )}
 
       {series !== null && series.length > 0 && (
