@@ -88,7 +88,7 @@ function buildNavItems(eventId: string | null, planId: string | null) {
       ),
     },
     {
-      to: "/race-planner/live",
+      to: planId ? `/race-planner/live/${planId}` : "/race-planner/live",
       label: "Live",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>

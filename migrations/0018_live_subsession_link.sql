@@ -1,0 +1,11 @@
+-- 0018_live_subsession_link.sql
+--
+-- Live tracking (PRD §12, vision step 7) - plan-vs-actual pace/fuel during the event
+-- itself. iRacing only assigns a real subsession_id once the session has actually run,
+-- so this can never be known at plan-build time - it's a manual link the organizer pastes
+-- in once the race is live, same "manual fallback, confirm live" pattern already used for
+-- Garage 61 fuel and screenshot-extracted conditions elsewhere in this schema. Automated
+-- discovery (matching a plan to its subsession by track/time) was already scoped out as a
+-- real gap in the original audit/spike report (ignium-live-worker's ingest handler never
+-- persists session metadata) - out of scope here too, this only wires up the manual path.
+ALTER TABLE race_plans ADD COLUMN live_subsession_id TEXT;

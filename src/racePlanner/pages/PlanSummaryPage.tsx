@@ -236,9 +236,12 @@ export default function PlanSummaryPage() {
         </button>
       </div>
 
-      <div style={{ marginTop: 20 }}>
+      <div className="rp-row" style={{ marginTop: 20, justifyContent: "space-between" }}>
         <Link to={`/race-planner/stints/${planId}`} className="rp-btn">
           ← Back to stints
+        </Link>
+        <Link to={`/race-planner/live/${planId}`} className="rp-btn rp-primary">
+          Live tracking →
         </Link>
       </div>
     </div>

@@ -9,3 +9,4 @@ database_id = "12061c47-4aa7-4e17-a6e5-6c02d9b26ff4"
 
 [vars]
 IGNIUM_ALLOWED_ORIGIN = "https://igniummotorsports.pages.dev"
+LIVE_WORKER_URL = "https://ignium-live-api.maclean-cherry.workers.dev"

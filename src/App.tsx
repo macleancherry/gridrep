@@ -19,6 +19,7 @@ import LineupPage from "./racePlanner/pages/LineupPage";
 import StintsPage from "./racePlanner/pages/StintsPage";
 import AvailabilityPage from "./racePlanner/pages/AvailabilityPage";
 import PlanSummaryPage from "./racePlanner/pages/PlanSummaryPage";
+import LivePage from "./racePlanner/pages/LivePage";
 import PlaceholderPage from "./racePlanner/pages/PlaceholderPage";
 
 const AUTH_BASE = "https://gridrep.gg";
@@ -328,7 +329,15 @@ function RacePlannerApp() {
         path="/race-planner/live"
         element={
           <RacePlannerLayout>
-            <PlaceholderPage title="Live" note="Phase 2 — plan-vs-actual fuel and pace tracking during the event." />
+            <PlaceholderPage title="Live" note="Select a session first — its live tracking page lives at /race-planner/live/:planId." />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/live/:planId"
+        element={
+          <RacePlannerLayout>
+            <LivePage />
           </RacePlannerLayout>
         }
       />
