@@ -1,5 +1,5 @@
 import { getViewer, getValidAccessToken } from "../../../../_lib/auth";
-import { getCachedSeasonList, extractSchedulesForSeries, describeIracingError } from "../../../../_lib/plannerIracing";
+import { getCachedSchedulesForSeries, describeIracingError } from "../../../../_lib/plannerIracing";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /** Step 2: list a series' scheduled sessions (race weeks) - almost always exactly one
@@ -20,15 +20,14 @@ export async function onRequestGet(context: any) {
     return jsonError(401, { error: "auth_required", message: "Please verify again to continue." });
   }
 
-  let payload: any;
+  let sessions: Awaited<ReturnType<typeof getCachedSchedulesForSeries>>["sessions"];
   let cachedAt: string;
   let stale: boolean;
   try {
-    ({ payload, cachedAt, stale } = await getCachedSeasonList(DB, accessToken));
+    ({ sessions, cachedAt, stale } = await getCachedSchedulesForSeries(DB, accessToken, seriesId));
   } catch (err: any) {
     return jsonError(502, { error: "iracing_fetch_failed", message: `Could not list sessions from iRacing: ${describeIracingError(err)}` });
   }
 
-  const sessions = extractSchedulesForSeries(payload, seriesId);
   return json({ ok: true, seriesId, sessions, cachedAt, stale });
 }

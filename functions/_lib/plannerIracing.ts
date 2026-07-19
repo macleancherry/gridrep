@@ -413,43 +413,98 @@ export async function fetchSeasonList(accessToken: string): Promise<any> {
   throw lastErr;
 }
 
-const SEASON_LIST_CACHE_ID = "season_list";
-const SEASON_LIST_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours - the catalog barely changes intra-day
+const SERIES_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours - the catalog barely changes intra-day
+const SERIES_SUMMARIES_CACHE_ID = "series_summaries_v1";
 
 /**
- * Read-through cache over fetchSeasonList (migration 0019). The season/series catalog is
- * the same for every viewer, so one shared D1 row serves the whole team instead of every
- * series/sessions page load paying for a live two-hop iRacing fetch. Refreshed by
- * whichever request finds the cache missing/stale - no cron trigger or dedicated service
- * token needed. A live-fetch failure with a stale row on hand serves the stale payload
- * rather than erroring the page out; only a cold cache with no fallback propagates.
+ * Read-through cache, migration 0019 - but caching the raw fetchSeasonList payload
+ * directly (an earlier version of this function did exactly that) turned out to be a
+ * real production bug: the real catalog is ~8MB across ~150 active seasons (confirmed
+ * live, 2026-07-19) because every one of ~2000 total schedule weeks carries its own
+ * ~1.2KB embedded weather object (dominated by a long pre-signed S3 URL). Storing that
+ * whole blob risked D1 row-size limits, and re-parsing an 8MB JSON string on every
+ * cache-hit risked the Worker's CPU-time budget on every single page load - which is
+ * exactly what broke: a real user's first live run of this endpoint came back as a
+ * non-JSON error response (an aborted isolate, not a catchable exception), rendered by
+ * the frontend as "Network error."
+ *
+ * Fix: never store the raw payload. Cache only the already-extracted, small results
+ * each caller actually needs - a live fetch+extract only ever happens transiently in
+ * memory, on whichever request finds its specific cache entry missing/stale, and only
+ * the small derived JSON gets written to D1:
+ *  - getCachedSeriesSummaries: one shared row, the deduped {seriesId, name, formats,
+ *    disciplines} list (~16KB for the full real catalog) - always extracted with
+ *    includeRegularSeries:true (the superset) so both the special-only default and the
+ *    sprint/endurance-inclusive case can filter the same cached list afterward, keyed
+ *    off the already-present "special" format tag, rather than needing two separate
+ *    cache entries for what's fundamentally the same underlying data.
+ *  - getCachedSchedulesForSeries: one row per series_id, populated lazily the first
+ *    time anyone actually opens that series (~18KB average, ~50KB worst case for a
+ *    39-week season - trivial either way).
  */
-export async function getCachedSeasonList(DB: any, accessToken: string): Promise<{ payload: any; cachedAt: string; stale: boolean }> {
+async function readSeriesCacheRow(DB: any, id: string): Promise<{ json: string; fetchedAt: string } | null> {
   const row = await DB.prepare(`SELECT payload_json as payloadJson, fetched_at as fetchedAt FROM iracing_series_cache WHERE id = ?`)
-    .bind(SEASON_LIST_CACHE_ID)
+    .bind(id)
     .first<any>();
+  return row ? { json: row.payloadJson, fetchedAt: row.fetchedAt } : null;
+}
 
-  const isFresh = row && Date.now() - Date.parse(row.fetchedAt) < SEASON_LIST_CACHE_TTL_MS;
-  if (isFresh) {
-    return { payload: JSON.parse(row.payloadJson), cachedAt: row.fetchedAt, stale: false };
+async function writeSeriesCacheRow(DB: any, id: string, json: string, fetchedAt: string): Promise<void> {
+  await DB.prepare(
+    `INSERT INTO iracing_series_cache (id, payload_json, fetched_at) VALUES (?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json, fetched_at = excluded.fetched_at`
+  )
+    .bind(id, json, fetchedAt)
+    .run();
+}
+
+function isRowFresh(row: { fetchedAt: string } | null): boolean {
+  return Boolean(row) && Date.now() - Date.parse(row!.fetchedAt) < SERIES_CACHE_TTL_MS;
+}
+
+export async function getCachedSeriesSummaries(DB: any, accessToken: string): Promise<{ series: SeriesSummary[]; cachedAt: string; stale: boolean }> {
+  const row = await readSeriesCacheRow(DB, SERIES_SUMMARIES_CACHE_ID);
+  if (isRowFresh(row)) {
+    return { series: JSON.parse(row!.json), cachedAt: row!.fetchedAt, stale: false };
   }
 
   try {
     const payload = await fetchSeasonList(accessToken);
+    const series = extractSeriesList(payload, { includeRegularSeries: true });
     const fetchedAt = new Date().toISOString();
-    await DB.prepare(
-      `INSERT INTO iracing_series_cache (id, payload_json, fetched_at) VALUES (?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json, fetched_at = excluded.fetched_at`
-    )
-      .bind(SEASON_LIST_CACHE_ID, JSON.stringify(payload), fetchedAt)
-      .run();
-    return { payload, cachedAt: fetchedAt, stale: false };
+    await writeSeriesCacheRow(DB, SERIES_SUMMARIES_CACHE_ID, JSON.stringify(series), fetchedAt);
+    return { series, cachedAt: fetchedAt, stale: false };
   } catch (err) {
     if (row) {
       // iRacing's API hiccuped but we have something to show - serve it rather than
       // failing the whole page, same "degrade gracefully" pattern used for the live
       // tracking proxy.
-      return { payload: JSON.parse(row.payloadJson), cachedAt: row.fetchedAt, stale: true };
+      return { series: JSON.parse(row.json), cachedAt: row.fetchedAt, stale: true };
+    }
+    throw err;
+  }
+}
+
+export async function getCachedSchedulesForSeries(
+  DB: any,
+  accessToken: string,
+  seriesId: string
+): Promise<{ sessions: ScheduleSession[]; cachedAt: string; stale: boolean }> {
+  const cacheId = `series_schedule:${seriesId}`;
+  const row = await readSeriesCacheRow(DB, cacheId);
+  if (isRowFresh(row)) {
+    return { sessions: JSON.parse(row!.json), cachedAt: row!.fetchedAt, stale: false };
+  }
+
+  try {
+    const payload = await fetchSeasonList(accessToken);
+    const sessions = extractSchedulesForSeries(payload, seriesId);
+    const fetchedAt = new Date().toISOString();
+    await writeSeriesCacheRow(DB, cacheId, JSON.stringify(sessions), fetchedAt);
+    return { sessions, cachedAt: fetchedAt, stale: false };
+  } catch (err) {
+    if (row) {
+      return { sessions: JSON.parse(row.json), cachedAt: row.fetchedAt, stale: true };
     }
     throw err;
   }

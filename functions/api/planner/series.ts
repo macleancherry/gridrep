@@ -1,5 +1,5 @@
 import { getViewer, getValidAccessToken } from "../../_lib/auth";
-import { getCachedSeasonList, extractSeriesList, describeIracingError, type SeriesSummary } from "../../_lib/plannerIracing";
+import { getCachedSeriesSummaries, describeIracingError, type SeriesSummary } from "../../_lib/plannerIracing";
 import { json, jsonError } from "../../_lib/httpJson";
 
 /**
@@ -36,11 +36,11 @@ export async function onRequestGet(context: any) {
     return jsonError(401, { error: "auth_required", message: "Please verify again to continue." });
   }
 
-  let payload: any;
+  let summaries: SeriesSummary[];
   let cachedAt: string;
   let stale: boolean;
   try {
-    ({ payload, cachedAt, stale } = await getCachedSeasonList(DB, accessToken));
+    ({ series: summaries, cachedAt, stale } = await getCachedSeriesSummaries(DB, accessToken));
   } catch (err: any) {
     return jsonError(502, { error: "iracing_fetch_failed", message: `Could not list series from iRacing: ${describeIracingError(err)}` });
   }
@@ -48,12 +48,15 @@ export async function onRequestGet(context: any) {
   // "special" only ever applies to special-flagged rows, but "sprint" and "endurance"
   // both show up on plenty of regular (non-special) series too - confirmed live:
   // "Global Endurance Tour", "Creventic Endurance Series" etc. are regular series, not
-  // one-off specials. Only skip fetching regular series when the viewer wants special
-  // events exclusively (or hasn't set a preference, matching the app's original
-  // special-only default) - gating on "sprint" alone was hiding every regular endurance
-  // series from a viewer who selected endurance without also selecting sprint.
+  // one-off specials. Only skip regular series when the viewer wants special events
+  // exclusively (or hasn't set a preference, matching the app's original special-only
+  // default) - gating on "sprint" alone was hiding every regular endurance series from a
+  // viewer who selected endurance without also selecting sprint. The cached summary list
+  // is always the full superset (every series, special or not) - this filters it down
+  // after the fact instead of at extraction time, since the "special" tag is already
+  // there on every series regardless of who's asking.
   const includeRegularSeries = formats.includes("sprint") || formats.includes("endurance");
-  const all = extractSeriesList(payload, { includeRegularSeries });
+  const all = includeRegularSeries ? summaries : summaries.filter((s) => s.formats.includes("special"));
 
   function matchesPreferences(s: SeriesSummary): boolean {
     const formatOk = formats.length === 0 || s.formats.some((f) => formats.includes(f));

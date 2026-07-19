@@ -1,7 +1,6 @@
 import { getViewer, getValidAccessToken } from "../../../../../_lib/auth";
 import {
-  getCachedSeasonList,
-  extractSchedulesForSeries,
+  getCachedSchedulesForSeries,
   fetchWeatherForecast,
   raceStartOffsetMinutes,
   describeIracingError,
@@ -47,14 +46,13 @@ export async function onRequestPost(context: any) {
     return jsonError(401, { error: "auth_required", message: "Please verify again to refresh the forecast." });
   }
 
-  let payload: any;
+  let schedules: Awaited<ReturnType<typeof getCachedSchedulesForSeries>>["sessions"];
   try {
-    ({ payload } = await getCachedSeasonList(DB, accessToken));
+    ({ sessions: schedules } = await getCachedSchedulesForSeries(DB, accessToken, String(event.seriesId)));
   } catch (err: any) {
     return jsonError(502, { error: "iracing_fetch_failed", message: `Could not reach iRacing: ${describeIracingError(err)}` });
   }
 
-  const schedules = extractSchedulesForSeries(payload, String(event.seriesId));
   const matched = schedules.find((s) => s.seasonId === String(event.seasonId) && s.weatherUrl);
 
   if (!matched?.weatherUrl) {
