@@ -490,9 +490,68 @@
 .rp-forecast-chart svg {
   width: 100%;
   height: auto;
-  aspect-ratio: 1000 / 260;
+  aspect-ratio: 1000 / 298;
   display: block;
   overflow: visible;
+}
+
+.rp-fc-phase-practice {
+  fill: rgba(147, 160, 180, 0.28);
+}
+
+.rp-fc-phase-qualifying {
+  fill: rgba(91, 157, 245, 0.3);
+}
+
+.rp-fc-phase-warmup {
+  fill: rgba(245, 166, 35, 0.3);
+}
+
+.rp-fc-phase-race {
+  fill: rgba(52, 201, 138, 0.32);
+}
+
+.rp-fc-phase-label {
+  fill: var(--rp-text);
+  font-size: 11px;
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rp-fc-phase-callout-line {
+  stroke: var(--rp-text-faint);
+  stroke-width: 1;
+}
+
+.rp-fc-phase-callout-label {
+  fill: var(--rp-text-dim);
+  font-size: 10px;
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.rp-fc-gridline {
+  stroke: var(--rp-border-soft);
+  stroke-width: 1;
+}
+
+.rp-fc-temp-callout {
+  fill: var(--rp-d4);
+  font-size: 12px;
+  font-weight: 700;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.rp-fc-tick-date {
+  fill: var(--rp-text-faint);
+  font-size: 9.5px;
+  font-family: "Barlow Condensed", sans-serif;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .rp-fc-band-day {
@@ -525,15 +584,6 @@
   stroke: var(--rp-amber);
   stroke-width: 1.5;
   stroke-dasharray: 4 3;
-}
-
-.rp-fc-start-label {
-  fill: var(--rp-amber);
-  font-size: 11px;
-  font-family: "Barlow Condensed", sans-serif;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .rp-fc-axis {

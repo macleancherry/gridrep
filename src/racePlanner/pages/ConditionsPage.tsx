@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { usePlanContext } from "../PlanContext";
-import ForecastChart, { type ForecastHourPoint } from "../ForecastChart";
+import ForecastChart, { type ForecastHourPoint, type ForecastPhase } from "../ForecastChart";
 
 type EventRecord = {
   id: string;
@@ -356,6 +356,20 @@ export default function ConditionsPage() {
   const preRaceProfiles = profiles.filter((p) => p.windowStartMin !== null && p.windowStartMin < 0);
   const raceProfiles = profiles.filter((p) => !(p.windowStartMin !== null && p.windowStartMin < 0));
 
+  // Practice/Qualifying/Warmup phase boundaries come straight off those same pre-race
+  // profiles (already race-start-relative) - Race is synthesized from the forecast's own
+  // last hour rather than needing race duration stored anywhere new. Explicitly matched
+  // by label, not just "starts before 0" - a Day/Night bucket can also start before race
+  // start (it's not session-phase-aligned) and isn't a phase to show on the ribbon.
+  const SESSION_PHASE_LABELS = new Set(["Practice", "Qualifying", "Warmup"]);
+  const forecastPhases: ForecastPhase[] = preRaceProfiles
+    .filter((p) => SESSION_PHASE_LABELS.has(p.label) && p.windowStartMin !== null && p.windowEndMin !== null)
+    .map((p) => ({ label: p.label, startMin: p.windowStartMin as number, endMin: p.windowEndMin as number }));
+  if (forecastHours.length > 0) {
+    const maxForecastOffset = Math.max(...forecastHours.map((h) => h.timeOffsetMinutes));
+    if (maxForecastOffset > 0) forecastPhases.push({ label: "Race", startMin: 0, endMin: maxForecastOffset });
+  }
+
   function renderConditionRow(p: ConditionProfile) {
     return (
       <div className="rp-card rp-profile-row" key={p.id}>
@@ -433,7 +447,7 @@ export default function ConditionsPage() {
 
       {error && <p className="rp-error">{error}</p>}
 
-      <ForecastChart hours={forecastHours} />
+      <ForecastChart hours={forecastHours} raceStartTime={event?.scheduled_start_time ?? null} phases={forecastPhases} />
 
       {!loading && forecastHours.length === 0 && profiles.some((p) => p.source === "iracing_data_api") && (
         <div className="rp-card rp-card-narrow" style={{ marginBottom: 20 }}>
