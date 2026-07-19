@@ -477,6 +477,106 @@
   color: #f0c888;
 }
 
+/* Visual forecast chart (ForecastChart.tsx) - temp curve + rain bars + day/night bands
+   across the whole event, built from the raw hourly timeline (migration 0015). */
+.rp-forecast-chart {
+  background: var(--rp-surface);
+  border: 1px solid var(--rp-border);
+  border-radius: var(--rp-radius);
+  padding: 16px 16px 12px;
+  margin-bottom: 20px;
+}
+
+.rp-forecast-chart svg {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1000 / 260;
+  display: block;
+  overflow: visible;
+}
+
+.rp-fc-band-day {
+  fill: rgba(245, 166, 35, 0.07);
+}
+
+.rp-fc-band-night {
+  fill: rgba(91, 157, 245, 0.1);
+}
+
+.rp-fc-temp-line {
+  fill: none;
+  stroke: var(--rp-d4);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+}
+
+.rp-fc-temp-area {
+  fill: var(--rp-d4);
+  opacity: 0.12;
+  stroke: none;
+}
+
+.rp-fc-precip-bar {
+  fill: var(--rp-blue);
+  opacity: 0.55;
+}
+
+.rp-fc-start-line {
+  stroke: var(--rp-amber);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+.rp-fc-start-label {
+  fill: var(--rp-amber);
+  font-size: 11px;
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rp-fc-axis {
+  stroke: var(--rp-border);
+  stroke-width: 1;
+}
+
+.rp-fc-tick {
+  fill: var(--rp-text-faint);
+  font-size: 11px;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.rp-fc-legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--rp-text-dim);
+  flex-wrap: wrap;
+}
+
+.rp-fc-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.rp-fc-swatch-temp {
+  background: var(--rp-d4);
+}
+
+.rp-fc-swatch-precip {
+  background: var(--rp-blue);
+}
+
+.rp-fc-swatch-night {
+  background: rgba(91, 157, 245, 0.35);
+}
+
 /* Plan summary's "Export / print" button should print just the plan, not the app chrome. */
 @media print {
   .rp-sidebar,

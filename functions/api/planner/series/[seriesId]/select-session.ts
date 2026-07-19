@@ -109,6 +109,28 @@ export async function onRequestPost(context: any) {
       const derived = [...preRaceProfiles, ...raceProfiles];
       const now = new Date().toISOString();
 
+      // Raw hourly timeline for the visual forecast chart - every hour, rebased to
+      // race-start-relative like the bucketed profiles above (so practice/qualifying
+      // hours come out negative), not just the bucketed Day/Dusk/Night/Dawn summaries.
+      for (const h of hours) {
+        await DB.prepare(
+          `INSERT INTO event_forecast_hours (
+             id, event_id, time_offset_minutes, is_sun_up, air_temp_c, precip_chance_pct, cloud_cover_pct, wind_speed
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+          .bind(
+            crypto.randomUUID(),
+            eventId,
+            h.timeOffsetMinutes - raceStart,
+            h.isSunUp ? 1 : 0,
+            h.airTempC ?? null,
+            h.precipChancePct ?? null,
+            h.cloudCoverPct ?? null,
+            h.windSpeed ?? null
+          )
+          .run();
+      }
+
       for (const p of derived) {
         const id = crypto.randomUUID();
         await DB.prepare(

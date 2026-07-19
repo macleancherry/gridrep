@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { usePlanContext } from "../PlanContext";
+import ForecastChart, { type ForecastHourPoint } from "../ForecastChart";
 
 type EventRecord = {
   id: string;
@@ -111,6 +112,7 @@ export default function ConditionsPage() {
 
   const [event, setEvent] = useState<EventRecord | null>(null);
   const [profiles, setProfiles] = useState<ConditionProfile[]>([]);
+  const [forecastHours, setForecastHours] = useState<ForecastHourPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -142,6 +144,7 @@ export default function ConditionsPage() {
       if (!planIdFromQuery) requests.push(fetch(`/api/planner/events/${encodeURIComponent(eventId)}/race-plans`, { credentials: "include" }));
 
       const pitRulesRequest = fetch(`/api/planner/events/${encodeURIComponent(eventId)}/pit-rules`, { credentials: "include" });
+      const forecastHoursRequest = fetch(`/api/planner/events/${encodeURIComponent(eventId)}/forecast-hours`, { credentials: "include" });
 
       const [eventRes, profilesRes, plansRes] = await Promise.all(requests);
       const eventData = await eventRes.json().catch(() => ({}));
@@ -154,6 +157,14 @@ export default function ConditionsPage() {
 
       setEvent(eventData.event);
       setProfiles(profilesData.profiles ?? []);
+
+      try {
+        const forecastHoursRes = await forecastHoursRequest;
+        const forecastHoursData = await forecastHoursRes.json().catch(() => ({}));
+        setForecastHours(forecastHoursRes.ok && forecastHoursData.ok ? forecastHoursData.hours ?? [] : []);
+      } catch {
+        setForecastHours([]);
+      }
 
       if (plansRes) {
         const plansData = await plansRes.json().catch(() => ({}));
@@ -391,6 +402,8 @@ export default function ConditionsPage() {
       )}
 
       {error && <p className="rp-error">{error}</p>}
+
+      <ForecastChart hours={forecastHours} />
 
       {profiles.length === 0 && !showForm && (
         <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
