@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 type SeriesSummary = {
@@ -17,35 +17,47 @@ export default function EventsHome() {
   const [series, setSeries] = useState<SeriesSummary[] | null>(null);
   const [tailored, setTailored] = useState(false);
   const [hasPreferences, setHasPreferences] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  async function search() {
+  // Load the full tailored list once - filtering as you type happens entirely
+  // client-side below, no per-keystroke request to iRacing.
+  useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    try {
-      const params = new URLSearchParams();
-      if (query.trim()) params.set("q", query.trim());
+    fetch(`/api/planner/series`, { credentials: "include" })
+      .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+      .then(({ ok, data }) => {
+        if (cancelled) return;
+        if (!ok || !data.ok) {
+          setError(data.message ?? "Could not load series.");
+          setSeries([]);
+          return;
+        }
+        setSeries(data.series ?? []);
+        setTailored(Boolean(data.tailored));
+        setHasPreferences(Boolean(data.hasPreferences));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError("Network error. Please try again.");
+          setSeries([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-      const r = await fetch(`/api/planner/series?${params.toString()}`, { credentials: "include" });
-      const data = await r.json().catch(() => ({}));
-
-      if (!r.ok || !data.ok) {
-        setError(data.message ?? "Could not load series.");
-        setSeries([]);
-        return;
-      }
-
-      setSeries(data.series ?? []);
-      setTailored(Boolean(data.tailored));
-      setHasPreferences(Boolean(data.hasPreferences));
-    } catch {
-      setError("Network error. Please try again.");
-      setSeries([]);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const visibleSeries = useMemo(() => {
+    if (!series) return null;
+    const q = query.trim().toLowerCase();
+    return q ? series.filter((s) => s.name.toLowerCase().includes(q)) : series;
+  }, [series, query]);
 
   return (
     <div>
@@ -57,24 +69,22 @@ export default function EventsHome() {
       <div className="rp-row" style={{ marginBottom: 8 }}>
         <input
           className="rp-input"
-          placeholder="Search by name (e.g. Spa)"
+          placeholder="Filter by name (e.g. Spa)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && search()}
           style={{ minWidth: 220 }}
         />
-        <button className="rp-btn rp-primary" onClick={search} disabled={loading}>
-          {loading ? "Searching…" : "Search"}
-        </button>
       </div>
 
       {error && <p className="rp-error">{error}</p>}
 
-      {series !== null && !loading && (
+      {loading && <p className="rp-section-sub">Loading series…</p>}
+
+      {visibleSeries !== null && !loading && (
         <p className="rp-section-sub" style={{ marginBottom: 12 }}>
           {tailored ? (
             <span className="rp-badge rp-green">Tailored to your preferences</span>
-          ) : hasPreferences && series.length > 0 ? (
+          ) : hasPreferences && series && series.length > 0 ? (
             <>
               Nothing matched your preferences — showing everything.{" "}
               <Link to="/race-planner/welcome?edit=1">Update your preferences →</Link>
@@ -85,17 +95,15 @@ export default function EventsHome() {
         </p>
       )}
 
-      {series === null && !loading && (
-        <div className="rp-card rp-card-narrow">Search to browse upcoming series from iRacing.</div>
+      {visibleSeries !== null && visibleSeries.length === 0 && !loading && (
+        <div className="rp-card rp-card-narrow">
+          {series && series.length > 0 ? "No series match that filter." : "No series found for your preferences."}
+        </div>
       )}
 
-      {series !== null && series.length === 0 && !loading && (
-        <div className="rp-card rp-card-narrow">No series found. Try a different search term.</div>
-      )}
-
-      {series !== null && series.length > 0 && (
+      {visibleSeries !== null && visibleSeries.length > 0 && (
         <div className="rp-event-grid">
-          {series.map((s) => (
+          {visibleSeries.map((s) => (
             <div className="rp-event-card" key={s.seriesId}>
               <h3 className="rp-event-track">{s.name}</h3>
               {(s.formats.length > 0 || s.disciplines.length > 0) && (
