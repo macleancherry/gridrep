@@ -3,13 +3,13 @@ import { iracingDataGet } from "./iracing";
 /**
  * Thin wrappers around the iRacing Data API endpoints the planner needs, ported from
  * functions/_lib/paceIracing.ts as an independent copy (per the PRD's "copy, don't depend
- * on Pace" decision - Pace is slated for removal). The subsession/lap-data helpers below
- * are confirmed live (Pace already exercises them in production). The event-discovery
- * helpers at the bottom (fetchSeasonList / classifyAsSpecialEvent / extractSessionConditions)
- * are new and NOT live-confirmed - built defensively with multiple field-name fallbacks,
- * same tolerance-for-uncertainty approach as everything else in this file, but the exact
- * payload shape needs confirming with a real access token post-deploy (see the audit/spike
- * plan report for what's still open).
+ * on Pace" decision). The subsession/lap-data helpers below are confirmed live (Pace
+ * already exercises them in production). The series/schedule/forecast helpers
+ * (fetchSeasonList, extractSeriesList, extractSchedulesForSeries, fetchWeatherForecast,
+ * etc.) are confirmed live against real production data (2026-07-18/19) - built
+ * defensively with multiple field-name fallbacks regardless, same tolerance-for-
+ * uncertainty approach as everything else in this file, since not every field's exact
+ * shape/enum mapping has been independently confirmed.
  */
 
 export type SimSessionInfo = {
@@ -374,22 +374,6 @@ export async function extractSubsessionIds(payload: any): Promise<string[]> {
   return Array.from(ids);
 }
 
-// ---------------------------------------------------------------------------
-// Event discovery - new for the planner, NOT live-confirmed (see file header).
-// ---------------------------------------------------------------------------
-
-export type DiscoveredEvent = {
-  id: string;
-  name: string;
-  trackName?: string;
-  trackConfig?: string;
-  seriesId?: string;
-  seasonId?: string;
-  scheduledStartTime?: string;
-  eventType: "special" | "hosted" | "league";
-  raw: Record<string, unknown>;
-};
-
 /**
  * Season/series discovery. iRacing's community wrapper libraries expose this as
  * GetSeasonListAsync / GetSeasonsAsync, backed by something in the /data/season or
@@ -537,35 +521,6 @@ function looksLikeSpecialEvent(row: Record<string, unknown>): boolean {
   return name.includes("special event") || /\b\d+\s*hours?\b/.test(name) || /\b\d+h\b/.test(name);
 }
 
-export function extractDiscoveredEvents(payload: any, opts: { specialOnly?: boolean } = {}): DiscoveredEvent[] {
-  const rows = extractSeasonRows(payload);
-  const filtered = opts.specialOnly ? rows.filter(looksLikeSpecialEvent) : rows;
-  const source = filtered.length > 0 || !opts.specialOnly ? filtered : rows; // never silently return zero on a bad guess
-
-  return source.map((row) => {
-    const seriesId = pickNumber(row.series_id);
-    const seasonId = pickNumber(row.season_id);
-    const name = pickString(row.series_name) ?? pickString(row.season_name) ?? "Unknown event";
-    // No ":" or other characters that need URL-encoding in a path segment - avoids a
-    // real Cloudflare Pages dev-router gotcha where an encoded id in the URL doesn't
-    // decode back to the stored id by the time it reaches context.params.
-    const idSuffix = seasonId !== undefined ? String(seasonId) : String(seriesId ?? name).replace(/[^a-zA-Z0-9_-]/g, "-");
-    const id = seasonId !== undefined ? `season-${idSuffix}` : `series-${idSuffix}`;
-
-    return {
-      id,
-      name,
-      trackName: pickString((row.track as any)?.track_name),
-      trackConfig: pickString((row.track as any)?.config_name),
-      seriesId: seriesId !== undefined ? String(seriesId) : undefined,
-      seasonId: seasonId !== undefined ? String(seasonId) : undefined,
-      scheduledStartTime: pickString(row.start_date) ?? pickString(row.season_start_date),
-      eventType: looksLikeSpecialEvent(row) ? "special" : "league",
-      raw: row,
-    };
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Series -> session drill-down (confirmed live 2026-07-18, see plan report).
 // A season-level row has NO `track` field - it only exists per-`schedules[i]`
@@ -594,10 +549,9 @@ export type UpsertEventInput = {
 
 /**
  * Upserts an event into iracing_events, keyed on its own id (per the PRD's "same event +
- * scheduled start resolves to one record" rule, §7). Shared by both the shallow
- * events/select.ts path and the richer series/select-session.ts path - the latter
- * generally has better data (real track/duration from a schedule entry rather than a
- * season row), so re-selecting the same event through it refreshes those fields.
+ * scheduled start resolves to one record" rule, §7) - called from series/select-session.ts.
+ * Re-selecting the same event refreshes its fields (track/duration/forecast) rather than
+ * duplicating a row.
  */
 export async function upsertIracingEvent(DB: any, data: UpsertEventInput): Promise<any> {
   const now = new Date().toISOString();
@@ -816,43 +770,6 @@ function extractTeamSizeLimits(season: Record<string, unknown>): { minTeamDriver
     minTeamDrivers: pickNumber(season.min_team_drivers),
     maxTeamDrivers: pickNumber(season.max_team_drivers),
   };
-}
-
-/**
- * Pit-stop ruleset guess (PRD-adjacent, not PRD-sourced) - the Data API has no queryable
- * field for this (exhaustively checked: a fresh series/seasons re-fetch, series/get,
- * series/assets, and the full /data/doc endpoint catalog - no "rules"/"regulations"
- * category exists anywhere). This is a real Season 3 sim feature per iRacing's own
- * release notes (boxthislap.org/iracing-2026-season-3-release-notes, user-supplied), which
- * name real series -> ruleset mappings explicitly - matched here by name, case-insensitive
- * substring, never asserted as confirmed data. iRacing's own stated global default is
- * sequential - only overridden when a real name match fires.
- */
-export function guessPitRuleset(seriesName: string | null | undefined): { simultaneousFuelTyres: boolean; note: string } | null {
-  if (!seriesName) return null;
-  const name = seriesName.toLowerCase();
-
-  const IMSA = ["imsa", "bmw m2 cup", "watkins glen 6 hour", "6 hours of road america", "petit le mans"];
-  const NEC = ["nürburgring endurance", "nurburgring endurance", "nec"];
-  const DTM = ["dtm"];
-
-  if (IMSA.some((k) => name.includes(k))) {
-    return { simultaneousFuelTyres: true, note: "Guessed from iRacing's IMSA ruleset for this event - confirm with your team." };
-  }
-  if (NEC.some((k) => name.includes(k))) {
-    return {
-      simultaneousFuelTyres: true,
-      note: "Guessed from iRacing's Nürburgring Endurance ruleset (simultaneous, slower fuel rate) - confirm with your team.",
-    };
-  }
-  if (DTM.some((k) => name.includes(k))) {
-    return {
-      simultaneousFuelTyres: true,
-      note: "Guessed from iRacing's DTM ruleset (simultaneous, faster tyre changes) - confirm with your team.",
-    };
-  }
-
-  return null;
 }
 
 /**

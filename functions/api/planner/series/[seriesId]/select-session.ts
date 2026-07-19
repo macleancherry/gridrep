@@ -11,9 +11,9 @@ import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
  * Step 3: selecting a specific session. Body is the exact ScheduleSession (+ series name)
- * shape GET .../sessions already returned, POSTed back - same "client echoes back what it
- * was given" pattern events/select.ts uses, avoiding a second iRacing fetch just to
- * re-locate the same schedule entry server-side.
+ * shape GET .../sessions already returned, POSTed back - the client echoes back what it
+ * was given, avoiding a second iRacing fetch just to re-locate the same schedule entry
+ * server-side.
  *
  * Does three things in one call: upserts the real event (track/duration/exact start time,
  * fixing the gap where season-level selection had no track data at all), auto-populates

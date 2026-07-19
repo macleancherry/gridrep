@@ -16,12 +16,12 @@ type EventRecord = {
 };
 
 /**
- * Frontend twin of functions/_lib/plannerIracing.ts's guessPitRuleset() - the Data API has
- * no queryable field for this (checked exhaustively: series/seasons, series/get,
- * series/assets, and the full /data/doc endpoint catalog - no "rules" category exists
- * anywhere). Matched by name against iRacing's own Season 3 release notes
- * (boxthislap.org/iracing-2026-season-3-release-notes, user-supplied), never asserted as
- * confirmed data - only used to pre-fill a still-fully-editable form.
+ * Pit-stop ruleset guess - the Data API has no queryable field for this (checked
+ * exhaustively: series/seasons, series/get, series/assets, and the full /data/doc
+ * endpoint catalog - no "rules" category exists anywhere). Matched by name against
+ * iRacing's own Season 3 release notes (boxthislap.org/iracing-2026-season-3-release-notes,
+ * user-supplied), never asserted as confirmed data - only used to pre-fill a still-fully-
+ * editable form.
  */
 function guessPitRuleset(seriesName: string | null | undefined): { simultaneousFuelTyres: boolean; note: string } | null {
   if (!seriesName) return null;
@@ -356,6 +356,11 @@ export default function ConditionsPage() {
   const preRaceProfiles = profiles.filter((p) => p.windowStartMin !== null && p.windowStartMin < 0);
   const raceProfiles = profiles.filter((p) => !(p.windowStartMin !== null && p.windowStartMin < 0));
 
+  // Manual entry is a fallback for events iRacing has no forecast for - once a real
+  // forecast exists, adding more profiles by hand alongside it is just clutter, not a
+  // real workflow anyone uses.
+  const hasRealForecast = profiles.some((p) => p.source === "iracing_data_api");
+
   // Practice/Qualifying/Warmup phase boundaries come straight off those same pre-race
   // profiles (already race-start-relative) - Race is synthesized from the forecast's own
   // last hour rather than needing race duration stored anywhere new. Explicitly matched
@@ -487,7 +492,12 @@ export default function ConditionsPage() {
         </div>
       )}
 
-      {!showForm ? (
+      {hasRealForecast ? (
+        <p className="rp-text-faint" style={{ fontSize: 11.5 }}>
+          This event has a real forecast from iRacing, so manual condition entry is hidden — it's only needed for
+          events without one.
+        </p>
+      ) : !showForm ? (
         <button className="rp-btn rp-primary" onClick={() => setShowForm(true)}>
           + Add condition profile
         </button>
