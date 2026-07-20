@@ -172,3 +172,81 @@ export type Garage61Me = {
   nickName?: string;
   apiPermissions?: string[];
 };
+
+export type Garage61Account = {
+  platform: string;
+  id: string;
+  name: string;
+};
+
+/**
+ * GET /me/accounts - confirmed live: for a connected user this includes their linked
+ * iRacing platform account with its real iRacing cust_id directly on `id`
+ * ({"platform":"iracing","id":"1291454","name":"Mac Cherry",...}). This is the only
+ * place the Garage 61 API exposes that mapping - used once at connect time (callback.ts)
+ * to populate garage61_oauth_tokens.iracing_cust_id.
+ */
+export async function fetchGarage61Accounts(accessToken: string): Promise<{ items: Garage61Account[] }> {
+  return garage61ApiGet<{ items: Garage61Account[] }>("/me/accounts", accessToken);
+}
+
+export type Garage61Track = {
+  id: number;
+  name: string;
+  variant: string;
+  platform: string;
+  platform_id: string;
+};
+
+export async function fetchGarage61Tracks(accessToken: string): Promise<{ items: Garage61Track[] }> {
+  return garage61ApiGet<{ items: Garage61Track[] }>("/tracks", accessToken);
+}
+
+export type Garage61Lap = {
+  id: string;
+  driver: { id: string; slug: string; firstName: string; lastName: string };
+  car: { id: number; name: string; platform: string; platform_id: string };
+  track: { id: number; name: string; variant: string; platform: string; platform_id: string };
+  startTime: string;
+  lapNumber: number;
+  lapTime: number;
+  clean: boolean;
+  incomplete: boolean;
+  pitlane: boolean;
+  fuelLevel: number | null;
+  fuelUsed: number | null;
+  fuelAdded: number | null;
+};
+
+export type Garage61LapSearchParams = {
+  tracks: number[];
+  drivers?: Array<"me" | "following">;
+  teams?: string[];
+  extraDrivers?: string[];
+  unclean?: boolean;
+  group?: "driver" | "driver-car" | "none";
+  limit?: number;
+};
+
+/**
+ * GET /laps - confirmed live against a real Spa Endurance session. `tracks` is the only
+ * required filter. Omitting `drivers`/`teams`/`extraDrivers` entirely makes the API default
+ * to "driving data visible to the authenticated user" - confirmed this already includes the
+ * caller's teammates, not just their own laps, which is what the team-wide name-matched fuel
+ * lookup in plannerGarage61Fuel.ts relies on.
+ */
+export async function fetchGarage61Laps(
+  accessToken: string,
+  params: Garage61LapSearchParams
+): Promise<{ items: Garage61Lap[]; total: number }> {
+  const q = new URLSearchParams();
+  q.set("tracks", params.tracks.join(","));
+  if (params.drivers?.length) q.set("drivers", params.drivers.join(","));
+  if (params.teams?.length) q.set("teams", params.teams.join(","));
+  if (params.extraDrivers?.length) q.set("extraDrivers", params.extraDrivers.join(","));
+  q.set("unclean", params.unclean ? "true" : "false");
+  q.set("group", params.group ?? "none");
+  q.set("limit", String(params.limit ?? 200));
+
+  return garage61ApiGet<{ items: Garage61Lap[]; total: number }>(`/laps?${q.toString()}`, accessToken);
+}

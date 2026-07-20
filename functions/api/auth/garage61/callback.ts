@@ -1,5 +1,5 @@
 import { parseCookies, clearCookie } from "../../../_lib/cookies";
-import { exchangeCodeForTokens, garage61ApiGet, type Garage61Me } from "../../../_lib/garage61";
+import { exchangeCodeForTokens, garage61ApiGet, fetchGarage61Accounts, type Garage61Me } from "../../../_lib/garage61";
 import { getViewer } from "../../../_lib/auth";
 
 function safeLog(
@@ -126,13 +126,30 @@ export async function onRequestGet(context: any) {
     return new Response("Could not determine Garage 61 identity", { status: 500 });
   }
 
+  // Confirmed live: /me/accounts carries the connecting user's own linked iRacing cust_id
+  // directly ({"platform":"iracing","id":"<cust_id>",...}) - this is the only place the
+  // Garage 61 API exposes that mapping, so it's captured once here rather than re-fetched
+  // on every driver-profile computation. Best-effort: a driver who hasn't linked iRacing
+  // inside Garage 61 itself (or an API hiccup) shouldn't block the account connection.
+  let iracingCustId: string | null = null;
+  try {
+    const accounts = await fetchGarage61Accounts(token.access_token);
+    const iracingAccount = (accounts.items ?? []).find((a) => a.platform === "iracing");
+    iracingCustId = iracingAccount?.id ?? null;
+  } catch (err: any) {
+    safeLog("warn", debugId, "auth.garage61.callback.accounts_lookup_failed", {
+      status: err?.status ?? null,
+      message: err?.message ?? String(err),
+    });
+  }
+
   const now = new Date().toISOString();
   const accessExpiresAt = new Date(Date.now() + (token.expires_in ?? 600) * 1000).toISOString();
 
   await DB.prepare(
     `INSERT INTO garage61_oauth_tokens
-       (user_id, garage61_user_id, garage61_slug, access_token, refresh_token, access_expires_at, scope, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       (user_id, garage61_user_id, garage61_slug, access_token, refresh_token, access_expires_at, scope, iracing_cust_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        garage61_user_id=excluded.garage61_user_id,
        garage61_slug=excluded.garage61_slug,
@@ -140,6 +157,7 @@ export async function onRequestGet(context: any) {
        refresh_token=excluded.refresh_token,
        access_expires_at=excluded.access_expires_at,
        scope=excluded.scope,
+       iracing_cust_id=COALESCE(excluded.iracing_cust_id, garage61_oauth_tokens.iracing_cust_id),
        updated_at=excluded.updated_at`
   )
     .bind(
@@ -150,11 +168,16 @@ export async function onRequestGet(context: any) {
       token.refresh_token ?? null,
       accessExpiresAt,
       token.scope ?? null,
+      iracingCustId,
       now
     )
     .run();
 
-  safeLog("log", debugId, "auth.garage61.callback.linked", { userId: viewer.user.id, garage61UserId: me.id });
+  safeLog("log", debugId, "auth.garage61.callback.linked", {
+    userId: viewer.user.id,
+    garage61UserId: me.id,
+    iracingCustId,
+  });
 
   const headers = new Headers();
   headers.append("Set-Cookie", clearCookie("gr_g61_oauth"));

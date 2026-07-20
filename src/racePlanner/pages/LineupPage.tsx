@@ -23,6 +23,23 @@ type DriverSearchResult = { id: string; name: string };
 
 type SearchStatus = { status: "searching" | "found" | "not_found" | "error" | "none"; message?: string | null };
 
+function fuelSourceBadge(source: string): { label: string; className: string; title?: string } {
+  switch (source) {
+    case "garage61":
+      return { label: "Garage 61", className: "rp-green", title: "Real fuel-per-lap from this driver's own connected Garage 61 account" };
+    case "garage61_matched":
+      return {
+        label: "Garage 61 (name-matched)",
+        className: "rp-amber",
+        title: "Real Garage 61 data matched to this driver by name, not a confirmed account link - verify it's really them",
+      };
+    case "manual":
+      return { label: "Manual", className: "rp-dim" };
+    default:
+      return { label: source, className: "rp-dim" };
+  }
+}
+
 function formatPace(ms: number | null): string {
   if (ms === null) return "—";
   const totalSeconds = ms / 1000;
@@ -485,7 +502,15 @@ export default function LineupPage() {
                       onChange={(e) => setFuelDrafts({ ...fuelDrafts, [p.custId]: e.target.value })}
                     />
                   </div>
-                  {p.fuelSource && <span className="rp-badge rp-dim">{p.fuelSource}</span>}
+                  {p.fuelSource &&
+                    (() => {
+                      const badge = fuelSourceBadge(p.fuelSource);
+                      return (
+                        <span className={`rp-badge ${badge.className}`} title={badge.title}>
+                          {badge.label}
+                        </span>
+                      );
+                    })()}
                 </div>
               </div>
             </div>

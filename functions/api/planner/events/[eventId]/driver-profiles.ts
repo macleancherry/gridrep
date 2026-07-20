@@ -1,5 +1,6 @@
 import { getViewer } from "../../../../_lib/auth";
 import { computeDriverTrackProfile, computePitTimeSeconds, type LapRow } from "../../../../_lib/plannerDriverProfile";
+import { resolveGarage61Fuel } from "../../../../_lib/plannerGarage61Fuel";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 function profileRowId(custId: string, trackName: string, conditionProfileId: string | null): string {
@@ -13,9 +14,10 @@ function profileRowId(custId: string, trackName: string, conditionProfileId: str
  * pull new iRacing data, it computes over what's already stored, same separation Pace's
  * own /pace endpoint keeps between ingest and compute.
  *
- * Fuel-per-lap has no Garage 61 integration yet (API shape unconfirmed - see the audit/
- * spike report), so it's manual-entry-only for now (PRD §5.2/§5.4's required fallback) -
- * a prior manual value is preserved across recomputes unless a new one is supplied.
+ * Fuel-per-lap prefers real Garage 61 data (plannerGarage61Fuel.ts) when a confident match
+ * is available, falling back to manual entry (PRD §5.2/§5.4's required fallback) otherwise.
+ * A driver's own explicit manual entry always wins and is never silently overwritten by a
+ * real-data lookup on a later recompute.
  */
 export async function onRequestPost(context: any) {
   const viewer = await getViewer(context);
@@ -26,7 +28,9 @@ export async function onRequestPost(context: any) {
   const eventId = context.params.eventId as string;
   const { DB } = context.env;
 
-  const event = await DB.prepare(`SELECT id, track_name as trackName FROM iracing_events WHERE id = ?`).bind(eventId).first<any>();
+  const event = await DB.prepare(`SELECT id, track_name as trackName, track_config as trackConfig FROM iracing_events WHERE id = ?`)
+    .bind(eventId)
+    .first<any>();
   if (!event) {
     return jsonError(404, { error: "event_not_found", message: "Select this event before computing driver profiles." });
   }
@@ -91,8 +95,29 @@ export async function onRequestPost(context: any) {
       .first<any>();
 
     const overrideFuel = fuelOverrides[custId];
-    const fuelPerLap = typeof overrideFuel === "number" && Number.isFinite(overrideFuel) ? overrideFuel : (existing?.fuelPerLap ?? null);
-    const fuelSource = fuelPerLap === null ? null : typeof overrideFuel === "number" ? "manual" : (existing?.fuelSource ?? "manual");
+    let fuelPerLap: number | null;
+    let fuelSource: string | null;
+
+    if (typeof overrideFuel === "number" && Number.isFinite(overrideFuel)) {
+      // An explicit manual entry for this call always wins - never overwritten by a guess.
+      fuelPerLap = overrideFuel;
+      fuelSource = "manual";
+    } else if (existing?.fuelSource === "manual") {
+      // A human already vetted this value - don't silently clobber it with real data that
+      // might reflect a different car/conditions than what they actually confirmed.
+      fuelPerLap = existing.fuelPerLap;
+      fuelSource = existing.fuelSource;
+    } else {
+      const garage61Result = await resolveGarage61Fuel(context, DB, custId, event.trackName, event.trackConfig ?? null);
+      if (garage61Result) {
+        fuelPerLap = garage61Result.fuelPerLap;
+        fuelSource = garage61Result.source;
+      } else {
+        fuelPerLap = existing?.fuelPerLap ?? null;
+        fuelSource = fuelPerLap === null ? null : (existing?.fuelSource ?? "manual");
+      }
+    }
+
     const pitTimeSource = pitTimeSeconds === null ? null : "derived";
 
     await DB.prepare(
