@@ -239,7 +239,7 @@ export default function AvailabilityPage() {
       <div>
         <h2>Availability &amp; scheduling</h2>
         <p className="rp-error">{error}</p>
-        <Link to="/race-planner" className="rp-btn" style={{ marginTop: 12 }}>
+        <Link to="/race-planner/series" className="rp-btn" style={{ marginTop: 12 }}>
           ← Back to series
         </Link>
       </div>

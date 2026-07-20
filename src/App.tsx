@@ -25,6 +25,7 @@ import TeamListPage from "./racePlanner/pages/TeamListPage";
 import TeamPage from "./racePlanner/pages/TeamPage";
 import JoinTeamPage from "./racePlanner/pages/JoinTeamPage";
 import DriverProfilePage from "./racePlanner/pages/DriverProfilePage";
+import HomePage from "./racePlanner/pages/HomePage";
 
 const AUTH_BASE = "https://gridrep.gg";
 
@@ -227,6 +228,14 @@ function RacePlannerApp() {
     <Routes>
       <Route
         path="/race-planner"
+        element={
+          <RacePlannerLayout>
+            <HomePage />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/series"
         element={
           <RacePlannerLayout>
             <EventsHome />

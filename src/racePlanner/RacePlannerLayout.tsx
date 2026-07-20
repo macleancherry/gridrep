@@ -24,7 +24,7 @@ function getInitialTheme(): Theme {
 function buildNavItems(eventId: string | null, planId: string | null) {
   return [
     {
-      to: "/race-planner",
+      to: "/race-planner/series",
       end: true,
       label: "Events",
       icon: (

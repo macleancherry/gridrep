@@ -291,7 +291,7 @@ export default function SeriesSessionsPage() {
       )}
 
       <div className="rp-row" style={{ marginTop: 20 }}>
-        <Link to="/race-planner" className="rp-btn">
+        <Link to="/race-planner/series" className="rp-btn">
           ← Back to series
         </Link>
       </div>

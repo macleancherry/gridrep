@@ -410,7 +410,7 @@ export default function ConditionsPage() {
       <div>
         <h2>Conditions</h2>
         <p className="rp-error">{error}</p>
-        <Link to="/race-planner" className="rp-btn" style={{ marginTop: 12 }}>
+        <Link to="/race-planner/series" className="rp-btn" style={{ marginTop: 12 }}>
           ← Back to events
         </Link>
       </div>
