@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useRacePlannerViewer } from "../useRacePlannerViewer";
 
 type Pref = "prefer" | "neutral" | "avoid";
 type ConditionPrefs = { nightPreference: Pref; wetPreference: Pref; startPreference: Pref };
@@ -34,6 +35,10 @@ function timeInputToMinutes(v: string): number | null {
  * page's "Prefill from my template" action rather than re-entered every time.
  */
 export default function DriverProfilePage() {
+  const viewer = useRacePlannerViewer();
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [conditionPrefs, setConditionPrefs] = useState<ConditionPrefs>({
     nightPreference: "neutral",
     wetPreference: "neutral",
@@ -138,6 +143,30 @@ export default function DriverProfilePage() {
 
   function removeCar(car: string) {
     saveFavoriteCars(favoriteCars.filter((c) => c !== car));
+  }
+
+  const viewerName = viewer.verified ? viewer.user.name : null;
+  const deleteConfirmed = viewerName !== null && deleteConfirmText === viewerName;
+
+  async function deleteAccount() {
+    if (!deleteConfirmed) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const r = await fetch("/api/account", { method: "DELETE", credentials: "include" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setDeleteError(data.message ?? "Could not delete your account. Please try again.");
+        return;
+      }
+      // Full navigation, not a client-side route change - nothing stale (viewer state,
+      // plan context, etc.) should linger after the account backing it no longer exists.
+      window.location.href = "/";
+    } catch {
+      setDeleteError("Network error. Please try again.");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   if (loading) return <p className="rp-section-sub">Loading…</p>;
@@ -268,6 +297,37 @@ export default function DriverProfilePage() {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="rp-card" style={{ marginTop: 20, borderColor: "var(--rp-red)" }}>
+        <h3 style={{ marginTop: 0, color: "var(--rp-red)" }}>Danger zone</h3>
+        <p className="rp-section-sub">
+          Permanently deletes your gridrep account and everything tied to it: your preferences, standard
+          availability, condition preferences, every plan or race weekend you've created, and your membership on
+          every team you're part of. <strong>If you created a team, it's deleted entirely — including for anyone
+          else on it.</strong> This can't be undone.
+        </p>
+        {deleteError && <p className="rp-error">{deleteError}</p>}
+        <div className="rp-form-field" style={{ marginBottom: 10, maxWidth: 320 }}>
+          <label>
+            Type your name (<strong>{viewerName ?? "…"}</strong>) to confirm
+          </label>
+          <input
+            className="rp-input"
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            disabled={!viewerName || deleting}
+            placeholder={viewerName ?? ""}
+          />
+        </div>
+        <button
+          className="rp-btn"
+          style={{ borderColor: "var(--rp-red)", color: "var(--rp-red)" }}
+          onClick={deleteAccount}
+          disabled={!deleteConfirmed || deleting}
+        >
+          {deleting ? "Deleting…" : "Delete my account permanently"}
+        </button>
       </div>
     </div>
   );
