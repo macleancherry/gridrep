@@ -107,23 +107,25 @@ export default function TeamPage() {
           <h3 style={{ marginTop: 0 }}>Invite drivers</h3>
           <p className="rp-section-sub">Share this link — anyone who clicks it can join {detail.team.name}.</p>
           {inviteUrl ? (
-            <div className="rp-row" style={{ flexWrap: "wrap", gap: 8 }}>
-              <input className="rp-input" readOnly value={inviteUrl} style={{ minWidth: 280, flex: 1 }} />
-              <button className="rp-btn" onClick={copyInvite}>
-                {copied ? "Copied!" : "Copy link"}
-              </button>
-              <a className="rp-btn" href={`mailto:?subject=${encodeURIComponent(`Join ${detail.team.name} on gridrep`)}&body=${encodeURIComponent(inviteUrl)}`}>
-                Email →
-              </a>
-              <a
-                className="rp-btn"
-                href={`https://wa.me/?text=${encodeURIComponent(`Join ${detail.team.name} on gridrep: ${inviteUrl}`)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                WhatsApp →
-              </a>
-            </div>
+            <>
+              <div className="rp-invite-link-box">{inviteUrl}</div>
+              <div className="rp-share-actions">
+                <button className="rp-btn" onClick={copyInvite}>
+                  {copied ? "Copied!" : "Copy link"}
+                </button>
+                <a className="rp-btn" href={`mailto:?subject=${encodeURIComponent(`Join ${detail.team.name} on gridrep`)}&body=${encodeURIComponent(inviteUrl)}`}>
+                  Email →
+                </a>
+                <a
+                  className="rp-btn"
+                  href={`https://wa.me/?text=${encodeURIComponent(`Join ${detail.team.name} on gridrep: ${inviteUrl}`)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  WhatsApp →
+                </a>
+              </div>
+            </>
           ) : (
             <button className="rp-btn rp-primary" onClick={regenerateInvite} disabled={generatingInvite}>
               {generatingInvite ? "Generating…" : "Generate invite link"}

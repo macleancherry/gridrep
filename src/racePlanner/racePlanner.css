@@ -704,6 +704,189 @@
   line-height: 1.4;
 }
 
+/* Full-page "redirecting to sign in" state (RacePlannerLayout.tsx) - shown for the brief
+   moment before the browser navigates away to the iRacing OAuth round-trip. */
+.rp-gate {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* Centered single-card pages (JoinTeamPage.tsx) - a card floating top-left on an
+   otherwise-empty page reads as unfinished; centering it in the available space reads
+   as an intentional, focused landing moment instead. */
+.rp-center-page {
+  min-height: calc(100vh - 160px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 0;
+}
+
+.rp-center-card {
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+}
+
+.rp-center-card .rp-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+/* Invite-link display (TeamPage.tsx) - a monospace, horizontally-scrollable chip instead
+   of a <input readonly> squeezed next to three buttons, which wrapped into a ragged,
+   differently-sized button stack on anything narrower than a full desktop window. */
+.rp-invite-link-box {
+  background: var(--rp-surface-alt);
+  border: 1px solid var(--rp-border);
+  border-radius: var(--rp-radius);
+  padding: 10px 12px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: var(--rp-text-dim);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.rp-share-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+/* Onboarding wizard step progress (WelcomePage.tsx). */
+.rp-wizard-progress {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 22px;
+}
+
+.rp-wizard-dot {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--rp-border);
+}
+
+.rp-wizard-dot.rp-active {
+  background: var(--rp-amber);
+}
+
+.rp-wizard-step-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--rp-text-faint);
+  margin-bottom: 6px;
+}
+
+/* Mobile: the fixed 74px vertical icon rail (fine on desktop) eats a large share of a
+   360-420px phone viewport and leaves almost nothing for actual content. Collapse it into
+   a slim horizontal, scrollable top bar instead - same nav items, laid out for a thumb
+   swipe rather than a mouse-height column. */
+@media (max-width: 720px) {
+  .rp-layout {
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .rp-sidebar {
+    width: 100%;
+    min-height: 0;
+    flex-direction: row;
+    align-items: center;
+    padding: 8px 10px;
+    gap: 10px;
+    border-right: none;
+    border-bottom: 1px solid var(--rp-border);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--rp-surface);
+  }
+
+  .rp-mark {
+    margin-bottom: 0;
+    flex-shrink: 0;
+  }
+
+  .rp-navstack {
+    flex-direction: row;
+    width: auto;
+    flex: 1;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    justify-content: flex-start;
+  }
+
+  .rp-navbtn {
+    width: auto;
+    flex-shrink: 0;
+    padding: 6px 10px;
+    flex-direction: row;
+    gap: 5px;
+  }
+
+  .rp-navbtn svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .rp-theme-toggle {
+    margin-top: 0;
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+  }
+
+  .rp-theme-toggle svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .rp-viewer-strip {
+    padding: 8px 14px;
+    line-height: 1.6;
+  }
+
+  .rp-ctxbar {
+    padding: 10px 14px;
+  }
+
+  .rp-content {
+    padding: 16px 14px 48px;
+  }
+
+  .rp-event-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rp-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rp-welcome-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Rows that pair a readonly value with an action (e.g. resume-plan cards, roster rows)
+     stack instead of clipping when the row's two halves can't both fit. */
+  .rp-profile-row {
+    align-items: flex-start;
+  }
+
+  .rp-profile-row > .rp-btn,
+  .rp-profile-row > a.rp-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 /* Plan summary's "Export / print" button should print just the plan, not the app chrome. */
 @media print {
   .rp-sidebar,

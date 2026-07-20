@@ -133,6 +133,29 @@ export default function RacePlannerLayout({
 
   const verifyHref = `/api/auth/start?returnTo=${encodeURIComponent(location.pathname + location.search)}`;
 
+  // Every /race-planner/* page requires a signed-in viewer - there's no useful anonymous
+  // surface here (every page either 401s or shows nothing meaningful without a session).
+  // A full navigation (not client-side routing) is required since sign-in is a real OAuth
+  // round-trip; verifyHref already carries the current path through returnTo so the visitor
+  // lands back exactly where they started once signed in.
+  useEffect(() => {
+    if (viewer.loading || viewer.verified) return;
+    window.location.href = verifyHref;
+  }, [viewer.loading, viewer.verified, verifyHref]);
+
+  if (!viewer.loading && !viewer.verified) {
+    return (
+      <div className="rp-shell" data-theme={theme}>
+        <div className="rp-gate">
+          <div className="rp-mark" style={{ margin: "0 auto 16px" }}>
+            RP
+          </div>
+          <p className="rp-section-sub">Redirecting you to sign in with iRacing…</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rp-shell" data-theme={theme}>
       <div className="rp-layout">
@@ -175,7 +198,7 @@ export default function RacePlannerLayout({
           <div className="rp-viewer-strip">
             {viewer.loading ? (
               <span className="rp-text-faint">Checking…</span>
-            ) : viewer.verified ? (
+            ) : viewer.verified && (
               <span>
                 Signed in as <strong>{viewer.user.name}</strong>
                 {viewer.garage61Connected ? (
@@ -206,10 +229,6 @@ export default function RacePlannerLayout({
                   My teams
                 </NavLink>
               </span>
-            ) : (
-              <a href={verifyHref} className="rp-viewer-link">
-                Sign in with iRacing →
-              </a>
             )}
           </div>
           {contextBar && <div className="rp-ctxbar">{contextBar}</div>}

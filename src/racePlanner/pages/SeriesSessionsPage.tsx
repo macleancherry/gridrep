@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useLocation, useNavigate, Link } from "react-router-dom";
 
 type ScheduleSession = {
@@ -23,6 +23,7 @@ type ScheduleSession = {
 };
 
 type ExistingPlan = { id: string; name: string; updatedAt: string };
+type TeamSummary = { id: string; name: string; isCreator: boolean };
 
 function formatDuration(minutes?: number): string {
   if (!minutes) return "—";
@@ -38,6 +39,19 @@ function phaseSummary(s: ScheduleSession): string {
   if (s.warmupLengthMinutes) parts.push(`Warmup ${formatDuration(s.warmupLengthMinutes)}`);
   parts.push(`Race ${formatDuration(s.raceLengthMinutes)}`);
   return parts.join(" · ");
+}
+
+// scheduledStartTime is when PRACTICE opens (real-world), not the green flag - add back
+// the practice+qualifying+warmup lead-in to find when the race itself actually ends, so a
+// session already fully run isn't offered as something new to plan for. A slot with no
+// known start time (Time TBD) is never filtered - there's nothing to compare against.
+function hasEnded(s: ScheduleSession): boolean {
+  if (!s.scheduledStartTime) return false;
+  const startMs = Date.parse(s.scheduledStartTime);
+  if (!Number.isFinite(startMs)) return false;
+  const raceStartOffsetMinutes = (s.practiceLengthMinutes ?? 0) + (s.qualifyLengthMinutes ?? 0) + (s.warmupLengthMinutes ?? 0);
+  const endMs = startMs + (raceStartOffsetMinutes + (s.raceLengthMinutes ?? 0)) * 60_000;
+  return endMs < Date.now();
 }
 
 // The API returns one flat row per real-world start-time slot; group them back into
@@ -65,6 +79,12 @@ export default function SeriesSessionsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectingKey, setSelectingKey] = useState<string | null>(null);
 
+  // A coordinator can plan this weekend for one of their teams instead of just
+  // themselves - the roster/lineup pages can then quick-add from that team's roster
+  // rather than searching iRacing globally for every driver.
+  const [teams, setTeams] = useState<TeamSummary[] | null>(null);
+  const [teamId, setTeamId] = useState<string>("");
+
   // Set when a selected session already has plan(s) the viewer can resume, so we can show
   // a resume-or-new prompt instead of jumping straight to Conditions.
   const [pendingChoice, setPendingChoice] = useState<{ eventId: string; existingPlans: ExistingPlan[] } | null>(null);
@@ -91,6 +111,19 @@ export default function SeriesSessionsPage() {
       .finally(() => setLoading(false));
   }, [seriesId]);
 
+  useEffect(() => {
+    fetch(`/api/planner/teams`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.ok) setTeams((data.teams ?? []).filter((t: TeamSummary) => t.isCreator));
+      })
+      .catch(() => {});
+  }, []);
+
+  // Hide sessions whose race has already run - there's nothing to plan for once it's over.
+  const upcomingSessions = useMemo(() => (sessions ?? []).filter((s) => !hasEnded(s)), [sessions]);
+  const pastCount = (sessions?.length ?? 0) - upcomingSessions.length;
+
   async function selectSession(session: ScheduleSession) {
     if (!seriesId) return;
     const key = `${session.seasonId}:${session.raceWeekNum}:${session.slotIndex}`;
@@ -101,7 +134,7 @@ export default function SeriesSessionsPage() {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ ...session, seriesId, seriesName }),
+        body: JSON.stringify({ ...session, seriesId, seriesName, teamId: teamId || null }),
       });
       const data = await r.json().catch(() => ({}));
 
@@ -134,7 +167,7 @@ export default function SeriesSessionsPage() {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ eventId: pendingChoice.eventId }),
+        body: JSON.stringify({ eventId: pendingChoice.eventId, teamId: teamId || null }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.ok) {
@@ -194,6 +227,27 @@ export default function SeriesSessionsPage() {
         Select the exact scheduled session you're planning for.
       </p>
 
+      {teams && teams.length > 0 && (
+        <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
+          <label className="rp-text-faint" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>
+            Planning this for a team?
+          </label>
+          <select className="rp-input" style={{ width: "100%" }} value={teamId} onChange={(e) => setTeamId(e.target.value)}>
+            <option value="">Just me — no team</option>
+            {teams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          {teamId && (
+            <p className="rp-section-sub" style={{ marginTop: 6 }}>
+              Lineup will let you quick-add straight from this team's roster.
+            </p>
+          )}
+        </div>
+      )}
+
       {error && <p className="rp-error">{error}</p>}
       {loading && <p className="rp-section-sub">Loading…</p>}
 
@@ -201,9 +255,21 @@ export default function SeriesSessionsPage() {
         <div className="rp-card rp-card-narrow">No scheduled sessions found for this series.</div>
       )}
 
-      {sessions !== null && sessions.length > 0 && (
+      {sessions !== null && sessions.length > 0 && upcomingSessions.length === 0 && !loading && (
+        <div className="rp-card rp-card-narrow">
+          Every scheduled session for this series has already run — nothing left to plan for yet.
+        </div>
+      )}
+
+      {pastCount > 0 && upcomingSessions.length > 0 && (
+        <p className="rp-section-sub" style={{ marginBottom: 12 }}>
+          {pastCount} already-run session{pastCount === 1 ? "" : "s"} hidden.
+        </p>
+      )}
+
+      {upcomingSessions.length > 0 && (
         <div className="rp-event-grid">
-          {groupBySchedule(sessions).map((group) => {
+          {groupBySchedule(upcomingSessions).map((group) => {
             const s = group[0];
             const cardKey = `${s.seasonId}:${s.raceWeekNum}`;
             return (

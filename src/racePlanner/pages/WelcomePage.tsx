@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { ConditionPreferencesEditor, AvailabilityTemplateEditor, FavoriteCarsEditor } from "../ProfileFieldEditors";
 
 type Category = "racing_mode" | "discipline" | "format";
 
@@ -127,75 +128,11 @@ type Preferences = Record<Category, string[]>;
 
 const EMPTY_PREFERENCES: Preferences = { racing_mode: [], discipline: [], format: [] };
 
-export default function WelcomePage() {
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const isEdit = searchParams.get("edit") === "1";
+const STEP_LABELS = ["Racing preferences", "Driving preferences", "Standard availability"];
 
-  const [preferences, setPreferences] = useState<Preferences>(EMPTY_PREFERENCES);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("/api/planner/preferences", { credentials: "include" })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data?.ok && data.preferences) setPreferences({ ...EMPTY_PREFERENCES, ...data.preferences });
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  function toggle(category: Category, value: string) {
-    setPreferences((prev) => {
-      const current = prev[category];
-      const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
-      return { ...prev, [category]: next };
-    });
-  }
-
-  async function save() {
-    setSaving(true);
-    setError(null);
-    try {
-      const r = await fetch("/api/planner/preferences", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(preferences),
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok || !data.ok) {
-        setError(data.message ?? "Could not save your preferences. Please try again.");
-        return;
-      }
-      if (isEdit) {
-        navigate("/race-planner");
-      } else {
-        // First-time completion: RacePlannerLayout's onboarding redirect gate holds a
-        // viewer snapshot fetched once on mount, which a client-side navigate() won't
-        // refresh - it would immediately bounce straight back here on the stale
-        // "not onboarded yet" state. A full navigation forces a clean re-fetch instead.
-        window.location.href = "/race-planner";
-      }
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (loading) return <p className="rp-section-sub">Loading…</p>;
-
+function RacingPreferencesForm({ preferences, toggle }: { preferences: Preferences; toggle: (category: Category, value: string) => void }) {
   return (
-    <div className="rp-welcome">
-      <h1 className="rp-welcome-title">{isEdit ? "Update your preferences" : "Let's tailor GridRep to you"}</h1>
-      <p className="rp-section-sub" style={{ marginBottom: 28 }}>
-        Answer a few quick questions and we'll show you the events that actually match how you race. You can change
-        these any time from the events page.
-      </p>
-
+    <>
       {SECTIONS.map((section) => (
         <div key={section.category} className="rp-welcome-section">
           <h2 className="rp-welcome-section-title">{section.title}</h2>
@@ -222,17 +159,185 @@ export default function WelcomePage() {
           </div>
         </div>
       ))}
+    </>
+  );
+}
 
-      {error && <p className="rp-error">{error}</p>}
+export default function WelcomePage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isEdit = searchParams.get("edit") === "1";
 
-      <div className="rp-row" style={{ marginTop: 12 }}>
-        <button className="rp-btn rp-primary" onClick={save} disabled={saving}>
-          {saving ? "Saving…" : isEdit ? "Save preferences" : "Finish setup"}
-        </button>
-        {isEdit && (
+  const [preferences, setPreferences] = useState<Preferences>(EMPTY_PREFERENCES);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    fetch("/api/planner/preferences", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.ok && data.preferences) setPreferences({ ...EMPTY_PREFERENCES, ...data.preferences });
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  function toggle(category: Category, value: string) {
+    setPreferences((prev) => {
+      const current = prev[category];
+      const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
+      return { ...prev, [category]: next };
+    });
+  }
+
+  async function saveRacingPreferences(): Promise<boolean> {
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/planner/preferences", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(preferences),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setError(data.message ?? "Could not save your preferences. Please try again.");
+        return false;
+      }
+      return true;
+    } catch {
+      setError("Network error. Please try again.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleEditSave() {
+    if (await saveRacingPreferences()) navigate("/race-planner");
+  }
+
+  async function handleWizardContinue() {
+    if (await saveRacingPreferences()) setStep(1);
+  }
+
+  function finishOnboarding() {
+    // RacePlannerLayout's onboarding redirect gate holds a viewer snapshot fetched once on
+    // mount, which a client-side navigate() won't refresh - it would immediately bounce
+    // straight back here on the stale "not onboarded yet" state. A full navigation forces
+    // a clean re-fetch instead.
+    window.location.href = "/race-planner";
+  }
+
+  if (loading) return <p className="rp-section-sub">Loading…</p>;
+
+  // "Edit preferences" (header link) stays a single-page form, unchanged - the step
+  // wizard below is specifically the first-time onboarding sequence.
+  if (isEdit) {
+    return (
+      <div className="rp-welcome">
+        <h1 className="rp-welcome-title">Update your preferences</h1>
+        <p className="rp-section-sub" style={{ marginBottom: 28 }}>
+          Answer a few quick questions and we'll show you the events that actually match how you race. You can
+          change these any time from the events page.
+        </p>
+        <RacingPreferencesForm preferences={preferences} toggle={toggle} />
+        {error && <p className="rp-error">{error}</p>}
+        <div className="rp-row" style={{ marginTop: 12 }}>
+          <button className="rp-btn rp-primary" onClick={handleEditSave} disabled={saving}>
+            {saving ? "Saving…" : "Save preferences"}
+          </button>
           <button className="rp-btn" onClick={() => navigate("/race-planner")} disabled={saving}>
             Cancel
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rp-welcome">
+      <h1 className="rp-welcome-title">Let's tailor GridRep to you</h1>
+      <p className="rp-section-sub" style={{ marginBottom: 20 }}>
+        A few quick steps and you're set — every one after the first is optional and can be filled in later from
+        "My profile".
+      </p>
+
+      <div className="rp-wizard-progress">
+        {STEP_LABELS.map((_, i) => (
+          <div key={i} className={`rp-wizard-dot${i <= step ? " rp-active" : ""}`} />
+        ))}
+      </div>
+      <div className="rp-wizard-step-label">
+        Step {step + 1} of {STEP_LABELS.length} — {STEP_LABELS[step]}
+      </div>
+
+      {step === 0 && (
+        <div className="rp-welcome-section" style={{ marginBottom: 8 }}>
+          <RacingPreferencesForm preferences={preferences} toggle={toggle} />
+        </div>
+      )}
+
+      {step === 1 && (
+        <div className="rp-welcome-section">
+          <div className="rp-card" style={{ marginBottom: 16 }}>
+            <h3 style={{ marginTop: 0 }}>Stint preferences</h3>
+            <p className="rp-section-sub">What you'd rather drive — just flags matching/clashing blocks for you later, never a hard restriction.</p>
+            <ConditionPreferencesEditor />
+          </div>
+          <div className="rp-card">
+            <h3 style={{ marginTop: 0 }}>Favorite cars</h3>
+            <FavoriteCarsEditor />
+          </div>
+        </div>
+      )}
+
+      {step === 2 && (
+        <div className="rp-welcome-section">
+          <div className="rp-card">
+            <h3 style={{ marginTop: 0 }}>Your usual weekly free time</h3>
+            <p className="rp-section-sub">
+              In your own local time. Any race weekend's Availability page can prefill from this instead of asking
+              you to re-enter it every time.
+            </p>
+            <AvailabilityTemplateEditor />
+          </div>
+        </div>
+      )}
+
+      {error && <p className="rp-error">{error}</p>}
+
+      <div className="rp-row" style={{ marginTop: 20 }}>
+        {step === 0 && (
+          <button className="rp-btn rp-primary" onClick={handleWizardContinue} disabled={saving}>
+            {saving ? "Saving…" : "Continue"}
+          </button>
+        )}
+        {step === 1 && (
+          <>
+            <button className="rp-btn rp-primary" onClick={() => setStep(2)}>
+              Continue
+            </button>
+            <button className="rp-btn" onClick={() => setStep(2)}>
+              Skip for now
+            </button>
+            <button className="rp-btn" onClick={() => setStep(0)}>
+              ← Back
+            </button>
+          </>
+        )}
+        {step === 2 && (
+          <>
+            <button className="rp-btn rp-primary" onClick={finishOnboarding}>
+              Finish setup
+            </button>
+            <button className="rp-btn" onClick={() => setStep(1)}>
+              ← Back
+            </button>
+          </>
         )}
       </div>
     </div>

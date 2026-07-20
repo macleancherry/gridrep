@@ -1,5 +1,6 @@
 import { getViewer } from "../../_lib/auth";
 import { createRacePlan, CreateRacePlanError } from "../../_lib/plannerRacePlan";
+import { isTeamCoordinator } from "../../_lib/plannerTeams";
 import { json, jsonError } from "../../_lib/httpJson";
 
 /** Create a race plan (PRD §7/§8): event + lineup + car/fuel-tank capacity. */
@@ -17,10 +18,16 @@ export async function onRequestPost(context: any) {
     return jsonError(400, { error: "invalid_event_id", message: "eventId is required." });
   }
 
+  const teamId = typeof body?.teamId === "string" && body.teamId ? body.teamId : null;
+  if (teamId && !(await isTeamCoordinator(context.env.DB, teamId, viewer.user!.id))) {
+    return jsonError(403, { error: "not_coordinator", message: "Only that team's coordinator can plan a weekend for it." });
+  }
+
   try {
     const plan = await createRacePlan(context.env.DB, {
       eventId,
       createdByUserId: viewer.user!.id,
+      teamId,
       custIds,
       name: typeof body?.name === "string" ? body.name : undefined,
       carName: typeof body?.carName === "string" ? body.carName : null,

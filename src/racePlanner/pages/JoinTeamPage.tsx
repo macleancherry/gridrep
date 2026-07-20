@@ -50,27 +50,32 @@ export default function JoinTeamPage() {
   if (!team) return null;
 
   return (
-    <div className="rp-card rp-card-narrow">
-      <h2 style={{ marginTop: 0 }}>You've been invited to join {team.name}</h2>
-      {alreadyMember ? (
-        <>
-          <p className="rp-section-sub">You're already a member of this team.</p>
-          <button className="rp-btn rp-primary" onClick={() => navigate(`/race-planner/team/${team.id}`)}>
-            Go to team →
-          </button>
-        </>
-      ) : (
-        <>
-          <p className="rp-section-sub">
-            Joining connects you to {team.name}'s roster - you'll be able to set your availability and driving
-            preferences for their upcoming race weekends.
-          </p>
-          <button className="rp-btn rp-primary" onClick={join} disabled={joining}>
-            {joining ? "Joining…" : `Join ${team.name}`}
-          </button>
-        </>
-      )}
-      {error && <p className="rp-error">{error}</p>}
+    <div className="rp-center-page">
+      <div className="rp-card rp-center-card">
+        <div className="rp-mark" style={{ margin: "0 auto 18px" }}>
+          RP
+        </div>
+        <h2 style={{ marginTop: 0 }}>You've been invited to join {team.name}</h2>
+        {alreadyMember ? (
+          <>
+            <p className="rp-section-sub">You're already a member of this team.</p>
+            <button className="rp-btn rp-primary" style={{ marginTop: 12 }} onClick={() => navigate(`/race-planner/team/${team.id}`)}>
+              Go to team →
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="rp-section-sub">
+              Joining connects you to {team.name}'s roster - you'll be able to set your availability and driving
+              preferences for their upcoming race weekends.
+            </p>
+            <button className="rp-btn rp-primary" style={{ marginTop: 12 }} onClick={join} disabled={joining}>
+              {joining ? "Joining…" : `Join ${team.name}`}
+            </button>
+          </>
+        )}
+        {error && <p className="rp-error">{error}</p>}
+      </div>
     </div>
   );
 }

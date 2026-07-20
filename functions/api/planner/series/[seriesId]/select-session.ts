@@ -7,6 +7,7 @@ import {
   raceStartOffsetMinutes,
 } from "../../../../_lib/plannerIracing";
 import { createRacePlan, listVisiblePlansForEvent, CreateRacePlanError } from "../../../../_lib/plannerRacePlan";
+import { isTeamCoordinator } from "../../../../_lib/plannerTeams";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
@@ -46,6 +47,13 @@ export async function onRequestPost(context: any) {
   const slotIndex = typeof body?.slotIndex === "number" ? body.slotIndex : 0;
   const eventId = slotCount > 1 ? `season-${seasonId}-slot${slotIndex}` : `season-${seasonId}`;
   const { DB } = context.env;
+
+  // Optional: this weekend is being planned for a team roster, not just the coordinator's
+  // own solo plan - only that team's coordinator may attach a new plan to it.
+  const teamId = typeof body?.teamId === "string" && body.teamId ? body.teamId : null;
+  if (teamId && !(await isTeamCoordinator(DB, teamId, viewer.user!.id))) {
+    return jsonError(403, { error: "not_coordinator", message: "Only that team's coordinator can plan a weekend for it." });
+  }
 
   const lengths = {
     practiceLengthMinutes: typeof body?.practiceLengthMinutes === "number" ? body.practiceLengthMinutes : undefined,
@@ -179,7 +187,7 @@ export async function onRequestPost(context: any) {
   let newPlanId: string | undefined;
   if (existingPlans.length === 0) {
     try {
-      const plan = await createRacePlan(DB, { eventId, createdByUserId: viewer.user!.id });
+      const plan = await createRacePlan(DB, { eventId, createdByUserId: viewer.user!.id, teamId });
       newPlanId = plan.id;
     } catch (err: any) {
       if (!(err instanceof CreateRacePlanError)) throw err;
