@@ -106,8 +106,21 @@ async function kickOffLapDiscovery(context: any, DB: any, trackName: string, cus
   let accessToken: string;
   try {
     accessToken = await getValidAccessToken(context, viewerUserId);
-  } catch {
-    return; // no usable token right now - the manual paste-ID box on the Lineup page still works
+  } catch (err: any) {
+    // Record why, rather than vanishing silently - a driver's status badge should never
+    // just stay blank with no trace of what happened. The manual paste-ID box still
+    // works regardless.
+    const now = new Date().toISOString();
+    for (const custId of eligible) {
+      await DB.prepare(
+        `INSERT INTO driver_recent_session_search (cust_id, track_name, status, subsession_id, message, updated_at)
+         VALUES (?, ?, 'error', NULL, ?, ?)
+         ON CONFLICT(cust_id, track_name) DO UPDATE SET status = 'error', message = excluded.message, updated_at = excluded.updated_at`
+      )
+        .bind(custId, trackName, `Could not get an access token to search: ${err?.message ?? String(err)}`, now)
+        .run();
+    }
+    return;
   }
 
   const now = new Date().toISOString();
@@ -120,6 +133,17 @@ async function kickOffLapDiscovery(context: any, DB: any, trackName: string, cus
       .bind(custId, trackName, now)
       .run();
 
-    context.waitUntil(discoverAndSyncRecentSessionAtTrack(DB, custId, trackName, viewerUserId, accessToken));
+    try {
+      context.waitUntil(discoverAndSyncRecentSessionAtTrack(DB, custId, trackName, viewerUserId, accessToken));
+    } catch (err: any) {
+      // context.waitUntil itself throwing (rather than the promise it's given rejecting)
+      // is unusual, but make sure it's visible rather than leaving the row stuck on
+      // "searching" forever if it ever happens.
+      await DB.prepare(
+        `UPDATE driver_recent_session_search SET status = 'error', message = ?, updated_at = ? WHERE cust_id = ? AND track_name = ?`
+      )
+        .bind(`waitUntil failed: ${err?.message ?? String(err)}`, new Date().toISOString(), custId, trackName)
+        .run();
+    }
   }
 }
