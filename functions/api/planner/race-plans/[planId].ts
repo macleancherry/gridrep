@@ -103,6 +103,7 @@ export async function onRequestGet(context: any) {
     ok: true,
     plan,
     eventId: plan.event_id, // plan itself is a raw `SELECT *` row (snake_case) - this is the camelCase convenience field
+    weekendId: plan.race_weekend_id,
     lineup: lineupRows.results ?? [],
     teamId,
     teamRoster,

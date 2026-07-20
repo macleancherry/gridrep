@@ -87,6 +87,7 @@ export default function LineupPage() {
   const [teamSize, setTeamSize] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
   const [lineup, setLineup] = useState<{ custId: string; name: string }[]>([]);
   const [teamRoster, setTeamRoster] = useState<TeamRosterMember[]>([]);
+  const [weekendId, setWeekendId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const { results: searchResults, livePending: liveSearchPending } = useDriverSearch(query);
   const [conditionProfiles, setConditionProfiles] = useState<ConditionProfile[]>([]);
@@ -116,6 +117,7 @@ export default function LineupPage() {
         setEventId(data.eventId);
         setLineup((data.lineup ?? []).map((d: any) => ({ custId: d.custId, name: d.driverName ?? `Driver ${d.custId}` })));
         setTeamRoster(data.teamRoster ?? []);
+        setWeekendId(data.weekendId ?? null);
       })
       .catch(() => setError("Network error. Please try again."))
       .finally(() => setLoading(false));
@@ -322,6 +324,12 @@ export default function LineupPage() {
               );
             })}
           </div>
+          {weekendId && (
+            <p className="rp-text-faint" style={{ fontSize: 11, marginTop: 8 }}>
+              Running more than one car this weekend?{" "}
+              <Link to={`/race-planner/weekend/${weekendId}`}>Manage this race weekend →</Link>
+            </p>
+          )}
         </div>
       )}
 

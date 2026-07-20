@@ -19,6 +19,11 @@ export async function isTeamCoordinator(DB: any, teamId: string, userId: string)
   return Boolean(row);
 }
 
+export async function getWeekendTeamId(DB: any, weekendId: string): Promise<string | null> {
+  const row = await DB.prepare(`SELECT team_id as teamId FROM race_weekends WHERE id = ?`).bind(weekendId).first<any>();
+  return row?.teamId ?? null;
+}
+
 export async function isTeamMember(DB: any, teamId: string, userId: string): Promise<boolean> {
   const row = await DB.prepare(
     `SELECT 1 FROM teams WHERE id = ? AND created_by = ?
