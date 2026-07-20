@@ -155,16 +155,49 @@ export async function discoverAndSyncRecentSessionAtTrack(
 
       if (!header.track_name || !tracksMatch(header.track_name, trackName)) continue;
 
-      const summary = await ingestPlannerSubsession({ env: { DB } }, subsessionId, { viewerUserId, accessToken });
-      await setStatus(
-        DB,
-        custId,
-        trackName,
-        "found",
+      const summary = await ingestPlannerSubsession(
+        { env: { DB } },
         subsessionId,
-        `Synced ${summary.lapsIngested} laps from a session at ${header.track_name}${summary.remainingJobs > 0 ? " (partial - large session)" : ""}.`
+        { viewerUserId, accessToken, priorityCustId: custId }
       );
-      return;
+
+      // A large team session's own job queue can span far more than one batch - without
+      // prioritizing this driver's own job (priorityCustId above), a session with hundreds
+      // of participants could report an aggregate "N laps synced" success while never
+      // actually reaching this specific driver's job at all. Confirm their own laps really
+      // landed before calling this "found" rather than trusting the aggregate count.
+      const targetLaps = await DB.prepare(`SELECT COUNT(*) as n FROM planner_iracing_laps WHERE subsession_id = ? AND cust_id = ?`)
+        .bind(subsessionId, custId)
+        .first<{ n: number }>();
+
+      if ((targetLaps?.n ?? 0) > 0) {
+        await setStatus(
+          DB,
+          custId,
+          trackName,
+          "found",
+          subsessionId,
+          `Synced ${targetLaps!.n} of this driver's own laps from a session at ${header.track_name}.`
+        );
+        return;
+      }
+
+      const targetFailure = summary.driverFailures.find((f) => f.custId === custId);
+      if (targetFailure) {
+        await setStatus(
+          DB,
+          custId,
+          trackName,
+          "error",
+          subsessionId,
+          `Found a session at this track but could not fetch this driver's own laps: ${targetFailure.message}`
+        );
+        return;
+      }
+
+      // Right track, but this driver has no usable laps in it (e.g. they didn't complete
+      // any laps before a DNF) - keep checking older candidates rather than reporting a
+      // false "found".
     }
 
     await setStatus(DB, custId, trackName, "not_found", null, "No recent session found at this track in the driver's last races.");

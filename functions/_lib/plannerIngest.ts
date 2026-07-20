@@ -46,6 +46,14 @@ type IngestOpts = {
   lapFetchDelayMs?: number;
   lapFetchConcurrency?: number;
   maxJobsPerRun?: number;
+  /** Process this driver's own job(s) first, ahead of every other participant's. Without
+   *  this, a large team session (hundreds of participants) processes jobs in payload
+   *  order regardless of which specific driver a caller actually cares about - a single
+   *  maxJobsPerRun-sized batch could exhaust itself on other drivers and never reach the
+   *  one job the caller was waiting on. A driver has at most a couple of sim-session jobs
+   *  (qualifying + race), so prioritizing them still leaves the rest of the batch free for
+   *  other participants. */
+  priorityCustId?: string;
 };
 
 export type IngestSummary = {
@@ -210,7 +218,11 @@ export async function ingestPlannerSubsession(context: any, subsessionId: string
     .all<{ custId: string; simsessionNumber: number }>();
   const doneKeys = new Set((doneRows.results ?? []).map((r) => `${r.custId}:${r.simsessionNumber}`));
 
-  const pendingJobs = allJobs.filter((j) => !doneKeys.has(`${j.custId}:${j.simsessionNumber}`));
+  let pendingJobs = allJobs.filter((j) => !doneKeys.has(`${j.custId}:${j.simsessionNumber}`));
+  if (opts.priorityCustId) {
+    const priority = opts.priorityCustId;
+    pendingJobs = [...pendingJobs.filter((j) => j.custId === priority), ...pendingJobs.filter((j) => j.custId !== priority)];
+  }
   const jobs = pendingJobs.slice(0, maxJobsPerRun);
   const unattemptedJobs = pendingJobs.length - jobs.length;
 
