@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { usePlanContext } from "../PlanContext";
 
@@ -69,7 +69,9 @@ export default function LineupPage() {
   const [teamSize, setTeamSize] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
   const [lineup, setLineup] = useState<{ custId: string; name: string }[]>([]);
   const [query, setQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<DriverSearchResult[]>([]);
+  const [localSearchResults, setLocalSearchResults] = useState<DriverSearchResult[]>([]);
+  const [liveSearchResults, setLiveSearchResults] = useState<DriverSearchResult[]>([]);
+  const [liveSearchPending, setLiveSearchPending] = useState(false);
   const [conditionProfiles, setConditionProfiles] = useState<ConditionProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
   const [profiles, setProfiles] = useState<DriverProfile[]>([]);
@@ -225,28 +227,56 @@ export default function LineupPage() {
   // synced session) with a live iRacing name search (functions/api/planner/drivers/search.ts)
   // - closes the "can't add a driver we've never seen before" gap. Local matches come first
   // since they're already known to gridrep; live-only matches are appended, deduped by id.
+  // gridrep's own drivers table answers near-instantly; the live iRacing lookup is a
+  // real network round-trip and can take noticeably longer. Show local matches the
+  // moment they land instead of waiting on both, then fold in whatever the live search
+  // adds - each fetch updates its own state independently, so whichever finishes first
+  // (almost always local) paints immediately and nothing is blocked on the slower call.
   useEffect(() => {
     if (!query.trim()) {
-      setSearchResults([]);
+      setLocalSearchResults([]);
+      setLiveSearchResults([]);
+      setLiveSearchPending(false);
       return;
     }
+    let cancelled = false;
+    const q = query.trim();
+    setLiveSearchResults([]); // clear any previous query's live matches right away
+    setLiveSearchPending(true);
+
     const handle = setTimeout(() => {
-      Promise.all([
-        fetch(`/api/drivers/search?q=${encodeURIComponent(query.trim())}`)
-          .then((r) => r.json())
-          .then((data) => data.results ?? [])
-          .catch(() => []),
-        fetch(`/api/planner/drivers/search?q=${encodeURIComponent(query.trim())}`, { credentials: "include" })
-          .then((r) => r.json())
-          .then((data) => data.results ?? [])
-          .catch(() => []),
-      ]).then(([local, live]: [DriverSearchResult[], DriverSearchResult[]]) => {
-        const seen = new Set(local.map((d) => d.id));
-        setSearchResults([...local, ...live.filter((d) => !seen.has(d.id))]);
-      });
+      fetch(`/api/drivers/search?q=${encodeURIComponent(q)}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (!cancelled) setLocalSearchResults(data.results ?? []);
+        })
+        .catch(() => {
+          if (!cancelled) setLocalSearchResults([]);
+        });
+
+      fetch(`/api/planner/drivers/search?q=${encodeURIComponent(q)}`, { credentials: "include" })
+        .then((r) => r.json())
+        .then((data) => {
+          if (!cancelled) setLiveSearchResults(data.results ?? []);
+        })
+        .catch(() => {
+          if (!cancelled) setLiveSearchResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setLiveSearchPending(false);
+        });
     }, 250);
-    return () => clearTimeout(handle);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
   }, [query]);
+
+  const searchResults = useMemo(() => {
+    const seen = new Set(localSearchResults.map((d) => d.id));
+    return [...localSearchResults, ...liveSearchResults.filter((d) => !seen.has(d.id))];
+  }, [localSearchResults, liveSearchResults]);
 
   function addDriver(custId: string, name: string) {
     if (lineup.some((d) => d.custId === custId)) return;
@@ -320,7 +350,7 @@ export default function LineupPage() {
             style={{ minWidth: 260 }}
           />
         </div>
-        {searchResults.length > 0 && (
+        {(searchResults.length > 0 || liveSearchPending) && (
           <div className="rp-profile-list" style={{ marginBottom: 10 }}>
             {searchResults.map((d) => (
               <div className="rp-row" key={d.id} style={{ justifyContent: "space-between" }}>
@@ -332,6 +362,11 @@ export default function LineupPage() {
                 </button>
               </div>
             ))}
+            {liveSearchPending && (
+              <span className="rp-text-faint" style={{ fontSize: 11 }}>
+                🔎 Checking iRacing for more matches…
+              </span>
+            )}
           </div>
         )}
 
