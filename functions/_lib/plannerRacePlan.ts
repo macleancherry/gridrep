@@ -13,6 +13,13 @@ export type CreateRacePlanOpts = {
   fuelTankCapacityLiters?: number | null;
   pitStopSeconds?: number | null;
   raceDurationMinutes?: number | null;
+  /** Attaches the new plan to an existing Race Weekend (multi-car flow) instead of
+   *  creating a fresh weekend-of-one-car for it. */
+  raceWeekendId?: string | null;
+  /** Only used when raceWeekendId isn't supplied - the weekend created for this new
+   *  standalone plan belongs to this team (a coordinator planning for their roster)
+   *  rather than being a solo driver's own weekend. */
+  teamId?: string | null;
 };
 
 export class CreateRacePlanError extends Error {
@@ -58,11 +65,26 @@ export async function createRacePlan(DB: any, opts: CreateRacePlanOpts): Promise
       : 55;
   }
 
+  // Every plan (Car Entry) belongs to exactly one Race Weekend. When the caller doesn't
+  // hand one in (today's single-car flow, and every pre-multi-car call site), transparently
+  // create a weekend-of-one-car wrapping just this plan - so a solo driver's existing
+  // experience stays identical while the schema still gives the multi-car flow (PRD phase
+  // 6) one consistent place to hang additional Car Entries off of later.
+  let raceWeekendId = opts.raceWeekendId ?? null;
+  if (!raceWeekendId) {
+    raceWeekendId = crypto.randomUUID();
+    await DB.prepare(
+      `INSERT INTO race_weekends (id, team_id, event_id, name, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+    )
+      .bind(raceWeekendId, opts.teamId ?? null, opts.eventId, name, opts.createdByUserId, now)
+      .run();
+  }
+
   await DB.prepare(
-    `INSERT INTO race_plans (id, event_id, name, car_name, fuel_tank_capacity_liters, pit_stop_seconds, race_duration_minutes, created_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO race_plans (id, event_id, race_weekend_id, name, car_name, fuel_tank_capacity_liters, pit_stop_seconds, race_duration_minutes, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(id, opts.eventId, name, carName, fuelTankCapacityLiters, pitStopSeconds, raceDurationMinutes, opts.createdByUserId, now, now)
+    .bind(id, opts.eventId, raceWeekendId, name, carName, fuelTankCapacityLiters, pitStopSeconds, raceDurationMinutes, opts.createdByUserId, now, now)
     .run();
 
   const custIds = opts.custIds ?? [];

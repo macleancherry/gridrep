@@ -21,14 +21,23 @@ export async function onRequestGet(context: any) {
     return jsonError(403, { error: "forbidden", message: "You don't have access to this plan." });
   }
 
-  const rows = await DB.prepare(
-    `SELECT a.cust_id as custId, d.display_name as driverName, a.block_start_offset_minutes as blockStartOffsetMinutes,
-            a.status, a.updated_at as updatedAt
-     FROM driver_availability a LEFT JOIN drivers d ON d.iracing_member_id = a.cust_id
-     WHERE a.race_plan_id = ? ORDER BY a.cust_id, a.block_start_offset_minutes`
-  )
-    .bind(planId)
-    .all<any>();
+  // driver_availability is scoped to the Race Weekend, not the individual Car Entry - a
+  // driver's real-world free time doesn't depend on which car they end up in. Every plan
+  // has exactly one weekend today (transparently created in createRacePlan), so this reads
+  // as one weekend's availability, same as it always has for this single-car case.
+  const plan = await DB.prepare(`SELECT race_weekend_id as raceWeekendId FROM race_plans WHERE id = ?`).bind(planId).first<any>();
+  const raceWeekendId = plan?.raceWeekendId;
+
+  const rows = raceWeekendId
+    ? await DB.prepare(
+        `SELECT a.cust_id as custId, d.display_name as driverName, a.block_start_offset_minutes as blockStartOffsetMinutes,
+                a.status, a.updated_at as updatedAt
+         FROM driver_availability a LEFT JOIN drivers d ON d.iracing_member_id = a.cust_id
+         WHERE a.race_weekend_id = ? ORDER BY a.cust_id, a.block_start_offset_minutes`
+      )
+        .bind(raceWeekendId)
+        .all<any>()
+    : { results: [] };
 
   // Roster condition preferences (night/wet/start) - joined through users.iracing_member_id
   // since driver_condition_preferences is keyed by our internal user id, not cust_id.
@@ -58,9 +67,14 @@ export async function onRequestPut(context: any) {
   const planId = context.params.planId as string;
   const { DB } = context.env;
 
-  const plan = await DB.prepare(`SELECT id FROM race_plans WHERE id = ?`).bind(planId).first<any>();
+  const plan = await DB.prepare(`SELECT id, race_weekend_id as raceWeekendId FROM race_plans WHERE id = ?`).bind(planId).first<any>();
   if (!plan) {
     return jsonError(404, { error: "not_found", message: "Race plan not found." });
+  }
+  if (!plan.raceWeekendId) {
+    // Every plan created via createRacePlan() gets a weekend automatically - this can only
+    // happen for a pre-migration-0022 plan somehow missed by the backfill.
+    return jsonError(500, { error: "no_weekend", message: "This plan has no race weekend - please contact support." });
   }
 
   const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
@@ -84,10 +98,10 @@ export async function onRequestPut(context: any) {
     }
     statements.push(
       DB.prepare(
-        `INSERT INTO driver_availability (race_plan_id, cust_id, block_start_offset_minutes, status, updated_at)
+        `INSERT INTO driver_availability (race_weekend_id, cust_id, block_start_offset_minutes, status, updated_at)
          VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(race_plan_id, cust_id, block_start_offset_minutes) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at`
-      ).bind(planId, custId, offset, status, now)
+         ON CONFLICT(race_weekend_id, cust_id, block_start_offset_minutes) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at`
+      ).bind(plan.raceWeekendId, custId, offset, status, now)
     );
   }
   if (statements.length > 0) await DB.batch(statements);

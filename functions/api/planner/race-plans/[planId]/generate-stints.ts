@@ -48,7 +48,8 @@ export async function onRequestPost(context: any) {
   const { DB } = context.env;
 
   const plan = await DB.prepare(
-    `SELECT p.id, p.event_id as eventId, p.pit_stop_seconds as pitStopSeconds, p.fuel_tank_capacity_liters as fuelTankCapacityLiters,
+    `SELECT p.id, p.event_id as eventId, p.race_weekend_id as raceWeekendId, p.pit_stop_seconds as pitStopSeconds,
+            p.fuel_tank_capacity_liters as fuelTankCapacityLiters,
             p.fatigue_threshold_minutes as fatigueThresholdMinutes, p.race_duration_minutes as raceDurationMinutes,
             p.time_slot_id as timeSlotId, p.availability_block_minutes as blockMinutes,
             e.track_name as trackName, e.scheduled_start_time as eventStartUtc, e.duration_minutes as eventDurationMinutes
@@ -137,11 +138,13 @@ export async function onRequestPost(context: any) {
 
   // Availability + condition-window lookups, both optional signals - missing data never
   // blocks generation, it just falls back to "assume available" / "no preference."
-  const availRows = await DB.prepare(
-    `SELECT cust_id as custId, block_start_offset_minutes as blockStartOffsetMinutes, status FROM driver_availability WHERE race_plan_id = ?`
-  )
-    .bind(planId)
-    .all<any>();
+  const availRows = plan.raceWeekendId
+    ? await DB.prepare(
+        `SELECT cust_id as custId, block_start_offset_minutes as blockStartOffsetMinutes, status FROM driver_availability WHERE race_weekend_id = ?`
+      )
+        .bind(plan.raceWeekendId)
+        .all<any>()
+    : { results: [] };
   const availabilityByKey = new Map<string, string>();
   for (const r of availRows.results ?? []) {
     availabilityByKey.set(`${r.custId}:${r.blockStartOffsetMinutes}`, r.status);
