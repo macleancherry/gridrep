@@ -15,7 +15,7 @@ import { iracingDataGet } from "./iracing";
 export type SimSessionInfo = {
   simsessionNumber: number;
   type: "qualifying" | "race";
-  custIds: string[];
+  participants: { custId: string; teamId: string | null }[];
 };
 
 export function describeIracingError(err: any): string {
@@ -86,20 +86,32 @@ export function describeSimSessionBlocks(resultPayload: any): string {
  * at all - every actual driver who piloted that car (an endurance race can have several,
  * one per stint swap) is only listed inside driver_results[], each with their own real
  * cust_id/display_name. A solo-race row has no driver_results array, so this is a
- * strict superset of the old solo-only behavior, not a behavior change for solo races. */
-function extractRowDrivers(row: Record<string, unknown>): Array<{ custId: string; name: string | undefined }> {
-  const out: Array<{ custId: string; name: string | undefined }> = [];
+ * strict superset of the old solo-only behavior, not a behavior change for solo races.
+ *
+ * Also carries the row's own team_id (null for a solo entry) - confirmed live the same
+ * way, the hard way: /data/results/lap_data rejects a team-session driver's lap request
+ * with "team_id is a required argument to get lap data when the session is a team
+ * session" if it's omitted, even though the same call works fine without one for a solo
+ * entry. Every driver_results[] member inherits their row's team_id, since that's which
+ * car/team they were actually driving for. */
+function extractRowDrivers(row: Record<string, unknown>): Array<{ custId: string; name: string | undefined; teamId: string | null }> {
+  const out: Array<{ custId: string; name: string | undefined; teamId: string | null }> = [];
 
   const soloId = pickNumber(row?.cust_id ?? row?.id);
   if (soloId !== undefined) {
-    out.push({ custId: String(soloId), name: pickString(row?.display_name) ?? pickString(row?.name) });
+    out.push({ custId: String(soloId), name: pickString(row?.display_name) ?? pickString(row?.name), teamId: null });
   }
 
+  const rowTeamId = pickNumber(row?.team_id);
   const driverResults = Array.isArray(row?.driver_results) ? row.driver_results : [];
   for (const dr of driverResults as Record<string, unknown>[]) {
     const teamMemberId = pickNumber(dr?.cust_id ?? dr?.id);
     if (teamMemberId === undefined) continue;
-    out.push({ custId: String(teamMemberId), name: pickString(dr?.display_name) ?? pickString(dr?.name) });
+    out.push({
+      custId: String(teamMemberId),
+      name: pickString(dr?.display_name) ?? pickString(dr?.name),
+      teamId: rowTeamId !== undefined ? String(rowTeamId) : null,
+    });
   }
 
   return out;
@@ -222,9 +234,17 @@ export function identifySimSessions(resultPayload: any): SimSessionInfo[] {
     if (simsessionNumber === undefined) continue;
 
     const rows = pickRows(block);
-    const custIds = Array.from(new Set(rows.flatMap((r) => extractRowDrivers(r).map((d) => d.custId))));
+    const seen = new Set<string>();
+    const participants: { custId: string; teamId: string | null }[] = [];
+    for (const row of rows) {
+      for (const d of extractRowDrivers(row)) {
+        if (seen.has(d.custId)) continue;
+        seen.add(d.custId);
+        participants.push({ custId: d.custId, teamId: d.teamId });
+      }
+    }
 
-    out.push({ simsessionNumber, type, custIds });
+    out.push({ simsessionNumber, type, participants });
   }
 
   return out;
@@ -292,12 +312,21 @@ export function extractLapNumber(row: Record<string, unknown>): number | undefin
   return pickNumber(row.lap_number ?? row.lapNumber ?? row.lap);
 }
 
-export function buildLapDataPath(subsessionId: string, custId: string, simsessionNumber: number): string {
+export function buildLapDataPath(
+  subsessionId: string,
+  custId: string,
+  simsessionNumber: number,
+  teamId?: string | null
+): string {
   const params = new URLSearchParams({
     subsession_id: subsessionId,
     cust_id: custId,
     simsession_number: String(simsessionNumber),
   });
+  // Team sessions (e.g. 24 Hours of Spa) reject lap_data requests without team_id,
+  // confirmed live: "team_id is a required argument to get lap data when the session
+  // is a team session" - solo races neither need nor accept it, so only add it when present.
+  if (teamId) params.set("team_id", teamId);
   return `/data/results/lap_data?${params.toString()}`;
 }
 
@@ -305,9 +334,10 @@ export async function fetchLapData(
   subsessionId: string,
   custId: string,
   simsessionNumber: number,
-  accessToken: string
+  accessToken: string,
+  teamId?: string | null
 ): Promise<any> {
-  return iracingDataGet<any>(buildLapDataPath(subsessionId, custId, simsessionNumber), accessToken);
+  return iracingDataGet<any>(buildLapDataPath(subsessionId, custId, simsessionNumber, teamId), accessToken);
 }
 
 export async function getLeagueInfo(leagueId: string, accessToken: string): Promise<any> {

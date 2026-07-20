@@ -189,10 +189,10 @@ export async function ingestPlannerSubsession(context: any, subsessionId: string
   const driverFailures: IngestSummary["driverFailures"] = [];
   let lapsIngested = 0;
 
-  const allJobs: Array<{ custId: string; simsessionNumber: number; type: "qualifying" | "race" }> = [];
+  const allJobs: Array<{ custId: string; teamId: string | null; simsessionNumber: number; type: "qualifying" | "race" }> = [];
   for (const sess of simSessions) {
-    for (const custId of sess.custIds) {
-      allJobs.push({ custId, simsessionNumber: sess.simsessionNumber, type: sess.type });
+    for (const participant of sess.participants) {
+      allJobs.push({ custId: participant.custId, teamId: participant.teamId, simsessionNumber: sess.simsessionNumber, type: sess.type });
     }
   }
 
@@ -219,11 +219,11 @@ export async function ingestPlannerSubsession(context: any, subsessionId: string
     if (processed > 0 && delayMs > 0) await sleep(delayMs);
     processed += 1;
 
-    const payload = await fetchLapData(subsessionId, job.custId, job.simsessionNumber, accessToken!);
+    const payload = await fetchLapData(subsessionId, job.custId, job.simsessionNumber, accessToken!, job.teamId);
     const rows = await extractLapRows(payload);
     const sample =
       rows.length === 0
-        ? `GET ${buildLapDataPath(subsessionId, job.custId, job.simsessionNumber)} -> ${JSON.stringify(payload).slice(0, 700)}`
+        ? `GET ${buildLapDataPath(subsessionId, job.custId, job.simsessionNumber, job.teamId)} -> ${JSON.stringify(payload).slice(0, 700)}`
         : undefined;
     const statements: any[] = [];
 
