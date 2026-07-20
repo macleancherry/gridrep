@@ -21,6 +21,7 @@ type DriverProfile = {
 };
 
 type TeamRosterMember = { custId: string; driverName: string | null };
+type TeamSummary = { id: string; name: string; isCreator: boolean };
 
 type SearchStatus = { status: "searching" | "found" | "not_found" | "error" | "none"; message?: string | null };
 
@@ -103,11 +104,18 @@ export default function LineupPage() {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [searchStatus, setSearchStatus] = useState<Record<string, SearchStatus>>({});
 
-  // Load the plan (for its event_id + already-saved lineup) once on mount.
-  useEffect(() => {
+  // If this weekend isn't linked to a team yet, offer to link one instead of silently
+  // falling back to the global iRacing search - the only place a weekend's team gets set
+  // today is SeriesSessionsPage's picker at creation time, which is easy to miss or skip.
+  const [myTeams, setMyTeams] = useState<TeamSummary[] | null>(null);
+  const [linkTeamId, setLinkTeamId] = useState("");
+  const [linking, setLinking] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  function loadPlan() {
     if (!planId) return;
     setLoading(true);
-    fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}`, { credentials: "include" })
+    return fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}`, { credentials: "include" })
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) {
@@ -121,7 +129,46 @@ export default function LineupPage() {
       })
       .catch(() => setError("Network error. Please try again."))
       .finally(() => setLoading(false));
+  }
+
+  // Load the plan (for its event_id + already-saved lineup) once on mount.
+  useEffect(() => {
+    loadPlan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId]);
+
+  useEffect(() => {
+    fetch(`/api/planner/teams`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.ok) setMyTeams((data.teams ?? []).filter((t: TeamSummary) => t.isCreator));
+      })
+      .catch(() => {});
+  }, []);
+
+  async function linkTeam() {
+    if (!weekendId || !linkTeamId) return;
+    setLinking(true);
+    setLinkError(null);
+    try {
+      const r = await fetch(`/api/planner/race-weekends/${encodeURIComponent(weekendId)}/team`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ teamId: linkTeamId }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setLinkError(data.message ?? "Could not link this team.");
+        return;
+      }
+      await loadPlan();
+    } catch {
+      setLinkError("Network error. Please try again.");
+    } finally {
+      setLinking(false);
+    }
+  }
 
   useEffect(() => {
     setContext({ planId: planId ?? null, eventId });
@@ -330,6 +377,32 @@ export default function LineupPage() {
               <Link to={`/race-planner/weekend/${weekendId}`}>Manage this race weekend →</Link>
             </p>
           )}
+        </div>
+      )}
+
+      {teamRoster.length === 0 && weekendId && myTeams && myTeams.length > 0 && (
+        <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
+          <div className="rp-form-field" style={{ marginBottom: 8 }}>
+            <label>This weekend isn't linked to a team yet</label>
+          </div>
+          <p className="rp-section-sub" style={{ marginBottom: 10 }}>
+            Link it to one of your teams to add drivers straight from that roster instead of searching iRacing one
+            by one.
+          </p>
+          <div className="rp-row">
+            <select className="rp-input" value={linkTeamId} onChange={(e) => setLinkTeamId(e.target.value)}>
+              <option value="">Choose a team…</option>
+              {myTeams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <button className="rp-btn rp-primary" onClick={linkTeam} disabled={!linkTeamId || linking}>
+              {linking ? "Linking…" : "Link team"}
+            </button>
+          </div>
+          {linkError && <p className="rp-error">{linkError}</p>}
         </div>
       )}
 

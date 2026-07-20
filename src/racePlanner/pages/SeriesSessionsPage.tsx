@@ -115,7 +115,13 @@ export default function SeriesSessionsPage() {
     fetch(`/api/planner/teams`, { credentials: "include" })
       .then((r) => r.json())
       .then((data) => {
-        if (data?.ok) setTeams((data.teams ?? []).filter((t: TeamSummary) => t.isCreator));
+        if (!data?.ok) return;
+        const coordinated: TeamSummary[] = (data.teams ?? []).filter((t: TeamSummary) => t.isCreator);
+        setTeams(coordinated);
+        // Coordinators with exactly one team are almost always planning for it - default
+        // to it instead of making them remember to pick it every time (still overridable,
+        // and a coordinator with more than one team still gets an explicit choice).
+        if (coordinated.length === 1) setTeamId(coordinated[0].id);
       })
       .catch(() => {});
   }, []);
