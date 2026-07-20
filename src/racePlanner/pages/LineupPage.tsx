@@ -21,12 +21,44 @@ type DriverProfile = {
 
 type DriverSearchResult = { id: string; name: string };
 
+type SearchStatus = { status: "searching" | "found" | "not_found" | "error" | "none"; message?: string | null };
+
 function formatPace(ms: number | null): string {
   if (ms === null) return "—";
   const totalSeconds = ms / 1000;
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = (totalSeconds % 60).toFixed(3).padStart(6, "0");
   return `${minutes}:${seconds}`;
+}
+
+function StatusBadge({ s }: { s: SearchStatus | undefined }) {
+  if (!s || s.status === "none") return null;
+  if (s.status === "searching") {
+    return (
+      <span className="rp-text-faint" style={{ fontSize: 10, marginLeft: 4 }} title="Looking for a recent session at this track…">
+        🔎 searching…
+      </span>
+    );
+  }
+  if (s.status === "found") {
+    return (
+      <span style={{ fontSize: 10, marginLeft: 4, color: "var(--rp-green)" }} title={s.message ?? undefined}>
+        ✓ laps found
+      </span>
+    );
+  }
+  if (s.status === "not_found") {
+    return (
+      <span className="rp-text-faint" style={{ fontSize: 10, marginLeft: 4 }} title={s.message ?? undefined}>
+        · no recent session found
+      </span>
+    );
+  }
+  return (
+    <span className="rp-text-faint" style={{ fontSize: 10, marginLeft: 4 }} title={s.message ?? undefined}>
+      ⚠ search failed
+    </span>
+  );
 }
 
 export default function LineupPage() {
@@ -49,6 +81,7 @@ export default function LineupPage() {
   const [syncSubsessionId, setSyncSubsessionId] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [searchStatus, setSearchStatus] = useState<Record<string, SearchStatus>>({});
 
   // Load the plan (for its event_id + already-saved lineup) once on mount.
   useEffect(() => {
@@ -90,6 +123,45 @@ export default function LineupPage() {
       })
       .catch(() => {});
   }, [eventId]);
+
+  // Polls for progress on the background "find a recent session at this track" search
+  // race-plans/:planId/lineup.ts kicks off whenever a driver is newly added - keeps
+  // polling every 2.5s only while at least one driver is still "searching", so an idle
+  // Lineup page (nothing in progress) never polls at all.
+  const lineupKey = lineup.map((d) => d.custId).join(",");
+  useEffect(() => {
+    if (!eventId || lineup.length === 0) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    async function poll() {
+      try {
+        const r = await fetch(
+          `/api/planner/events/${encodeURIComponent(eventId!)}/session-search-status?custIds=${encodeURIComponent(lineupKey)}`,
+          { credentials: "include" }
+        );
+        const data = await r.json().catch(() => ({}));
+        if (cancelled || !data.ok) return;
+
+        const next: Record<string, SearchStatus> = {};
+        for (const row of data.results ?? []) next[row.custId] = { status: row.status, message: row.message };
+        setSearchStatus(next);
+
+        if ((data.results ?? []).some((row: any) => row.status === "searching")) {
+          timer = setTimeout(poll, 2500);
+        }
+      } catch {
+        // Silent - this is a best-effort background indicator, not core functionality.
+      }
+    }
+
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId, lineupKey]);
 
   async function syncLaps() {
     const subsessionId = syncSubsessionId.trim();
@@ -268,6 +340,7 @@ export default function LineupPage() {
           {lineup.map((d) => (
             <span className="rp-badge rp-dim" key={d.custId}>
               {d.name}
+              <StatusBadge s={searchStatus[d.custId]} />
               <button
                 onClick={() => removeDriver(d.custId)}
                 style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", marginLeft: 4, padding: 0 }}
@@ -293,7 +366,7 @@ export default function LineupPage() {
 
       <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
         <div className="rp-form-field">
-          <label>Sync laps from a subsession</label>
+          <label>Sync laps manually</label>
         </div>
         <div className="rp-row">
           <input
@@ -308,9 +381,10 @@ export default function LineupPage() {
           </button>
         </div>
         <p className="rp-section-sub" style={{ marginTop: 8 }}>
-          Pulls real lap times, pit stops, and clean-lap flags from a practice or race subsession so "Compute
-          profiles" below has laps to work with{eventTrackName ? ` at ${eventTrackName}` : ""} — find the subsession
-          ID on iRacing's own results page for that session. Large sessions may need a couple of clicks to finish.
+          Newly added drivers are automatically checked in the background for a recent session at this
+          track{eventTrackName ? ` (${eventTrackName})` : ""} — watch for a status next to their name above. Use this
+          box only if that search comes back empty, or to pull a specific session yourself. Large sessions may need a
+          couple of clicks to finish.
         </p>
         {syncMessage && (
           <p className="rp-section-sub" style={{ marginTop: 8 }}>

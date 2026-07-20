@@ -1,11 +1,17 @@
-import { getViewer } from "../../../../_lib/auth";
+import { getViewer, getValidAccessToken } from "../../../../_lib/auth";
 import { isPlanVisible } from "../../../../_lib/plannerRacePlan";
+import { discoverAndSyncRecentSessionAtTrack } from "../../../../_lib/plannerLapDiscovery";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
  * Set/update a plan's driver lineup wholesale (same replace-the-whole-list pattern
  * stints.ts's PUT already uses). Gives LineupPage somewhere real to save to - until now
  * its driver picks only ever lived in local component state and were lost on navigation.
+ *
+ * Also kicks off a background "find a recent session at this track" search for any
+ * driver newly added to the lineup (via context.waitUntil - keeps running after this
+ * response returns), so by the time anyone loads the Lineup page there's a decent chance
+ * real laps are already synced without anyone having to paste a subsession ID.
  */
 export async function onRequestPut(context: any) {
   const viewer = await getViewer(context);
@@ -16,7 +22,11 @@ export async function onRequestPut(context: any) {
   const planId = context.params.planId as string;
   const { DB } = context.env;
 
-  const plan = await DB.prepare(`SELECT id FROM race_plans WHERE id = ?`).bind(planId).first<any>();
+  const plan = await DB.prepare(
+    `SELECT p.id, e.track_name as trackName FROM race_plans p JOIN iracing_events e ON e.id = p.event_id WHERE p.id = ?`
+  )
+    .bind(planId)
+    .first<any>();
   if (!plan) {
     return jsonError(404, { error: "not_found", message: "Race plan not found." });
   }
@@ -26,8 +36,12 @@ export async function onRequestPut(context: any) {
     return jsonError(403, { error: "forbidden", message: "You don't have access to this plan." });
   }
 
+  const previousRows = await DB.prepare(`SELECT cust_id as custId FROM race_plan_lineup WHERE race_plan_id = ?`).bind(planId).all<any>();
+  const previousCustIds = new Set((previousRows.results ?? []).map((r: any) => r.custId));
+
   const body = await context.request.json().catch(() => null);
   const custIds: string[] = Array.isArray(body?.custIds) ? [...new Set(body.custIds.map(String).filter(Boolean))] : [];
+  const newlyAddedCustIds = custIds.filter((id) => !previousCustIds.has(id));
 
   // Names for any driver just picked from the iRacing lookup (functions/api/planner/
   // drivers/search.ts) rather than gridrep's local drivers table - caches the real name
@@ -52,6 +66,10 @@ export async function onRequestPut(context: any) {
 
   await DB.prepare(`UPDATE race_plans SET updated_at = ? WHERE id = ?`).bind(new Date().toISOString(), planId).run();
 
+  if (plan.trackName && newlyAddedCustIds.length > 0) {
+    await kickOffLapDiscovery(context, DB, plan.trackName, newlyAddedCustIds, viewer.user!.id);
+  }
+
   const rows = await DB.prepare(
     `SELECT l.cust_id as custId, d.display_name as driverName
      FROM race_plan_lineup l LEFT JOIN drivers d ON d.iracing_member_id = l.cust_id
@@ -61,4 +79,47 @@ export async function onRequestPut(context: any) {
     .all<any>();
 
   return json({ ok: true, planId, lineup: rows.results ?? [] });
+}
+
+async function kickOffLapDiscovery(context: any, DB: any, trackName: string, custIds: string[], viewerUserId: string): Promise<void> {
+  const eligible: string[] = [];
+
+  for (const custId of custIds) {
+    const existingLaps = await DB.prepare(
+      `SELECT 1 FROM planner_iracing_laps l JOIN planner_iracing_subsessions s ON s.subsession_id = l.subsession_id
+       WHERE l.cust_id = ? AND s.track_name = ? LIMIT 1`
+    )
+      .bind(custId, trackName)
+      .first<any>();
+    if (existingLaps) continue; // already have real laps here - nothing to search for
+
+    const existingSearch = await DB.prepare(`SELECT status FROM driver_recent_session_search WHERE cust_id = ? AND track_name = ?`)
+      .bind(custId, trackName)
+      .first<any>();
+    if (existingSearch && (existingSearch.status === "searching" || existingSearch.status === "found")) continue;
+
+    eligible.push(custId);
+  }
+
+  if (eligible.length === 0) return;
+
+  let accessToken: string;
+  try {
+    accessToken = await getValidAccessToken(context, viewerUserId);
+  } catch {
+    return; // no usable token right now - the manual paste-ID box on the Lineup page still works
+  }
+
+  const now = new Date().toISOString();
+  for (const custId of eligible) {
+    await DB.prepare(
+      `INSERT INTO driver_recent_session_search (cust_id, track_name, status, subsession_id, message, updated_at)
+       VALUES (?, ?, 'searching', NULL, NULL, ?)
+       ON CONFLICT(cust_id, track_name) DO UPDATE SET status = 'searching', message = NULL, updated_at = excluded.updated_at`
+    )
+      .bind(custId, trackName, now)
+      .run();
+
+    context.waitUntil(discoverAndSyncRecentSessionAtTrack(DB, custId, trackName, viewerUserId, accessToken));
+  }
 }
