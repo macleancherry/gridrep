@@ -288,11 +288,25 @@ export default function StintsPage() {
       <h2>Stint plan</h2>
       {error && <p className="rp-error">{error}</p>}
 
-      {warnings?.spotterGaps.map((g, i) => (
-        <div className="rp-warn-banner" key={`gap-${i}`}>
-          ⚠ No spotter scheduled, {formatOffset(g.startOffsetMinutes)}–{formatOffset(g.endOffsetMinutes)}.
-        </div>
-      ))}
+      {warnings && warnings.spotterGaps.length > 0 && (
+        spotting.length === 0 ? (
+          // No spotting has been set up at all yet - every stint is technically a "gap",
+          // but a wall of one near-identical banner per stint (13+ for a 24h race) reads
+          // as broken, not informative. One combined nudge says the same thing.
+          <div className="rp-warn-banner">
+            ⚠ No spotter scheduled for any of the {warnings.spotterGaps.length} stint
+            {warnings.spotterGaps.length === 1 ? "" : "s"} yet — add spotting below once you know who's available.
+          </div>
+        ) : (
+          // Partial coverage already exists - each remaining gap is a specific, actionable
+          // window, worth calling out individually.
+          warnings.spotterGaps.map((g, i) => (
+            <div className="rp-warn-banner" key={`gap-${i}`}>
+              ⚠ No spotter scheduled, {formatOffset(g.startOffsetMinutes)}–{formatOffset(g.endOffsetMinutes)}.
+            </div>
+          ))
+        )
+      )}
       {warnings?.extendedStretches.map((s, i) => {
         const name = lineup.find((d) => d.custId === s.custId)?.driverName ?? s.custId;
         return (
