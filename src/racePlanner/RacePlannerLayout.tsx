@@ -197,6 +197,10 @@ export default function RacePlannerLayout({
                 <NavLink to="/race-planner/welcome?edit=1" className="rp-viewer-link">
                   Edit preferences
                 </NavLink>
+                {" · "}
+                <NavLink to="/race-planner/team" className="rp-viewer-link">
+                  My teams
+                </NavLink>
               </span>
             ) : (
               <a href={verifyHref} className="rp-viewer-link">

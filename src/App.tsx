@@ -21,6 +21,9 @@ import AvailabilityPage from "./racePlanner/pages/AvailabilityPage";
 import PlanSummaryPage from "./racePlanner/pages/PlanSummaryPage";
 import LivePage from "./racePlanner/pages/LivePage";
 import PlaceholderPage from "./racePlanner/pages/PlaceholderPage";
+import TeamListPage from "./racePlanner/pages/TeamListPage";
+import TeamPage from "./racePlanner/pages/TeamPage";
+import JoinTeamPage from "./racePlanner/pages/JoinTeamPage";
 
 const AUTH_BASE = "https://gridrep.gg";
 
@@ -234,6 +237,30 @@ function RacePlannerApp() {
         element={
           <RacePlannerLayout skipOnboardingGate>
             <WelcomePage />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/team"
+        element={
+          <RacePlannerLayout>
+            <TeamListPage />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/team/:teamId"
+        element={
+          <RacePlannerLayout>
+            <TeamPage />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/join/:token"
+        element={
+          <RacePlannerLayout skipOnboardingGate>
+            <JoinTeamPage />
           </RacePlannerLayout>
         }
       />
