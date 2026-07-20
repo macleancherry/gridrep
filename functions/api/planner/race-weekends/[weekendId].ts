@@ -1,5 +1,5 @@
 import { getViewer } from "../../../_lib/auth";
-import { isTeamMember } from "../../../_lib/plannerTeams";
+import { isTeamMember, isTeamCoordinator } from "../../../_lib/plannerTeams";
 import { json, jsonError } from "../../../_lib/httpJson";
 
 /** Race Weekend detail: its Car Entries and team. Only visible to the owning team's
@@ -31,5 +31,7 @@ export async function onRequestGet(context: any) {
     .bind(weekendId)
     .all<any>();
 
-  return json({ ok: true, weekend, cars: carsRows.results ?? [] });
+  const coordinator = await isTeamCoordinator(DB, weekend.teamId, viewer.user!.id);
+
+  return json({ ok: true, weekend, cars: carsRows.results ?? [], isCoordinator: coordinator });
 }

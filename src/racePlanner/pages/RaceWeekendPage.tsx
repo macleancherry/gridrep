@@ -9,12 +9,16 @@ type Assignment = { carId: string; custId: string; driverName: string | null; av
  * Multi-car race weekend management (PRD phase 6): pick which team-roster drivers are in
  * scope for the whole weekend, then get a balanced draft split across its Car Entries
  * (plannerDistribution.ts), reviewable and moveable before confirming into each car's real
- * lineup. Coordinator-only - a driver never sees this page.
+ * lineup. The write endpoints (add car, set participants, confirm distribution) are
+ * coordinator-only on the backend - a driver who lands here (e.g. via TeamPage's weekend
+ * list for a multi-car weekend) gets the same read-only view, matching TeamPage.tsx's own
+ * gating pattern rather than showing controls that would just 403 on click.
  */
 export default function RaceWeekendPage() {
   const { weekendId } = useParams<{ weekendId: string }>();
   const [weekendName, setWeekendName] = useState<string>("");
   const [cars, setCars] = useState<Car[]>([]);
+  const [isCoordinator, setIsCoordinator] = useState(false);
   const [roster, setRoster] = useState<RosterMember[]>([]);
   const [participantIds, setParticipantIds] = useState<Set<string>>(new Set());
   const [assignments, setAssignments] = useState<Assignment[] | null>(null);
@@ -37,6 +41,7 @@ export default function RaceWeekendPage() {
         }
         setWeekendName(data.weekend.name ?? "Race weekend");
         setCars(data.cars ?? []);
+        setIsCoordinator(Boolean(data.isCoordinator));
       })
       .catch(() => setError("Network error. Please try again."));
   }
@@ -189,9 +194,11 @@ export default function RaceWeekendPage() {
             </Link>
           ))}
         </div>
-        <button className="rp-btn" onClick={addCar} disabled={addingCar}>
-          {addingCar ? "Adding…" : "+ Add another car"}
-        </button>
+        {isCoordinator && (
+          <button className="rp-btn" onClick={addCar} disabled={addingCar}>
+            {addingCar ? "Adding…" : "+ Add another car"}
+          </button>
+        )}
       </div>
 
       <div className="rp-card rp-card-narrow" style={{ marginBottom: 20 }}>
@@ -204,8 +211,18 @@ export default function RaceWeekendPage() {
           {roster.map((m) => {
             const checked = participantIds.has(m.custId);
             return (
-              <label key={m.custId} className="rp-badge" style={{ cursor: "pointer", borderColor: checked ? "var(--rp-green)" : undefined }}>
-                <input type="checkbox" checked={checked} onChange={() => toggleParticipant(m.custId)} style={{ marginRight: 6 }} />
+              <label
+                key={m.custId}
+                className="rp-badge"
+                style={{ cursor: isCoordinator ? "pointer" : "default", borderColor: checked ? "var(--rp-green)" : undefined }}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={!isCoordinator}
+                  onChange={() => toggleParticipant(m.custId)}
+                  style={{ marginRight: 6 }}
+                />
                 {m.driverName ?? `Driver ${m.custId}`}
               </label>
             );
@@ -218,6 +235,8 @@ export default function RaceWeekendPage() {
         <h3 style={{ marginTop: 0 }}>Distribution</h3>
         {cars.length < 2 ? (
           <p className="rp-text-faint">Add a second car above to split drivers across cars.</p>
+        ) : !isCoordinator ? (
+          <p className="rp-text-faint">Only this team's coordinator can manage the driver split for this weekend.</p>
         ) : (
           <>
             <button className="rp-btn rp-primary" onClick={suggestDistribution} disabled={suggesting || participantIds.size === 0}>

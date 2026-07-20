@@ -72,7 +72,9 @@ export default function SeriesSessionsPage() {
   const { seriesId } = useParams<{ seriesId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const seriesName = (location.state as { seriesName?: string } | null)?.seriesName ?? "Series";
+  const navState = location.state as { seriesName?: string; preselectedTeamId?: string | null } | null;
+  const seriesName = navState?.seriesName ?? "Series";
+  const preselectedTeamId = navState?.preselectedTeamId ?? null;
 
   const [sessions, setSessions] = useState<ScheduleSession[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -118,10 +120,16 @@ export default function SeriesSessionsPage() {
         if (!data?.ok) return;
         const coordinated: TeamSummary[] = (data.teams ?? []).filter((t: TeamSummary) => t.isCreator);
         setTeams(coordinated);
-        // Coordinators with exactly one team are almost always planning for it - default
-        // to it instead of making them remember to pick it every time (still overridable,
-        // and a coordinator with more than one team still gets an explicit choice).
-        if (coordinated.length === 1) setTeamId(coordinated[0].id);
+        if (preselectedTeamId && coordinated.some((t) => t.id === preselectedTeamId)) {
+          // Arrived here via TeamPage's "Plan a race for this team" - honor that team
+          // explicitly rather than falling through to the single-team default below.
+          setTeamId(preselectedTeamId);
+        } else if (coordinated.length === 1) {
+          // Coordinators with exactly one team are almost always planning for it - default
+          // to it instead of making them remember to pick it every time (still overridable,
+          // and a coordinator with more than one team still gets an explicit choice).
+          setTeamId(coordinated[0].id);
+        }
       })
       .catch(() => {});
   }, []);

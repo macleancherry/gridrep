@@ -132,6 +132,34 @@ export async function isPlanVisible(DB: any, planId: string, viewer: { userId: s
 }
 
 /**
+ * Wider than isPlanVisible on purpose: any active member of the team that owns this plan's
+ * race weekend can see it, not only the plan's creator or someone already on this specific
+ * car's lineup. Read paths only - a driver is meant to see and submit availability for a
+ * team weekend as soon as they're on the roster, not only once a coordinator has already
+ * added them to a car (availability is collected precisely to help decide who goes where,
+ * PRD §13, feeding the multi-car distribution suggestion), and the same "team-visible by
+ * default" call applies to just viewing a team plan/live status. Every *write* endpoint
+ * (lineup/stints/duty-assignments/distribution edits) stays on the narrow isPlanVisible -
+ * those aren't roster-wide by design, only visibility is.
+ */
+export async function isPlanVisibleToTeam(DB: any, planId: string, viewer: { userId: string; iracingId: string }): Promise<boolean> {
+  if (await isPlanVisible(DB, planId, viewer)) return true;
+
+  const row = await DB.prepare(
+    `SELECT 1
+     FROM race_plans p
+     JOIN race_weekends w ON w.id = p.race_weekend_id
+     JOIN team_members m ON m.team_id = w.team_id
+     WHERE p.id = ? AND m.status = 'active' AND (m.user_id = ? OR m.cust_id = ?)
+     LIMIT 1`
+  )
+    .bind(planId, viewer.userId, viewer.iracingId)
+    .first();
+
+  return Boolean(row);
+}
+
+/**
  * Stint projection math (PRD §4 step 6): given an ordered list of stints (driver + lap
  * count + that driver's pace/fuel snapshot), compute each stint's duration, fuel load,
  * and running start/pit-target offsets, plus plan-wide totals (stops, seat time, fuel).

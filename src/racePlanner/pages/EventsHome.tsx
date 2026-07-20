@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 type SeriesSummary = {
   seriesId: string;
@@ -13,6 +13,12 @@ const DISCIPLINE_LABEL: Record<string, string> = { road: "Road", oval: "Oval", d
 
 export default function EventsHome() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Carried through from TeamPage's "Plan a race for this team" button so the session
+  // picker's team selector can pre-select it directly, rather than relying on the
+  // "exactly one coordinated team" auto-select which doesn't help a coordinator of more
+  // than one team.
+  const preselectedTeamId = searchParams.get("teamId");
   const [query, setQuery] = useState("");
   const [series, setSeries] = useState<SeriesSummary[] | null>(null);
   const [tailored, setTailored] = useState(false);
@@ -123,7 +129,11 @@ export default function EventsHome() {
               <button
                 className="rp-btn rp-primary"
                 style={{ marginTop: 8, alignSelf: "flex-start" }}
-                onClick={() => navigate(`/race-planner/series/${encodeURIComponent(s.seriesId)}`, { state: { seriesName: s.name } })}
+                onClick={() =>
+                  navigate(`/race-planner/series/${encodeURIComponent(s.seriesId)}`, {
+                    state: { seriesName: s.name, preselectedTeamId },
+                  })
+                }
               >
                 View sessions →
               </button>

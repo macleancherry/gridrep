@@ -133,7 +133,7 @@ export default function TeamListPage() {
               <h3 className="rp-event-track">{t.name}</h3>
               {t.isCreator && <span className="rp-badge rp-dim">Coordinator</span>}
               <Link className="rp-btn rp-primary" style={{ marginTop: 8, alignSelf: "flex-start" }} to={`/race-planner/team/${t.id}`}>
-                Manage →
+                {t.isCreator ? "Manage →" : "View team →"}
               </Link>
             </div>
           ))}

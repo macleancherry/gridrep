@@ -1,6 +1,6 @@
 import { getViewer } from "../../../../_lib/auth";
 import { json, jsonError } from "../../../../_lib/httpJson";
-import { computeStintProjections, isPlanVisible, type StintInput } from "../../../../_lib/plannerRacePlan";
+import { computeStintProjections, isPlanVisible, isPlanVisibleToTeam, type StintInput } from "../../../../_lib/plannerRacePlan";
 import { computeLiveDeviation, type LiveRow } from "../../../../_lib/plannerLive";
 
 /**
@@ -31,7 +31,7 @@ export async function onRequestGet(context: any) {
   }
 
   const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
-  if (!(await isPlanVisible(DB, planId, viewerIdentity))) {
+  if (!(await isPlanVisibleToTeam(DB, planId, viewerIdentity))) {
     return jsonError(403, { error: "forbidden", message: "You don't have access to this plan." });
   }
 

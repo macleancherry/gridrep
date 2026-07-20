@@ -1,7 +1,7 @@
 import { getViewer } from "../../../../../_lib/auth";
 import { json, jsonError } from "../../../../../_lib/httpJson";
 import { buildAvailabilityBlocks, ORGANIZER_OVERVIEW_ZONES, type ConditionWindow } from "../../../../../_lib/plannerAvailability";
-import { isPlanVisible } from "../../../../../_lib/plannerRacePlan";
+import { isPlanVisibleToTeam } from "../../../../../_lib/plannerRacePlan";
 
 /**
  * Block-by-block breakdown of the race (PRD §13.5) - used to render both the driver
@@ -19,7 +19,7 @@ export async function onRequestGet(context: any) {
   const url = new URL(context.request.url);
 
   const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
-  if (!(await isPlanVisible(DB, planId, viewerIdentity))) {
+  if (!(await isPlanVisibleToTeam(DB, planId, viewerIdentity))) {
     return jsonError(403, { error: "forbidden", message: "You don't have access to this plan." });
   }
 

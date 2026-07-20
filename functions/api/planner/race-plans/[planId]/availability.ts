@@ -1,5 +1,5 @@
 import { getViewer } from "../../../../_lib/auth";
-import { isPlanVisible } from "../../../../_lib/plannerRacePlan";
+import { isPlanVisibleToTeam } from "../../../../_lib/plannerRacePlan";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 const VALID_STATUSES = new Set(["available", "maybe", "unavailable"]);
@@ -17,7 +17,7 @@ export async function onRequestGet(context: any) {
   const { DB } = context.env;
 
   const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
-  if (!(await isPlanVisible(DB, planId, viewerIdentity))) {
+  if (!(await isPlanVisibleToTeam(DB, planId, viewerIdentity))) {
     return jsonError(403, { error: "forbidden", message: "You don't have access to this plan." });
   }
 
@@ -78,7 +78,7 @@ export async function onRequestPut(context: any) {
   }
 
   const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
-  if (!(await isPlanVisible(DB, planId, viewerIdentity))) {
+  if (!(await isPlanVisibleToTeam(DB, planId, viewerIdentity))) {
     return jsonError(403, { error: "forbidden", message: "You don't have access to this plan." });
   }
 

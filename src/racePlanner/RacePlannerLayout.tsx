@@ -35,6 +35,24 @@ function buildNavItems(eventId: string | null, planId: string | null) {
       ),
     },
     {
+      // A driver's actual job-to-be-done (set availability, check the roster) lives on
+      // their team page, not inside the coordinator-oriented Events -> Conditions ->
+      // Lineup pipeline below - this is the one item on the sidebar that's always
+      // reachable regardless of role or whether a plan is currently in context, so "back
+      // to my team" never depends on remembering a URL or re-searching a series.
+      to: "/race-planner/team",
+      end: true,
+      label: "My teams",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
+          <circle cx="8.5" cy="8" r="3" />
+          <path d="M2.5 20c0-3.8 2.7-6 6-6s6 2.2 6 6" />
+          <circle cx="17" cy="9" r="2.4" />
+          <path d="M14.5 15.5c2.7.3 4.5 2 4.5 5.5" />
+        </svg>
+      ),
+    },
+    {
       to: eventId ? `/race-planner/conditions/${eventId}` : "/race-planner/conditions",
       label: "Conditions",
       icon: (
@@ -124,12 +142,20 @@ export default function RacePlannerLayout({
 
   // First thing after a fresh sign-in: send a driver who hasn't answered the preference
   // wizard yet straight there, before they see anything else - "tailored from the start"
-  // rather than a settings page they might never find.
+  // rather than a settings page they might never find. Carries the page they were actually
+  // headed to through returnTo (same pattern as verifyHref just below) so, e.g., a driver
+  // who just accepted a team invite (JoinTeamPage already navigated them to their new
+  // team's page before this gate intercepts) lands back on that team once the wizard's
+  // done, instead of the generic home picker.
   useEffect(() => {
     if (skipOnboardingGate) return;
     if (viewer.loading || !viewer.verified) return;
-    if (!viewer.onboardingCompleted) navigate("/race-planner/welcome", { replace: true });
-  }, [skipOnboardingGate, viewer, navigate]);
+    if (!viewer.onboardingCompleted) {
+      const returnTo = location.pathname + location.search;
+      const suffix = returnTo && returnTo !== "/race-planner" ? `?returnTo=${encodeURIComponent(returnTo)}` : "";
+      navigate(`/race-planner/welcome${suffix}`, { replace: true });
+    }
+  }, [skipOnboardingGate, viewer, navigate, location]);
 
   const verifyHref = `/api/auth/start?returnTo=${encodeURIComponent(location.pathname + location.search)}`;
 
@@ -223,10 +249,6 @@ export default function RacePlannerLayout({
                 {" · "}
                 <NavLink to="/race-planner/welcome?edit=1" className="rp-viewer-link">
                   Edit preferences
-                </NavLink>
-                {" · "}
-                <NavLink to="/race-planner/team" className="rp-viewer-link">
-                  My teams
                 </NavLink>
               </span>
             )}

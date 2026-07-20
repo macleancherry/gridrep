@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useDriverSearch } from "../useDriverSearch";
 import { useRacePlannerViewer } from "../useRacePlannerViewer";
 
@@ -14,15 +14,28 @@ type RosterMember = {
   joinedAt: string | null;
 };
 
+type TeamWeekend = {
+  weekendId: string;
+  name: string | null;
+  eventId: string;
+  trackName: string | null;
+  scheduledStartTime: string | null;
+  planId: string | null;
+  carCount: number;
+  viewerHasSubmittedAvailability: boolean;
+};
+
 type TeamDetail = {
   team: { id: string; name: string };
   roster: RosterMember[];
   isCoordinator: boolean;
   inviteToken: string | null;
+  weekends: TeamWeekend[];
 };
 
 export default function TeamPage() {
   const { teamId } = useParams<{ teamId: string }>();
+  const navigate = useNavigate();
   const viewer = useRacePlannerViewer();
   const [detail, setDetail] = useState<TeamDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -161,7 +174,55 @@ export default function TeamPage() {
 
   return (
     <div>
-      <h2>{detail.team.name}</h2>
+      <div className="rp-row" style={{ justifyContent: "space-between", flexWrap: "wrap", marginBottom: 16 }}>
+        <h2 style={{ margin: 0 }}>{detail.team.name}</h2>
+        {detail.isCoordinator && (
+          <button className="rp-btn rp-primary" onClick={() => navigate(`/race-planner/series?teamId=${encodeURIComponent(teamId!)}`)}>
+            Plan a race for this team →
+          </button>
+        )}
+      </div>
+
+      <div className="rp-card rp-card-narrow" style={{ marginBottom: 20 }}>
+        <h3 style={{ marginTop: 0 }}>Upcoming race weekends</h3>
+        {detail.weekends.length === 0 ? (
+          <p className="rp-section-sub">
+            Nothing planned yet.{" "}
+            {detail.isCoordinator ? "Use \"Plan a race for this team\" above to get started." : "Check back once your coordinator plans one."}
+          </p>
+        ) : (
+          <div className="rp-profile-list">
+            {detail.weekends.map((w) => (
+              <div className="rp-row" key={w.weekendId} style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                <div>
+                  <div className="rp-profile-label">{w.name}</div>
+                  <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }}>
+                    {w.trackName ?? "Track TBD"}
+                    {w.scheduledStartTime ? ` · ${new Date(w.scheduledStartTime).toLocaleString()}` : ""}
+                    {w.carCount > 1 ? ` · ${w.carCount} cars` : ""}
+                  </div>
+                </div>
+                <Link
+                  className={`rp-btn ${w.viewerHasSubmittedAvailability ? "" : "rp-primary"}`}
+                  to={
+                    w.carCount > 1
+                      ? `/race-planner/weekend/${w.weekendId}`
+                      : w.planId
+                        ? `/race-planner/availability/${w.planId}`
+                        : `/race-planner/weekend/${w.weekendId}`
+                  }
+                >
+                  {w.carCount > 1
+                    ? "Manage this weekend →"
+                    : w.viewerHasSubmittedAvailability
+                      ? "✓ Availability set — adjust →"
+                      : "Set your availability →"}
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {detail.isCoordinator && (
         <div className="rp-card rp-card-narrow" style={{ marginBottom: 20 }}>

@@ -1,10 +1,18 @@
 import { getViewer } from "../../../_lib/auth";
 import { json, jsonError } from "../../../_lib/httpJson";
-import { computeStintProjections, computeDutyWarnings, isPlanVisible, type StintInput, type SpottingAssignment } from "../../../_lib/plannerRacePlan";
+import {
+  computeStintProjections,
+  computeDutyWarnings,
+  isPlanVisibleToTeam,
+  type StintInput,
+  type SpottingAssignment,
+} from "../../../_lib/plannerRacePlan";
 
 /** Retrieve a plan for display/export (PRD §8) - stints + live-recomputed totals.
- * Only visible to the plan's creator or a driver in its lineup (never another team's
- * plan for the same shared event, just by knowing its id). */
+ * Visible to the plan's creator, a driver already in its lineup, or any other active
+ * member of the team that owns its race weekend (never another team's plan for the same
+ * shared event, just by knowing its id) - read-only team-wide visibility, same call as
+ * availability (PRD §13.7.3); editing the lineup/stints themselves stays narrower. */
 export async function onRequestGet(context: any) {
   const viewer = await getViewer(context);
   if (!viewer.verified) {
@@ -20,7 +28,7 @@ export async function onRequestGet(context: any) {
   }
 
   const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
-  if (!(await isPlanVisible(DB, planId, viewerIdentity))) {
+  if (!(await isPlanVisibleToTeam(DB, planId, viewerIdentity))) {
     return jsonError(403, { error: "forbidden", message: "You don't have access to this plan." });
   }
 

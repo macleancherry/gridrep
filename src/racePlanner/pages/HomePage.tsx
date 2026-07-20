@@ -11,9 +11,10 @@ type TeamSummary = { id: string; name: string; isCreator: boolean };
  * you already know why you're here. Extends WelcomePage.tsx's existing card-grid visual
  * language rather than inventing a new one.
  *
- * A returning coordinator with an existing team skips the picker entirely and lands on
- * their team dashboard - the picker is for establishing context on a first visit, not a
- * wall to click through every time.
+ * A returning viewer with exactly one team (coordinated or just joined as a driver) skips
+ * the picker entirely and lands on that team's dashboard - the picker is for establishing
+ * context on a first visit or when there's a real choice to make, not a wall to click
+ * through every time.
  */
 export default function HomePage() {
   const navigate = useNavigate();
@@ -26,16 +27,16 @@ export default function HomePage() {
       .catch(() => setTeams([]));
   }, []);
 
-  const coordinatedTeams = (teams ?? []).filter((t) => t.isCreator);
+  const allTeams = teams ?? [];
 
   useEffect(() => {
-    if (coordinatedTeams.length === 1) {
-      navigate(`/race-planner/team/${coordinatedTeams[0].id}`, { replace: true });
+    if (allTeams.length === 1) {
+      navigate(`/race-planner/team/${allTeams[0].id}`, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teams]);
 
-  if (teams === null || coordinatedTeams.length === 1) {
+  if (teams === null || allTeams.length === 1) {
     return <p className="rp-section-sub">Loading…</p>;
   }
 
@@ -43,20 +44,21 @@ export default function HomePage() {
     <div>
       <h1 className="rp-welcome-title">What are you here to do?</h1>
       <p className="rp-section-sub" style={{ marginBottom: 28 }}>
-        {coordinatedTeams.length > 1
-          ? "You coordinate more than one team - pick one below, or start planning a race."
+        {allTeams.length > 1
+          ? "You're on more than one team - pick one below, or start planning a race."
           : "Pick whichever fits - you can always come back and do the other."}
       </p>
 
-      {coordinatedTeams.length > 1 && (
+      {allTeams.length > 1 && (
         <div className="rp-welcome-section">
           <h2 className="rp-welcome-section-title">Your teams</h2>
           <div className="rp-event-grid" style={{ marginBottom: 20 }}>
-            {coordinatedTeams.map((t) => (
+            {allTeams.map((t) => (
               <div className="rp-event-card" key={t.id}>
                 <h3 className="rp-event-track">{t.name}</h3>
+                {t.isCreator && <span className="rp-badge rp-dim">Coordinator</span>}
                 <Link className="rp-btn rp-primary" style={{ marginTop: 8, alignSelf: "flex-start" }} to={`/race-planner/team/${t.id}`}>
-                  Manage →
+                  {t.isCreator ? "Manage →" : "View team →"}
                 </Link>
               </div>
             ))}
@@ -90,9 +92,11 @@ export default function HomePage() {
         </button>
       </div>
 
-      <p className="rp-text-faint" style={{ marginTop: 24, fontSize: 12 }}>
-        Invited to a team by a coordinator? Use the link they sent you instead of this page.
-      </p>
+      {allTeams.length === 0 && (
+        <p className="rp-text-faint" style={{ marginTop: 24, fontSize: 12 }}>
+          Invited to a team by a coordinator? Use the link they sent you instead of this page.
+        </p>
+      )}
     </div>
   );
 }

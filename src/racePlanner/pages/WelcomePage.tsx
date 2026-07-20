@@ -132,6 +132,20 @@ const EMPTY_PREFERENCES: Preferences = { racing_mode: [], discipline: [], format
 const STEP_LABELS = ["Racing preferences", "Connect Garage 61", "Driving preferences", "Standard availability"];
 const LAST_STEP = STEP_LABELS.length - 1;
 
+/** Same relative-path-only allow-list as the backend's returnTo handling
+ *  (functions/api/auth/start.ts, auth/garage61/start.ts) - RacePlannerLayout's onboarding
+ *  gate puts the page a driver was actually headed to here before this wizard runs. */
+function normalizeReturnTo(input: string | null): string {
+  const fallback = "/race-planner";
+  if (!input) return fallback;
+  const s = input.trim();
+  if (!s || s.length > 2048) return fallback;
+  if (!s.startsWith("/") || s.startsWith("//")) return fallback;
+  const lowered = s.toLowerCase();
+  if (lowered.includes("javascript:") || lowered.includes("data:")) return fallback;
+  return s;
+}
+
 function RacingPreferencesForm({
   preferences,
   toggle,
@@ -302,7 +316,7 @@ export default function WelcomePage() {
     // mount, which a client-side navigate() won't refresh - it would immediately bounce
     // straight back here on the stale "not onboarded yet" state. A full navigation forces
     // a clean re-fetch instead.
-    window.location.href = "/race-planner";
+    window.location.href = normalizeReturnTo(searchParams.get("returnTo"));
   }
 
   if (loading) return <p className="rp-section-sub">Loading…</p>;
@@ -359,8 +373,8 @@ export default function WelcomePage() {
           <div className="rp-card">
             <h3 style={{ marginTop: 0 }}>Connect Garage 61</h3>
             <p className="rp-section-sub">
-              Unlocks real fuel-per-lap and pit stop timing for your driver profiles, and lets you import a team's
-              whole roster in one click instead of searching for each driver.
+              Unlocks real fuel-per-lap and pit stop timing for your driver profiles (and, if you coordinate a team,
+              lets you import its whole roster in one click instead of searching for each driver).
             </p>
             <Garage61ConnectCard returnTo="/race-planner/welcome?step=1" />
           </div>
