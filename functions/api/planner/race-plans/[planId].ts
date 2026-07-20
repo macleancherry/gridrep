@@ -32,6 +32,33 @@ export async function onRequestGet(context: any) {
     .bind(planId)
     .all<any>();
 
+  // Quick-add source for the Lineup page (PRD phase 4: "search for a driver" repointed at
+  // team rosters) - only present when this plan's race weekend actually belongs to a team;
+  // a solo driver's own weekend (team_id NULL, the common case today) gets nothing extra
+  // here, keeping that flow byte-identical to before this existed.
+  let teamId: string | null = null;
+  let teamRoster: { custId: string; driverName: string | null }[] = [];
+  if (plan.race_weekend_id) {
+    const weekend = await DB.prepare(`SELECT team_id as teamId FROM race_weekends WHERE id = ?`).bind(plan.race_weekend_id).first<any>();
+    teamId = weekend?.teamId ?? null;
+    if (teamId) {
+      // Every roster member is a valid quick-add, including ones who haven't personally
+      // accepted their invite yet ('invited') - lineup membership only needs a real
+      // cust_id (which a coordinator-added roster row always has), not a connected
+      // gridrep account, same as adding a guest driver via the search box below already
+      // works without them ever having signed in.
+      const rosterRows = await DB.prepare(
+        `SELECT m.cust_id as custId, d.display_name as driverName
+         FROM team_members m LEFT JOIN drivers d ON d.iracing_member_id = m.cust_id
+         WHERE m.team_id = ?
+         ORDER BY d.display_name`
+      )
+        .bind(teamId)
+        .all<any>();
+      teamRoster = rosterRows.results ?? [];
+    }
+  }
+
   const stintRows = await DB.prepare(
     `SELECT s.id, s.stint_order as stintOrder, s.cust_id as custId, d.display_name as driverName,
             s.lap_count as lapCount, s.pace_ms as paceMs, s.fuel_per_lap as fuelPerLap
@@ -77,6 +104,8 @@ export async function onRequestGet(context: any) {
     plan,
     eventId: plan.event_id, // plan itself is a raw `SELECT *` row (snake_case) - this is the camelCase convenience field
     lineup: lineupRows.results ?? [],
+    teamId,
+    teamRoster,
     stints: stints.map((s) => ({ ...s, driverName: driverNameByCustId.get(s.custId) ?? `Driver ${s.custId}` })),
     totals,
     spotting: spottingRows.results ?? [],

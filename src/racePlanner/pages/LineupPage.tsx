@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { usePlanContext } from "../PlanContext";
+import { useDriverSearch } from "../useDriverSearch";
 
 type ConditionProfile = { id: string; label: string };
 
@@ -19,7 +20,7 @@ type DriverProfile = {
   pitTimeSource: string | null;
 };
 
-type DriverSearchResult = { id: string; name: string };
+type TeamRosterMember = { custId: string; driverName: string | null };
 
 type SearchStatus = { status: "searching" | "found" | "not_found" | "error" | "none"; message?: string | null };
 
@@ -85,10 +86,9 @@ export default function LineupPage() {
   const [eventTrackName, setEventTrackName] = useState<string | null>(null);
   const [teamSize, setTeamSize] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
   const [lineup, setLineup] = useState<{ custId: string; name: string }[]>([]);
+  const [teamRoster, setTeamRoster] = useState<TeamRosterMember[]>([]);
   const [query, setQuery] = useState("");
-  const [localSearchResults, setLocalSearchResults] = useState<DriverSearchResult[]>([]);
-  const [liveSearchResults, setLiveSearchResults] = useState<DriverSearchResult[]>([]);
-  const [liveSearchPending, setLiveSearchPending] = useState(false);
+  const { results: searchResults, livePending: liveSearchPending } = useDriverSearch(query);
   const [conditionProfiles, setConditionProfiles] = useState<ConditionProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
   const [profiles, setProfiles] = useState<DriverProfile[]>([]);
@@ -115,6 +115,7 @@ export default function LineupPage() {
         }
         setEventId(data.eventId);
         setLineup((data.lineup ?? []).map((d: any) => ({ custId: d.custId, name: d.driverName ?? `Driver ${d.custId}` })));
+        setTeamRoster(data.teamRoster ?? []);
       })
       .catch(() => setError("Network error. Please try again."))
       .finally(() => setLoading(false));
@@ -240,67 +241,13 @@ export default function LineupPage() {
     }
   }
 
-  // Merges gridrep's local drivers table (only knows drivers who've already appeared in a
-  // synced session) with a live iRacing name search (functions/api/planner/drivers/search.ts)
-  // - closes the "can't add a driver we've never seen before" gap. Local matches come first
-  // since they're already known to gridrep; live-only matches are appended, deduped by id.
-  // gridrep's own drivers table answers near-instantly; the live iRacing lookup is a
-  // real network round-trip and can take noticeably longer. Show local matches the
-  // moment they land instead of waiting on both, then fold in whatever the live search
-  // adds - each fetch updates its own state independently, so whichever finishes first
-  // (almost always local) paints immediately and nothing is blocked on the slower call.
-  useEffect(() => {
-    if (!query.trim()) {
-      setLocalSearchResults([]);
-      setLiveSearchResults([]);
-      setLiveSearchPending(false);
-      return;
-    }
-    let cancelled = false;
-    const q = query.trim();
-    setLiveSearchResults([]); // clear any previous query's live matches right away
-    setLiveSearchPending(true);
-
-    const handle = setTimeout(() => {
-      fetch(`/api/drivers/search?q=${encodeURIComponent(q)}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (!cancelled) setLocalSearchResults(data.results ?? []);
-        })
-        .catch(() => {
-          if (!cancelled) setLocalSearchResults([]);
-        });
-
-      fetch(`/api/planner/drivers/search?q=${encodeURIComponent(q)}`, { credentials: "include" })
-        .then((r) => r.json())
-        .then((data) => {
-          if (!cancelled) setLiveSearchResults(data.results ?? []);
-        })
-        .catch(() => {
-          if (!cancelled) setLiveSearchResults([]);
-        })
-        .finally(() => {
-          if (!cancelled) setLiveSearchPending(false);
-        });
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(handle);
-    };
-  }, [query]);
-
-  const searchResults = useMemo(() => {
-    const seen = new Set(localSearchResults.map((d) => d.id));
-    return [...localSearchResults, ...liveSearchResults.filter((d) => !seen.has(d.id))];
-  }, [localSearchResults, liveSearchResults]);
-
+  // Local+live driver search (useDriverSearch.ts) - extracted here originally, now shared
+  // with the Team roster's "add a driver" flow (TeamPage.tsx).
   function addDriver(custId: string, name: string) {
     if (lineup.some((d) => d.custId === custId)) return;
     const next = [...lineup, { custId, name }];
     setLineup(next);
     setQuery("");
-    setSearchResults([]);
     saveLineup(next);
   }
 
@@ -357,7 +304,31 @@ export default function LineupPage() {
 
       {error && <p className="rp-error">{error}</p>}
 
+      {teamRoster.length > 0 && (
+        <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
+          <div className="rp-form-field" style={{ marginBottom: 8 }}>
+            <label>Add from team roster</label>
+          </div>
+          <div className="rp-profile-list">
+            {teamRoster.map((m) => {
+              const onLineup = lineup.some((d) => d.custId === m.custId);
+              return (
+                <div className="rp-row" key={m.custId} style={{ justifyContent: "space-between" }}>
+                  <span>{m.driverName ?? `Driver ${m.custId}`}</span>
+                  <button className="rp-btn" onClick={() => addDriver(m.custId, m.driverName ?? `Driver ${m.custId}`)} disabled={onLineup}>
+                    {onLineup ? "On lineup" : "+ Add"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="rp-card rp-card-narrow" style={{ marginBottom: 16, position: "relative" }}>
+        <div className="rp-form-field" style={{ marginBottom: 8 }}>
+          <label>{teamRoster.length > 0 ? "Or search for a guest driver" : "Search for a driver"}</label>
+        </div>
         <div className="rp-row" style={{ marginBottom: 10 }}>
           <input
             className="rp-input"

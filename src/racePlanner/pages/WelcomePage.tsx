@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 type Category = "racing_mode" | "discipline" | "format";
 
-type CardDef = { value: string; title: string; description: string; icon: JSX.Element };
+type CardDef = { value: string; title: string; description: string; icon: ReactElement };
 
 const ICON_PROPS = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6 } as const;
 
