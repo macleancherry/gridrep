@@ -463,8 +463,12 @@ export default function LineupPage() {
                     {p.lapsUsed} laps used · {p.sampleSize} in sample
                   </div>
                   {p.pitTimeSeconds !== null && (
-                    <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }} title="Derived from this driver's own pit laps vs. their clean pace - includes in/out-lap execution, not just stationary time">
-                      ~{p.pitTimeSeconds}s in the pits (derived)
+                    <div
+                      className="rp-text-faint"
+                      style={{ fontSize: 11, marginTop: 2 }}
+                      title="Derived from this driver's own pit laps vs. their clean pace - includes in/out-lap execution, not just stationary time"
+                    >
+                      ~{p.pitTimeSeconds}s in the pits ({p.pitTimeSource === "garage61_derived" ? "Garage 61" : "derived"})
                     </div>
                   )}
                 </div>

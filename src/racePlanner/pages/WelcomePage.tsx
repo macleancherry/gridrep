@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ConditionPreferencesEditor, AvailabilityTemplateEditor, FavoriteCarsEditor } from "../ProfileFieldEditors";
+import Garage61ConnectCard from "../Garage61ConnectCard";
 
 type Category = "racing_mode" | "discipline" | "format";
 
@@ -128,9 +129,18 @@ type Preferences = Record<Category, string[]>;
 
 const EMPTY_PREFERENCES: Preferences = { racing_mode: [], discipline: [], format: [] };
 
-const STEP_LABELS = ["Racing preferences", "Driving preferences", "Standard availability"];
+const STEP_LABELS = ["Racing preferences", "Connect Garage 61", "Driving preferences", "Standard availability"];
+const LAST_STEP = STEP_LABELS.length - 1;
 
-function RacingPreferencesForm({ preferences, toggle }: { preferences: Preferences; toggle: (category: Category, value: string) => void }) {
+function RacingPreferencesForm({
+  preferences,
+  toggle,
+  prefilledCategories,
+}: {
+  preferences: Preferences;
+  toggle: (category: Category, value: string) => void;
+  prefilledCategories?: Partial<Record<Category, boolean>>;
+}) {
   return (
     <>
       {SECTIONS.map((section) => (
@@ -139,6 +149,13 @@ function RacingPreferencesForm({ preferences, toggle }: { preferences: Preferenc
           <p className="rp-section-sub" style={{ marginBottom: 14 }}>
             {section.subtitle}
           </p>
+          {prefilledCategories?.[section.category] && (
+            <p className="rp-section-sub" style={{ marginBottom: 10, color: "var(--rp-amber)" }}>
+              {section.category === "racing_mode"
+                ? "You're already on a team, so we picked this for you — adjust if that's wrong."
+                : "Pre-filled from your iRacing license — adjust anything that's off."}
+            </p>
+          )}
           <div className="rp-welcome-grid">
             {section.cards.map((card) => {
               const selected = preferences[section.category].includes(card.value);
@@ -165,24 +182,77 @@ function RacingPreferencesForm({ preferences, toggle }: { preferences: Preferenc
 
 export default function WelcomePage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isEdit = searchParams.get("edit") === "1";
 
   const [preferences, setPreferences] = useState<Preferences>(EMPTY_PREFERENCES);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState(0);
+
+  // The Garage 61 step's "Connect with Garage 61" button is a real full-page OAuth
+  // round trip - plain useState would reset back to step 0 on return. Reading/writing the
+  // step through the URL (?step=) means the returnTo passed to that button can point back
+  // at the exact step to resume, and a refresh mid-wizard doesn't lose progress either.
+  const stepFromUrl = Number(searchParams.get("step"));
+  const [step, setStepState] = useState(Number.isInteger(stepFromUrl) && stepFromUrl >= 0 && stepFromUrl <= LAST_STEP ? stepFromUrl : 0);
+
+  function setStep(next: number) {
+    setStepState(next);
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.set("step", String(next));
+        return p;
+      },
+      { replace: true }
+    );
+  }
+
+  const [prefilledCategories, setPrefilledCategories] = useState<Partial<Record<Category, boolean>>>({});
 
   useEffect(() => {
     fetch("/api/planner/preferences", { credentials: "include" })
       .then((r) => r.json())
       .then((data) => {
-        if (data?.ok && data.preferences) setPreferences({ ...EMPTY_PREFERENCES, ...data.preferences });
+        const loaded = data?.ok && data.preferences ? { ...EMPTY_PREFERENCES, ...data.preferences } : EMPTY_PREFERENCES;
+        setPreferences(loaded);
+
+        // Only pre-fill a genuinely blank first-time wizard - never override an "Edit
+        // preferences" visit, and never override a driver who's already picked something
+        // (a fast click can resolve before these slower lookups do).
+        if (!isEdit && loaded.racing_mode.length === 0 && loaded.discipline.length === 0) {
+          Promise.all([
+            fetch("/api/planner/iracing/member-profile", { credentials: "include" })
+              .then((r) => r.json())
+              .catch(() => null),
+            fetch("/api/planner/teams", { credentials: "include" })
+              .then((r) => r.json())
+              .catch(() => null),
+          ]).then(([memberData, teamsData]) => {
+            setPreferences((prev) => {
+              if (prev.racing_mode.length > 0 || prev.discipline.length > 0) return prev;
+              const next = { ...prev };
+              const prefilled: Partial<Record<Category, boolean>> = {};
+
+              if (Array.isArray(memberData?.suggestedDisciplines) && memberData.suggestedDisciplines.length > 0) {
+                next.discipline = memberData.suggestedDisciplines;
+                prefilled.discipline = true;
+              }
+              if (Array.isArray(teamsData?.teams) && teamsData.teams.length > 0) {
+                next.racing_mode = ["team"];
+                prefilled.racing_mode = true;
+              }
+
+              if (Object.keys(prefilled).length > 0) setPrefilledCategories(prefilled);
+              return next;
+            });
+          });
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [isEdit]);
 
   function toggle(category: Category, value: string) {
     setPreferences((prev) => {
@@ -190,6 +260,9 @@ export default function WelcomePage() {
       const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
       return { ...prev, [category]: next };
     });
+    // Once a driver has touched a pre-filled category themselves, it's their choice now -
+    // stop labeling it as an automatic guess.
+    setPrefilledCategories((prev) => (prev[category] ? { ...prev, [category]: false } : prev));
   }
 
   async function saveRacingPreferences(): Promise<boolean> {
@@ -277,11 +350,24 @@ export default function WelcomePage() {
 
       {step === 0 && (
         <div className="rp-welcome-section" style={{ marginBottom: 8 }}>
-          <RacingPreferencesForm preferences={preferences} toggle={toggle} />
+          <RacingPreferencesForm preferences={preferences} toggle={toggle} prefilledCategories={prefilledCategories} />
         </div>
       )}
 
       {step === 1 && (
+        <div className="rp-welcome-section">
+          <div className="rp-card">
+            <h3 style={{ marginTop: 0 }}>Connect Garage 61</h3>
+            <p className="rp-section-sub">
+              Unlocks real fuel-per-lap and pit stop timing for your driver profiles, and lets you import a team's
+              whole roster in one click instead of searching for each driver.
+            </p>
+            <Garage61ConnectCard returnTo="/race-planner/welcome?step=1" />
+          </div>
+        </div>
+      )}
+
+      {step === 2 && (
         <div className="rp-welcome-section">
           <div className="rp-card" style={{ marginBottom: 16 }}>
             <h3 style={{ marginTop: 0 }}>Stint preferences</h3>
@@ -295,7 +381,7 @@ export default function WelcomePage() {
         </div>
       )}
 
-      {step === 2 && (
+      {step === 3 && (
         <div className="rp-welcome-section">
           <div className="rp-card">
             <h3 style={{ marginTop: 0 }}>Your usual weekly free time</h3>
@@ -331,10 +417,23 @@ export default function WelcomePage() {
         )}
         {step === 2 && (
           <>
+            <button className="rp-btn rp-primary" onClick={() => setStep(3)}>
+              Continue
+            </button>
+            <button className="rp-btn" onClick={() => setStep(3)}>
+              Skip for now
+            </button>
+            <button className="rp-btn" onClick={() => setStep(1)}>
+              ← Back
+            </button>
+          </>
+        )}
+        {step === 3 && (
+          <>
             <button className="rp-btn rp-primary" onClick={finishOnboarding}>
               Finish setup
             </button>
-            <button className="rp-btn" onClick={() => setStep(1)}>
+            <button className="rp-btn" onClick={() => setStep(2)}>
               ← Back
             </button>
           </>

@@ -228,6 +228,41 @@ export type Garage61LapSearchParams = {
   limit?: number;
 };
 
+export type Garage61Team = {
+  id: string;
+  name: string;
+};
+
+export type Garage61TeamMember = {
+  slug: string;
+  firstName: string;
+  lastName: string;
+  accounts?: Garage61Account[];
+};
+
+export type Garage61TeamDetail = Garage61Team & {
+  members: Garage61TeamMember[];
+};
+
+/**
+ * GET /teams - confirmed live: lists the "joined" teams for the calling token's owner
+ * (Garage 61's own OpenAPI spec's wording - there's no admin/owner distinction anywhere in
+ * this API's data model, so this is every team the token owner belongs to at all).
+ */
+export async function fetchGarage61Teams(accessToken: string): Promise<{ items: Garage61Team[] }> {
+  return garage61ApiGet<{ items: Garage61Team[] }>("/teams", accessToken);
+}
+
+/**
+ * GET /teams/:teamId - confirmed live: returns the full member roster including each
+ * member's real linked iRacing accounts[] (with cust_id), for any team the token owner has
+ * joined - works identically whether the caller is an admin or just a regular member,
+ * since Garage 61 has no role/admin concept on team membership at all.
+ */
+export async function fetchGarage61TeamDetail(accessToken: string, teamId: string): Promise<Garage61TeamDetail> {
+  return garage61ApiGet<Garage61TeamDetail>(`/teams/${encodeURIComponent(teamId)}`, accessToken);
+}
+
 /**
  * GET /laps - confirmed live against a real Spa Endurance session. `tracks` is the only
  * required filter. Omitting `drivers`/`teams`/`extraDrivers` entirely makes the API default

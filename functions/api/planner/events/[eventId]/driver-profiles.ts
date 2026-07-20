@@ -1,6 +1,7 @@
 import { getViewer } from "../../../../_lib/auth";
 import { computeDriverTrackProfile, computePitTimeSeconds, type LapRow } from "../../../../_lib/plannerDriverProfile";
 import { resolveGarage61Fuel } from "../../../../_lib/plannerGarage61Fuel";
+import { resolveGarage61PitTime } from "../../../../_lib/plannerGarage61PitTime";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 function profileRowId(custId: string, trackName: string, conditionProfileId: string | null): string {
@@ -87,7 +88,18 @@ export async function onRequestPost(context: any) {
     }));
 
     const computed = computeDriverTrackProfile(custId, event.trackName, laps, { tempMid });
-    const pitTimeSeconds = computePitTimeSeconds(laps, computed.paceMs);
+    let pitTimeSeconds = computePitTimeSeconds(laps, computed.paceMs);
+    let pitTimeSource = pitTimeSeconds === null ? null : "derived";
+
+    // Not enough iRacing-sourced pit laps synced yet for this track - try Garage 61's own
+    // (directly-reported pitlane flag) lap data as a fallback before giving up.
+    if (pitTimeSeconds === null) {
+      const garage61PitTime = await resolveGarage61PitTime(context, DB, custId, event.trackName, event.trackConfig ?? null);
+      if (garage61PitTime !== null) {
+        pitTimeSeconds = garage61PitTime;
+        pitTimeSource = "garage61_derived";
+      }
+    }
 
     const rowId = profileRowId(custId, event.trackName, conditionProfileId);
     const existing = await DB.prepare(`SELECT fuel_per_lap as fuelPerLap, fuel_source as fuelSource FROM driver_track_profiles WHERE id = ?`)
@@ -117,8 +129,6 @@ export async function onRequestPost(context: any) {
         fuelSource = fuelPerLap === null ? null : (existing?.fuelSource ?? "manual");
       }
     }
-
-    const pitTimeSource = pitTimeSeconds === null ? null : "derived";
 
     await DB.prepare(
       `INSERT INTO driver_track_profiles (

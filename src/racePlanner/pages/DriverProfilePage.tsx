@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useRacePlannerViewer } from "../useRacePlannerViewer";
 import { ConditionPreferencesEditor, AvailabilityTemplateEditor, FavoriteCarsEditor } from "../ProfileFieldEditors";
+import Garage61ConnectCard from "../Garage61ConnectCard";
 
 /**
  * Consolidated driver profile (PRD driver onboarding: condition preferences, standard
@@ -60,9 +61,15 @@ export default function DriverProfilePage() {
         <AvailabilityTemplateEditor />
       </div>
 
-      <div className="rp-card">
+      <div className="rp-card" style={{ marginBottom: 20 }}>
         <h3 style={{ marginTop: 0 }}>Favorite cars</h3>
         <FavoriteCarsEditor />
+      </div>
+
+      <div className="rp-card">
+        <h3 style={{ marginTop: 0 }}>Garage 61</h3>
+        <p className="rp-section-sub">Links your real fuel-per-lap, pit stop timing, and team rosters into gridrep.</p>
+        <Garage61ConnectCard returnTo="/race-planner/profile" />
       </div>
 
       <div className="rp-card" style={{ marginTop: 20, borderColor: "var(--rp-red)" }}>

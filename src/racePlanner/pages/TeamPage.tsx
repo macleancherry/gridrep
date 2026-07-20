@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useDriverSearch } from "../useDriverSearch";
+import { useRacePlannerViewer } from "../useRacePlannerViewer";
+
+type Garage61TeamSummary = { id: string; name: string };
 
 type RosterMember = {
   custId: string;
@@ -20,6 +23,7 @@ type TeamDetail = {
 
 export default function TeamPage() {
   const { teamId } = useParams<{ teamId: string }>();
+  const viewer = useRacePlannerViewer();
   const [detail, setDetail] = useState<TeamDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +32,13 @@ export default function TeamPage() {
   const [generatingInvite, setGeneratingInvite] = useState(false);
   const [copied, setCopied] = useState(false);
   const { results: searchResults, livePending } = useDriverSearch(query);
+
+  const [showG61Picker, setShowG61Picker] = useState(false);
+  const [g61Teams, setG61Teams] = useState<Garage61TeamSummary[] | null>(null);
+  const [selectedG61TeamId, setSelectedG61TeamId] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSummary, setImportSummary] = useState<string | null>(null);
 
   function load() {
     if (!teamId) return;
@@ -79,6 +90,56 @@ export default function TeamPage() {
       if (r.ok && data.ok) load();
     } finally {
       setGeneratingInvite(false);
+    }
+  }
+
+  function openG61Picker() {
+    setShowG61Picker(true);
+    setImportError(null);
+    setImportSummary(null);
+    if (g61Teams !== null) return;
+    fetch("/api/planner/garage61/teams", { credentials: "include" })
+      .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok || !data.ok) {
+          setImportError(data.message ?? "Could not load your Garage 61 teams.");
+          setG61Teams([]);
+          return;
+        }
+        setG61Teams(data.teams ?? []);
+      })
+      .catch(() => {
+        setImportError("Network error. Please try again.");
+        setG61Teams([]);
+      });
+  }
+
+  async function importFromG61() {
+    if (!teamId || !selectedG61TeamId) return;
+    setImporting(true);
+    setImportError(null);
+    setImportSummary(null);
+    try {
+      const r = await fetch(`/api/planner/teams/${encodeURIComponent(teamId)}/import-garage61`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ g61TeamId: selectedG61TeamId }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setImportError(data.message ?? "Could not import that team's roster.");
+        return;
+      }
+      const parts = [`${data.imported} driver${data.imported === 1 ? "" : "s"} added`];
+      if (data.alreadyOnRoster) parts.push(`${data.alreadyOnRoster} already on the roster`);
+      if (data.skippedNoIracingAccount) parts.push(`${data.skippedNoIracingAccount} have no linked iRacing account in Garage 61`);
+      setImportSummary(`Imported from ${data.teamName} — ${parts.join(", ")}.`);
+      load();
+    } catch {
+      setImportError("Network error. Please try again.");
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -166,6 +227,41 @@ export default function TeamPage() {
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {detail.isCoordinator && viewer.verified && viewer.garage61Connected && (
+        <div className="rp-card rp-card-narrow" style={{ marginBottom: 20 }}>
+          <h3 style={{ marginTop: 0 }}>Import roster from Garage 61</h3>
+          <p className="rp-section-sub">
+            Pull in members from a Garage 61 team you belong to — only adds drivers not already on this roster, safe
+            to run again after their Garage 61 team changes.
+          </p>
+          {!showG61Picker ? (
+            <button className="rp-btn" onClick={openG61Picker}>
+              Choose a Garage 61 team
+            </button>
+          ) : g61Teams === null ? (
+            <p className="rp-section-sub">Loading your Garage 61 teams…</p>
+          ) : g61Teams.length === 0 ? (
+            <p className="rp-section-sub">No Garage 61 teams found for your connected account.</p>
+          ) : (
+            <div className="rp-row" style={{ flexWrap: "wrap" }}>
+              <select className="rp-input" value={selectedG61TeamId} onChange={(e) => setSelectedG61TeamId(e.target.value)}>
+                <option value="">Choose a team…</option>
+                {g61Teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <button className="rp-btn rp-primary" onClick={importFromG61} disabled={!selectedG61TeamId || importing}>
+                {importing ? "Importing…" : "Import"}
+              </button>
+            </div>
+          )}
+          {importSummary && <p className="rp-section-sub" style={{ color: "var(--rp-green)" }}>{importSummary}</p>}
+          {importError && <p className="rp-error">{importError}</p>}
         </div>
       )}
 
