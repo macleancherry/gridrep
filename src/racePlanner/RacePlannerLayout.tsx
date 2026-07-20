@@ -194,6 +194,10 @@ export default function RacePlannerLayout({
                   </>
                 )}
                 {" · "}
+                <NavLink to="/race-planner/profile" className="rp-viewer-link">
+                  My profile
+                </NavLink>
+                {" · "}
                 <NavLink to="/race-planner/welcome?edit=1" className="rp-viewer-link">
                   Edit preferences
                 </NavLink>

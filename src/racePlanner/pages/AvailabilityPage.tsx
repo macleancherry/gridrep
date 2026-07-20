@@ -7,6 +7,7 @@ type LineupDriver = { custId: string; driverName: string };
 type Block = {
   blockStartOffsetMinutes: number;
   blockEndOffsetMinutes: number;
+  utcStart: string;
   localStart: string;
   localEnd: string;
   condition: {
@@ -40,6 +41,25 @@ function isWetBlock(condition: Block["condition"]): boolean {
   return condition?.trackState === "wet";
 }
 
+type TemplateEntry = { dayOfWeek: number; startMinuteOfDay: number; endMinuteOfDay: number };
+
+const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+/** Same day-of-week/minute-of-day resolution the backend's block generation already uses
+ *  (Intl.DateTimeFormat in the target zone), done client-side here since the blocks the
+ *  page already has (with real utcStart timestamps) are enough - no extra API round trip
+ *  needed just to project the driver's own template onto them. */
+function dayOfWeekAndMinuteInZone(isoUtc: string, timeZone: string): { dayOfWeek: number; minuteOfDay: number } {
+  const ms = Date.parse(isoUtc);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(
+    new Date(ms)
+  );
+  const weekday = parts.find((p) => p.type === "weekday")?.value ?? "Sun";
+  const hour = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10) % 24;
+  const minute = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+  return { dayOfWeek: WEEKDAY_INDEX[weekday] ?? 0, minuteOfDay: hour * 60 + minute };
+}
+
 export default function AvailabilityPage() {
   const { planId } = useParams<{ planId: string }>();
   const { setContext } = usePlanContext();
@@ -52,6 +72,7 @@ export default function AvailabilityPage() {
   const [timeZone, setTimeZone] = useState(detectedTimeZone);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [myStatuses, setMyStatuses] = useState<Record<number, Status>>({});
+  const [template, setTemplate] = useState<TemplateEntry[]>([]);
   const [myPrefs, setMyPrefs] = useState<{ nightPreference: Pref; wetPreference: Pref; startPreference: Pref }>({
     nightPreference: "neutral",
     wetPreference: "neutral",
@@ -88,6 +109,33 @@ export default function AvailabilityPage() {
     const r = await fetch(`/api/planner/driver-preferences`, { credentials: "include" });
     const data = await r.json().catch(() => ({}));
     if (r.ok && data.ok && data.preferences) setMyPrefs(data.preferences);
+  }
+
+  async function loadTemplate() {
+    const r = await fetch(`/api/planner/driver-availability-template`, { credentials: "include" });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.ok) setTemplate(data.template ?? []);
+  }
+
+  /** Projects the driver's standard weekly availability (set on their profile page) onto
+   *  this specific weekend's real blocks, in their chosen time zone. This page defaults
+   *  every untouched block to "available" when saved (existing behavior, unchanged) - so
+   *  prefill has to make an explicit call for every still-untouched block (available where
+   *  the template covers it, unavailable where it doesn't) rather than only ever writing
+   *  "available", or it would be a no-op against that same default. Never overwrites a
+   *  block the driver's already explicitly clicked this session, in either direction. */
+  function prefillFromTemplate() {
+    if (template.length === 0) return;
+    setMyStatuses((prev) => {
+      const next = { ...prev };
+      for (const b of blocks) {
+        if (next[b.blockStartOffsetMinutes] !== undefined) continue;
+        const { dayOfWeek, minuteOfDay } = dayOfWeekAndMinuteInZone(b.utcStart, timeZone);
+        const covered = template.some((t) => t.dayOfWeek === dayOfWeek && minuteOfDay >= t.startMinuteOfDay && minuteOfDay < t.endMinuteOfDay);
+        next[b.blockStartOffsetMinutes] = covered ? "available" : "unavailable";
+      }
+      return next;
+    });
   }
 
   async function saveMyPref(field: "nightPreference" | "wetPreference" | "startPreference", value: Pref) {
@@ -146,6 +194,7 @@ export default function AvailabilityPage() {
     loadBlocks(timeZone);
     loadAvailability();
     loadMyPrefs();
+    loadTemplate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId]);
 
@@ -275,7 +324,7 @@ export default function AvailabilityPage() {
 
       {tab === "driver" && (
         <div>
-          <div className="rp-row" style={{ marginBottom: 12 }}>
+          <div className="rp-row" style={{ marginBottom: 12, alignItems: "flex-end" }}>
             <div className="rp-form-field">
               <label>Your time zone</label>
               <input
@@ -286,7 +335,21 @@ export default function AvailabilityPage() {
                 onBlur={() => loadBlocks(timeZone)}
               />
             </div>
+            {template.length > 0 && (
+              <button
+                className="rp-btn"
+                onClick={prefillFromTemplate}
+                title="Marks every block you haven't already touched: available where your standard weekly availability covers it, unavailable elsewhere"
+              >
+                Prefill from my template
+              </button>
+            )}
           </div>
+          {template.length === 0 && (
+            <p className="rp-text-faint" style={{ fontSize: 12, marginBottom: 12 }}>
+              <Link to="/race-planner/profile">Set your standard availability</Link> to prefill blocks like this automatically next time.
+            </p>
+          )}
 
           <div className="rp-card" style={{ marginBottom: 16 }}>
             <div className="rp-form-field" style={{ marginBottom: 10 }}>
