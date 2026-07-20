@@ -79,15 +79,41 @@ export function describeSimSessionBlocks(resultPayload: any): string {
     .join(", ");
 }
 
+/** A results row's own {cust_id, display_name} for a solo entry, plus every driver
+ * listed in row.driver_results[] for a team entry - confirmed live (2026-07-20, real "24
+ * Hours of Spa" team result): team-race result rows are per-car/per-team (team_id,
+ * car_id, a team display_name like "AJ4R RACING TEAM") and carry NO cust_id of their own
+ * at all - every actual driver who piloted that car (an endurance race can have several,
+ * one per stint swap) is only listed inside driver_results[], each with their own real
+ * cust_id/display_name. A solo-race row has no driver_results array, so this is a
+ * strict superset of the old solo-only behavior, not a behavior change for solo races. */
+function extractRowDrivers(row: Record<string, unknown>): Array<{ custId: string; name: string | undefined }> {
+  const out: Array<{ custId: string; name: string | undefined }> = [];
+
+  const soloId = pickNumber(row?.cust_id ?? row?.id);
+  if (soloId !== undefined) {
+    out.push({ custId: String(soloId), name: pickString(row?.display_name) ?? pickString(row?.name) });
+  }
+
+  const driverResults = Array.isArray(row?.driver_results) ? row.driver_results : [];
+  for (const dr of driverResults as Record<string, unknown>[]) {
+    const teamMemberId = pickNumber(dr?.cust_id ?? dr?.id);
+    if (teamMemberId === undefined) continue;
+    out.push({ custId: String(teamMemberId), name: pickString(dr?.display_name) ?? pickString(dr?.name) });
+  }
+
+  return out;
+}
+
 export function extractDriverNames(resultPayload: any): Map<string, string> {
   const names = new Map<string, string>();
   const blocks = Array.isArray(resultPayload?.session_results) ? resultPayload.session_results : [];
 
   for (const block of blocks) {
     for (const row of pickRows(block)) {
-      const custId = pickNumber(row?.cust_id ?? row?.id);
-      const name = pickString(row?.display_name) ?? pickString(row?.name);
-      if (custId !== undefined && name) names.set(String(custId), name);
+      for (const d of extractRowDrivers(row)) {
+        if (d.name) names.set(d.custId, d.name);
+      }
     }
   }
 
@@ -196,10 +222,7 @@ export function identifySimSessions(resultPayload: any): SimSessionInfo[] {
     if (simsessionNumber === undefined) continue;
 
     const rows = pickRows(block);
-    const custIds = rows
-      .map((r) => pickNumber(r?.cust_id ?? r?.id))
-      .filter((id): id is number => typeof id === "number")
-      .map(String);
+    const custIds = Array.from(new Set(rows.flatMap((r) => extractRowDrivers(r).map((d) => d.custId))));
 
     out.push({ simsessionNumber, type, custIds });
   }
