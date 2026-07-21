@@ -4,6 +4,7 @@ import { useDriverSearch } from "../useDriverSearch";
 import { useRacePlannerViewer } from "../useRacePlannerViewer";
 
 type Garage61TeamSummary = { id: string; name: string };
+type Garage61Member = { custId: string | null; name: string };
 
 type RosterMember = {
   custId: string;
@@ -50,6 +51,9 @@ export default function TeamPage() {
   const [showG61Picker, setShowG61Picker] = useState(false);
   const [g61Teams, setG61Teams] = useState<Garage61TeamSummary[] | null>(null);
   const [selectedG61TeamId, setSelectedG61TeamId] = useState("");
+  const [g61Members, setG61Members] = useState<Garage61Member[] | null>(null);
+  const [loadingG61Members, setLoadingG61Members] = useState(false);
+  const [selectedCustIds, setSelectedCustIds] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSummary, setImportSummary] = useState<string | null>(null);
@@ -135,6 +139,45 @@ export default function TeamPage() {
       });
   }
 
+  // Loads that Garage 61 team's members so the coordinator can choose exactly who comes
+  // onto this team's roster - never silently imported in bulk. All custId-having members
+  // start checked (still zero extra clicks for "import everyone"), but every one is
+  // visible and can be unchecked before anything is added.
+  async function selectG61Team(g61TeamId: string) {
+    setSelectedG61TeamId(g61TeamId);
+    setG61Members(null);
+    setSelectedCustIds(new Set());
+    setImportError(null);
+    setImportSummary(null);
+    if (!g61TeamId) return;
+
+    setLoadingG61Members(true);
+    try {
+      const r = await fetch(`/api/planner/garage61/teams/${encodeURIComponent(g61TeamId)}/members`, { credentials: "include" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setImportError(data.message ?? "Could not load that Garage 61 team's roster.");
+        return;
+      }
+      const members: Garage61Member[] = data.members ?? [];
+      setG61Members(members);
+      setSelectedCustIds(new Set(members.filter((m) => m.custId).map((m) => m.custId as string)));
+    } catch {
+      setImportError("Network error. Please try again.");
+    } finally {
+      setLoadingG61Members(false);
+    }
+  }
+
+  function toggleG61Member(custId: string) {
+    setSelectedCustIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(custId)) next.delete(custId);
+      else next.add(custId);
+      return next;
+    });
+  }
+
   async function importFromG61() {
     if (!teamId || !selectedG61TeamId) return;
     setImporting(true);
@@ -145,7 +188,7 @@ export default function TeamPage() {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ g61TeamId: selectedG61TeamId }),
+        body: JSON.stringify({ g61TeamId: selectedG61TeamId, custIds: [...selectedCustIds] }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.ok) {
@@ -361,18 +404,54 @@ export default function TeamPage() {
           ) : g61Teams.length === 0 ? (
             <p className="rp-section-sub">No Garage 61 teams found for your connected account.</p>
           ) : (
-            <div className="rp-row" style={{ flexWrap: "wrap" }}>
-              <select className="rp-input" value={selectedG61TeamId} onChange={(e) => setSelectedG61TeamId(e.target.value)}>
-                <option value="">Choose a team…</option>
-                {g61Teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-              <button className="rp-btn rp-primary" onClick={importFromG61} disabled={!selectedG61TeamId || importing}>
-                {importing ? "Importing…" : "Import"}
-              </button>
+            <div>
+              <div className="rp-row" style={{ flexWrap: "wrap" }}>
+                <select className="rp-input" value={selectedG61TeamId} onChange={(e) => selectG61Team(e.target.value)}>
+                  <option value="">Choose a team…</option>
+                  {g61Teams.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {loadingG61Members && <p className="rp-section-sub">Loading roster…</p>}
+
+              {g61Members !== null && (
+                <div style={{ marginTop: 12 }}>
+                  <p className="rp-section-sub" style={{ marginBottom: 4 }}>
+                    Drivers to import ({selectedCustIds.size} selected)
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
+                    {g61Members.map((m) => (
+                      <label
+                        key={m.custId ?? m.name}
+                        className="rp-row"
+                        style={{ gap: 8, opacity: m.custId ? 1 : 0.5 }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={m.custId ? selectedCustIds.has(m.custId) : false}
+                          disabled={!m.custId}
+                          onChange={() => m.custId && toggleG61Member(m.custId)}
+                        />
+                        {m.name}
+                        {!m.custId && " (no linked iRacing account)"}
+                      </label>
+                    ))}
+                  </div>
+
+                  <button
+                    className="rp-btn rp-primary"
+                    style={{ marginTop: 12 }}
+                    onClick={importFromG61}
+                    disabled={importing}
+                  >
+                    {importing ? "Importing…" : `Import ${selectedCustIds.size} driver${selectedCustIds.size === 1 ? "" : "s"}`}
+                  </button>
+                </div>
+              )}
             </div>
           )}
           {importSummary && <p className="rp-section-sub" style={{ color: "var(--rp-green)" }}>{importSummary}</p>}

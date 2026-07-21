@@ -6,7 +6,8 @@ import { json, jsonError } from "../../../../_lib/httpJson";
 /**
  * Bulk roster import from a Garage 61 team the coordinator's own connected account
  * belongs to - the same team_members insert members.ts already does for a single driver,
- * just looped over every Garage 61 member who has a linked iRacing account. Re-running
+ * just looped over whichever Garage 61 members the coordinator explicitly selected (via
+ * the members.ts picker endpoint's list) and who have a linked iRacing account. Re-running
  * this later only adds members who weren't already on the roster (ON CONFLICT DO NOTHING)
  * - it never removes anyone, so it's safe to use again after the Garage 61 team's roster
  * changes.
@@ -32,6 +33,14 @@ export async function onRequestPost(context: any) {
   const g61TeamId = typeof body?.g61TeamId === "string" ? body.g61TeamId.trim() : "";
   if (!g61TeamId) {
     return jsonError(400, { error: "invalid_g61_team_id", message: "g61TeamId is required." });
+  }
+
+  // Explicit, coordinator-picked selection - never "everyone in the Garage 61 team" by
+  // default (see functions/api/planner/garage61/teams/[g61TeamId]/members.ts, the picker
+  // this list comes from).
+  const selectedCustIds = Array.isArray(body?.custIds) ? new Set(body.custIds.map(String)) : null;
+  if (!selectedCustIds) {
+    return jsonError(400, { error: "invalid_cust_ids", message: "custIds (array of drivers to import) is required." });
   }
 
   const accessToken = await getValidGarage61AccessToken(context, viewer.user!.id).catch(() => null);
@@ -65,6 +74,8 @@ export async function onRequestPost(context: any) {
       continue;
     }
     const custId = iracingAccount.id;
+    if (!selectedCustIds.has(custId)) continue; // not chosen by the coordinator - leave off the roster
+
     const displayName = [member.firstName, member.lastName].filter(Boolean).join(" ") || member.slug;
 
     const existingMember = await DB.prepare(`SELECT 1 FROM team_members WHERE team_id = ? AND cust_id = ?`)
