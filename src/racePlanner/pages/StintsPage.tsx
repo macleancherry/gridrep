@@ -85,6 +85,7 @@ export default function StintsPage() {
     if (!targetEventId || custIds.length === 0) return;
     const params = new URLSearchParams({ custIds: custIds.join(",") });
     if (conditionProfileId) params.set("conditionProfileId", conditionProfileId);
+    if (planId) params.set("planId", planId);
     const r = await fetch(`/api/planner/events/${encodeURIComponent(targetEventId)}/driver-profiles?${params.toString()}`, {
       credentials: "include",
     });
@@ -154,6 +155,7 @@ export default function StintsPage() {
           custIds: lineup.map((d) => d.custId),
           conditionProfileId: nextProfileId || undefined,
           teamId: planTeamId || undefined,
+          planId: planId || undefined,
         }),
       });
       const data = await r.json().catch(() => ({}));

@@ -135,14 +135,16 @@ export function computePitTimeSeconds(laps: StoredLap[], cleanPaceMs: number | n
   return Math.round((medianMs / 1000) * 10) / 10; // one decimal place
 }
 
-export function driverProfileRowId(custId: string, trackName: string, conditionProfileId: string | null): string {
-  return `${custId}:${trackName}:${conditionProfileId ?? "none"}`;
+export function driverProfileRowId(custId: string, trackName: string, carId: number | null, conditionProfileId: string | null): string {
+  return `${custId}:${trackName}:${carId ?? "none"}:${conditionProfileId ?? "none"}`;
 }
 
 export type ComputeAndStoreOpts = {
   custId: string;
   trackName: string;
   trackConfig: string | null;
+  carId: number | null;
+  carClassCarIds: number[] | null;
   conditionProfileId: string | null;
   tempMid: number | null;
   garage61TeamSlug: string | null;
@@ -169,8 +171,29 @@ export type StoredDriverProfileResult = {
   pitTimeSource: string | null;
 };
 
+async function queryLapsForProfile(DB: any, trackName: string, custId: string, carIds: number[] | null): Promise<LapRow[]> {
+  let sql = `SELECT l.lap_time_ms as lapTimeMs, l.is_pit_lap as isPitLap, l.is_clean as isClean, s.track_temp as trackTemp
+     FROM planner_iracing_laps l
+     JOIN planner_iracing_subsessions s ON s.subsession_id = l.subsession_id
+     WHERE s.track_name = ? AND l.cust_id = ?`;
+  const binds: any[] = [trackName, custId];
+  if (carIds && carIds.length > 0) {
+    sql += ` AND l.car_id IN (${carIds.map(() => "?").join(",")})`;
+    binds.push(...carIds);
+  }
+  const res = await DB.prepare(sql)
+    .bind(...binds)
+    .all<any>();
+  return (res.results ?? []).map((r: any) => ({
+    lapTimeMs: r.lapTimeMs,
+    isPitLap: Boolean(r.isPitLap),
+    isClean: r.isClean === null ? null : Boolean(r.isClean),
+    trackTemp: r.trackTemp,
+  }));
+}
+
 /**
- * Computes and persists one driver's track/condition profile - pace (this file's own
+ * Computes and persists one driver's track/condition/car profile - pace (this file's own
  * computeDriverTrackProfile, respecting a previously saved manual override - a driver with
  * no synced clean laps at this track has no other way to unblock Stints' pace+fuel
  * readiness gate), pit time (computePitTimeSeconds, falling back to Garage 61's
@@ -179,29 +202,32 @@ export type StoredDriverProfileResult = {
  * lineup-add background trigger (functions/api/planner/race-plans/[planId]/lineup.ts) can
  * compute a profile the moment a driver's laps are found, without a coordinator ever
  * needing to visit this page and click a "compute" button themselves.
+ *
+ * When the plan has a car selected (carId), pace is scoped to that exact car's own laps
+ * first. If the exact car has no clean laps yet, pace (only - never fuel, which needs an
+ * exact car match) widens to any other car sharing the event's real racing class
+ * (carClassCarIds, resolved by the caller from the cached car catalog) - clearly flagged
+ * as an approximation via pace_source, never silently presented as this car's own data. A
+ * plan with no car selected yet (carId null) stays unscoped by car, byte-identical to
+ * before this feature existed.
  */
 export async function computeAndStoreOneDriverProfile(context: any, DB: any, opts: ComputeAndStoreOpts): Promise<StoredDriverProfileResult> {
-  const { custId, trackName, trackConfig, conditionProfileId, tempMid, garage61TeamSlug, fuelOverride, paceOverrideMs } = opts;
+  const { custId, trackName, trackConfig, carId, carClassCarIds, conditionProfileId, tempMid, garage61TeamSlug, fuelOverride, paceOverrideMs } = opts;
 
-  const lapsRes = await DB.prepare(
-    `SELECT l.lap_time_ms as lapTimeMs, l.is_pit_lap as isPitLap, l.is_clean as isClean, s.track_temp as trackTemp
-     FROM planner_iracing_laps l
-     JOIN planner_iracing_subsessions s ON s.subsession_id = l.subsession_id
-     WHERE s.track_name = ? AND l.cust_id = ?`
-  )
-    .bind(trackName, custId)
-    .all<any>();
+  const exactLaps = await queryLapsForProfile(DB, trackName, custId, carId !== null ? [carId] : null);
+  let computedFromLaps = computeDriverTrackProfile(custId, trackName, exactLaps, { tempMid });
+  let paceApproximated = false;
 
-  const laps: LapRow[] = (lapsRes.results ?? []).map((r: any) => ({
-    lapTimeMs: r.lapTimeMs,
-    isPitLap: Boolean(r.isPitLap),
-    isClean: r.isClean === null ? null : Boolean(r.isClean),
-    trackTemp: r.trackTemp,
-  }));
+  if (!computedFromLaps.ok && carId !== null && carClassCarIds && carClassCarIds.length > 0) {
+    const classLaps = await queryLapsForProfile(DB, trackName, custId, carClassCarIds);
+    const classComputed = computeDriverTrackProfile(custId, trackName, classLaps, { tempMid });
+    if (classComputed.ok) {
+      computedFromLaps = classComputed;
+      paceApproximated = true;
+    }
+  }
 
-  const computedFromLaps = computeDriverTrackProfile(custId, trackName, laps, { tempMid });
-
-  const rowId = driverProfileRowId(custId, trackName, conditionProfileId);
+  const rowId = driverProfileRowId(custId, trackName, carId, conditionProfileId);
   const existing = await DB.prepare(
     `SELECT pace_ms as paceMs, pace_source as paceSource, fuel_per_lap as fuelPerLap, fuel_source as fuelSource
      FROM driver_track_profiles WHERE id = ?`
@@ -223,10 +249,13 @@ export async function computeAndStoreOneDriverProfile(context: any, DB: any, opt
     paceSource = "manual";
   } else {
     computed = computedFromLaps;
-    paceSource = computed.ok ? "computed" : null;
+    paceSource = computed.ok ? (paceApproximated ? "computed_similar_car" : "computed") : null;
   }
 
-  let pitTimeSeconds = computePitTimeSeconds(laps, computed.paceMs);
+  // Pit time stays scoped to the exact car's own laps even when pace fell back to a
+  // similar car - pit-lane execution time is far less "class-fungible" than raw pace, so
+  // no data here honestly means null rather than borrowing a number from a different car.
+  let pitTimeSeconds = computePitTimeSeconds(exactLaps, computed.paceMs);
   let pitTimeSource: string | null = pitTimeSeconds === null ? null : "derived";
 
   if (pitTimeSeconds === null) {
@@ -250,7 +279,8 @@ export async function computeAndStoreOneDriverProfile(context: any, DB: any, opt
     fuelPerLap = existing.fuelPerLap;
     fuelSource = existing.fuelSource;
   } else {
-    const garage61Result = await resolveGarage61Fuel(context, DB, custId, trackName, trackConfig, garage61TeamSlug);
+    // Exact car match only - no class fallback for fuel, unlike pace above.
+    const garage61Result = await resolveGarage61Fuel(context, DB, custId, trackName, trackConfig, garage61TeamSlug, carId);
     if (garage61Result) {
       fuelPerLap = garage61Result.fuelPerLap;
       fuelSource = garage61Result.source;
@@ -263,9 +293,9 @@ export async function computeAndStoreOneDriverProfile(context: any, DB: any, opt
   const now = new Date().toISOString();
   await DB.prepare(
     `INSERT INTO driver_track_profiles (
-       id, cust_id, track_name, condition_profile_id, pace_ms, pace_source, laps_used, sample_size,
+       id, cust_id, track_name, condition_profile_id, car_id, pace_ms, pace_source, laps_used, sample_size,
        widened_band, fuel_per_lap, fuel_source, pit_time_seconds, pit_time_source, computed_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        pace_ms = excluded.pace_ms,
        pace_source = excluded.pace_source,
@@ -283,6 +313,7 @@ export async function computeAndStoreOneDriverProfile(context: any, DB: any, opt
       custId,
       trackName,
       conditionProfileId,
+      carId,
       computed.paceMs,
       paceSource,
       computed.lapsUsed,

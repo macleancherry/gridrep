@@ -197,10 +197,16 @@ export async function ingestPlannerSubsession(context: any, subsessionId: string
   const driverFailures: IngestSummary["driverFailures"] = [];
   let lapsIngested = 0;
 
-  const allJobs: Array<{ custId: string; teamId: string | null; simsessionNumber: number; type: "qualifying" | "race" }> = [];
+  const allJobs: Array<{ custId: string; teamId: string | null; carId: number | null; simsessionNumber: number; type: "qualifying" | "race" }> = [];
   for (const sess of simSessions) {
     for (const participant of sess.participants) {
-      allJobs.push({ custId: participant.custId, teamId: participant.teamId, simsessionNumber: sess.simsessionNumber, type: sess.type });
+      allJobs.push({
+        custId: participant.custId,
+        teamId: participant.teamId,
+        carId: participant.carId,
+        simsessionNumber: sess.simsessionNumber,
+        type: sess.type,
+      });
     }
   }
 
@@ -250,15 +256,16 @@ export async function ingestPlannerSubsession(context: any, subsessionId: string
         DB.prepare(
           `INSERT INTO planner_iracing_laps (
              subsession_id, cust_id, simsession_number, simsession_type, lap_number,
-             lap_time_ms, flags_raw, flags_decoded, is_pit_lap, is_clean, created_at
+             lap_time_ms, flags_raw, flags_decoded, is_pit_lap, is_clean, car_id, created_at
            )
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(subsession_id, cust_id, simsession_number, lap_number) DO UPDATE SET
              lap_time_ms = excluded.lap_time_ms,
              flags_raw = excluded.flags_raw,
              flags_decoded = excluded.flags_decoded,
              is_pit_lap = excluded.is_pit_lap,
-             is_clean = excluded.is_clean`
+             is_clean = excluded.is_clean,
+             car_id = COALESCE(excluded.car_id, planner_iracing_laps.car_id)`
         ).bind(
           subsessionId,
           job.custId,
@@ -270,6 +277,7 @@ export async function ingestPlannerSubsession(context: any, subsessionId: string
           JSON.stringify(flagsDecoded),
           isPitLap ? 1 : 0,
           isClean === null ? null : isClean ? 1 : 0,
+          job.carId,
           now
         )
       );

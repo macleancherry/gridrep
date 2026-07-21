@@ -21,6 +21,8 @@ type ScheduleSession = {
   forecastSummary?: { tempLowC: number; tempHighC: number; precipChancePct: number };
   minTeamDrivers?: number;
   maxTeamDrivers?: number;
+  eligibleCarIds?: number[];
+  carClassIds?: number[];
 };
 
 type ExistingPlan = { id: string; name: string; updatedAt: string };

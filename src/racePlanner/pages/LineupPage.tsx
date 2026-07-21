@@ -19,10 +19,12 @@ type DriverProfile = {
   fuelSource: string | null;
   pitTimeSeconds: number | null;
   pitTimeSource: string | null;
+  locked: boolean;
 };
 
 type TeamRosterMember = { custId: string; driverName: string | null };
 type TeamSummary = { id: string; name: string; isCreator: boolean };
+type EligibleCar = { carId: number; carName: string; carClassId: number | null };
 
 type SearchStatus = { status: "searching" | "found" | "not_found" | "error" | "none"; message?: string | null };
 
@@ -38,8 +40,27 @@ function fuelSourceBadge(source: string): { label: string; className: string; ti
       };
     case "manual":
       return { label: "Manual", className: "rp-dim" };
+    case "race_default":
+      return { label: "Race default", className: "rp-amber", title: "Using the race-wide default set for this event - not this driver's own data yet" };
     default:
       return { label: source, className: "rp-dim" };
+  }
+}
+
+function paceSourceBadge(source: string): { label: string; className: string; title?: string } | null {
+  switch (source) {
+    case "manual":
+      return { label: "Manual", className: "rp-dim" };
+    case "computed_similar_car":
+      return {
+        label: "Similar car",
+        className: "rp-amber",
+        title: "No laps synced yet in the exact selected car - approximated from this driver's pace in another car in the same class",
+      };
+    case "race_default":
+      return { label: "Race default", className: "rp-amber", title: "Using the race-wide default set for this event - not this driver's own data yet" };
+    default:
+      return null; // "computed" - the normal expected state, not worth a badge
   }
 }
 
@@ -123,6 +144,17 @@ export default function LineupPage() {
   const [savingPaceFor, setSavingPaceFor] = useState<string | null>(null);
   const [searchStatus, setSearchStatus] = useState<Record<string, SearchStatus>>({});
 
+  // Race car (PRD: pick the car before pulling pace/fuel, so both are scoped to it) and
+  // the coordinator's race-wide default pace/fuel fallback - both live on the plan itself.
+  const [eligibleCars, setEligibleCars] = useState<EligibleCar[] | null>(null);
+  const [carId, setCarId] = useState<number | null>(null);
+  const [carName, setCarName] = useState("");
+  const [savingCar, setSavingCar] = useState(false);
+  const [defaultPaceDraft, setDefaultPaceDraft] = useState("");
+  const [defaultFuelDraft, setDefaultFuelDraft] = useState("");
+  const [savingDefaults, setSavingDefaults] = useState(false);
+  const [lockingFor, setLockingFor] = useState<string | null>(null);
+
   // If this weekend isn't linked to a team yet, offer to link one instead of silently
   // falling back to the global iRacing search - the only place a weekend's team gets set
   // today is SeriesSessionsPage's picker at creation time, which is easy to miss or skip.
@@ -146,6 +178,10 @@ export default function LineupPage() {
         setTeamRoster(data.teamRoster ?? []);
         setPlanTeamId(data.teamId ?? null);
         setWeekendId(data.weekendId ?? null);
+        setCarId(data.plan?.car_id ?? null);
+        setCarName(data.plan?.car_name ?? "");
+        setDefaultPaceDraft(typeof data.plan?.default_pace_ms === "number" ? formatPace(data.plan.default_pace_ms) : "");
+        setDefaultFuelDraft(typeof data.plan?.default_fuel_per_lap === "number" ? String(data.plan.default_fuel_per_lap) : "");
       })
       .catch(() => setError("Network error. Please try again."))
       .finally(() => setLoading(false));
@@ -210,12 +246,18 @@ export default function LineupPage() {
         }
       })
       .catch(() => {});
+
+    fetch(`/api/planner/events/${encodeURIComponent(eventId)}/cars`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => setEligibleCars(data.ok ? data.cars ?? [] : []))
+      .catch(() => setEligibleCars([]));
   }, [eventId]);
 
   async function fetchProfiles(conditionProfileId: string): Promise<DriverProfile[]> {
     if (!eventId || lineup.length === 0) return [];
     const params = new URLSearchParams({ custIds: lineup.map((d) => d.custId).join(",") });
     if (conditionProfileId) params.set("conditionProfileId", conditionProfileId);
+    if (planId) params.set("planId", planId);
     const r = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/driver-profiles?${params.toString()}`, {
       credentials: "include",
     });
@@ -318,6 +360,7 @@ export default function LineupPage() {
           custIds: lineup.map((d) => d.custId),
           conditionProfileId: nextProfileId || undefined,
           teamId: planTeamId || undefined,
+          planId: planId || undefined,
         }),
       });
       const data = await r.json().catch(() => ({}));
@@ -347,6 +390,7 @@ export default function LineupPage() {
           conditionProfileId: selectedProfileId || undefined,
           paceOverrides: { [custId]: ms },
           teamId: planTeamId || undefined,
+          planId: planId || undefined,
         }),
       });
       const data = await r.json().catch(() => ({}));
@@ -383,6 +427,7 @@ export default function LineupPage() {
           conditionProfileId: selectedProfileId || undefined,
           fuelOverrides: { [custId]: n },
           teamId: planTeamId || undefined,
+          planId: planId || undefined,
         }),
       });
       const data = await r.json().catch(() => ({}));
@@ -402,6 +447,106 @@ export default function LineupPage() {
     }
   }
 
+  // Set before pulling pace/fuel (PRD) - once chosen, pace/fuel become scoped to this exact
+  // car, with pace falling back to a similar car in the same class when this car has no
+  // synced laps yet. Also handles the free-text fallback for an event with no eligible-car
+  // data at all (carId null, carName the coordinator's own text).
+  async function saveCarSelection(nextCarId: number | null, nextCarName: string, nextCarClassId: number | null) {
+    if (!planId) return;
+    setSavingCar(true);
+    try {
+      const r = await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/setup`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ carId: nextCarId, carName: nextCarName || null, carClassId: nextCarClassId }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data.ok) {
+        setCarId(data.carId ?? null);
+        setCarName(data.carName ?? "");
+        const fresh = await fetchProfiles(selectedProfileId);
+        setProfiles(fresh);
+      }
+    } catch {
+      setError("Could not save the selected car. Please try again.");
+    } finally {
+      setSavingCar(false);
+    }
+  }
+
+  function onCarDropdownChange(value: string) {
+    if (!value) {
+      setCarId(null);
+      saveCarSelection(null, "", null);
+      return;
+    }
+    const chosen = eligibleCars?.find((c) => String(c.carId) === value);
+    if (!chosen) return;
+    setCarId(chosen.carId);
+    setCarName(chosen.carName);
+    saveCarSelection(chosen.carId, chosen.carName, chosen.carClassId);
+  }
+
+  // Coordinator-set fallback pace/fuel used for any driver who has neither their own real
+  // data nor a lock yet - unblocks stint planning before anyone's practiced, per the ask.
+  async function saveDefaults() {
+    if (!planId) return;
+    const paceMs = defaultPaceDraft.trim() ? parsePaceInput(defaultPaceDraft) : null;
+    const fuelRaw = defaultFuelDraft.trim();
+    const fuelPerLap = fuelRaw ? Number(fuelRaw) : null;
+    setSavingDefaults(true);
+    try {
+      const r = await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/setup`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          defaultPaceMs: paceMs,
+          defaultFuelPerLap: fuelPerLap !== null && Number.isFinite(fuelPerLap) ? fuelPerLap : null,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data.ok) {
+        const fresh = await fetchProfiles(selectedProfileId);
+        setProfiles(fresh);
+      }
+    } catch {
+      setError("Could not save race defaults. Please try again.");
+    } finally {
+      setSavingDefaults(false);
+    }
+  }
+
+  // Padlock - freezes whatever pace/fuel is currently showing for this driver in this race
+  // only (never the shared cache other races reuse) and stops further auto-resync for them
+  // here. Clicking again unlocks, letting auto-sync/race-default resume.
+  async function toggleLock(p: DriverProfile) {
+    if (!planId) return;
+    setLockingFor(p.custId);
+    try {
+      const r = p.locked
+        ? await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/lineup/${encodeURIComponent(p.custId)}/lock`, {
+            method: "DELETE",
+            credentials: "include",
+          })
+        : await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/lineup/${encodeURIComponent(p.custId)}/lock`, {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ paceMs: p.paceMs, fuelPerLap: p.fuelPerLap }),
+          });
+      if (r.ok) {
+        const fresh = await fetchProfiles(selectedProfileId);
+        setProfiles(fresh);
+      }
+    } catch {
+      setError("Could not update the lock. Please try again.");
+    } finally {
+      setLockingFor(null);
+    }
+  }
+
   if (loading) return <p className="rp-section-sub">Loading…</p>;
 
   return (
@@ -413,6 +558,82 @@ export default function LineupPage() {
       </p>
 
       {error && <p className="rp-error">{error}</p>}
+
+      <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
+        <div className="rp-form-field" style={{ marginBottom: 8 }}>
+          <label>Race car</label>
+        </div>
+        {eligibleCars === null ? (
+          <p className="rp-section-sub">Loading eligible cars…</p>
+        ) : eligibleCars.length > 0 ? (
+          <select className="rp-input" value={carId ?? ""} onChange={(e) => onCarDropdownChange(e.target.value)} disabled={savingCar}>
+            <option value="">Choose your car…</option>
+            {eligibleCars.map((c) => (
+              <option key={c.carId} value={c.carId}>
+                {c.carName}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div className="rp-row">
+            <input
+              className="rp-input"
+              placeholder="Car name (e.g. Ferrari 296 GT3)"
+              value={carName}
+              onChange={(e) => setCarName(e.target.value)}
+              onBlur={() => saveCarSelection(null, carName, null)}
+              style={{ minWidth: 240 }}
+              disabled={savingCar}
+            />
+            <p className="rp-text-faint" style={{ fontSize: 11, margin: 0, alignSelf: "center" }}>
+              No car-eligibility data for this event - name it yourself.
+            </p>
+          </div>
+        )}
+        <p className="rp-section-sub" style={{ marginTop: 8, marginBottom: 0 }}>
+          Set this before adding drivers - pace and fuel are found for this specific car, falling back to a similar
+          car in the same class for pace only if this one has no synced laps yet.
+        </p>
+
+        <div className="rp-row" style={{ marginTop: 14, alignItems: "flex-end" }}>
+          <div className="rp-form-field">
+            <label>Default pace (lap time)</label>
+            <input
+              className="rp-input"
+              style={{ width: 100 }}
+              type="text"
+              placeholder="m:ss.sss"
+              value={defaultPaceDraft}
+              onChange={(e) => setDefaultPaceDraft(e.target.value)}
+              onBlur={saveDefaults}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+              disabled={savingDefaults}
+            />
+          </div>
+          <div className="rp-form-field">
+            <label>Default fuel / lap (L)</label>
+            <input
+              className="rp-input"
+              style={{ width: 90 }}
+              type="number"
+              step="0.01"
+              value={defaultFuelDraft}
+              onChange={(e) => setDefaultFuelDraft(e.target.value)}
+              onBlur={saveDefaults}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+              disabled={savingDefaults}
+            />
+          </div>
+        </div>
+        <p className="rp-text-faint" style={{ fontSize: 11, marginTop: 6, marginBottom: 0 }}>
+          Used for any driver without their own pace/fuel yet - once they've practiced (or you lock in a number
+          for them below), their own data takes over automatically.
+        </p>
+      </div>
 
       {teamRoster.length > 0 && (
         <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
@@ -603,11 +824,19 @@ export default function LineupPage() {
                           onKeyDown={(e) => {
                             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                           }}
-                          disabled={savingPaceFor === p.custId}
+                          disabled={savingPaceFor === p.custId || p.locked}
                           title="No recent laps synced at this track? Type a lap time here (e.g. 1:32.456) to unblock stint planning."
                         />
                       </div>
-                      {p.paceSource === "manual" && <span className="rp-badge rp-dim">Manual</span>}
+                      {p.paceSource &&
+                        (() => {
+                          const badge = paceSourceBadge(p.paceSource);
+                          return badge ? (
+                            <span className={`rp-badge ${badge.className}`} title={badge.title}>
+                              {badge.label}
+                            </span>
+                          ) : null;
+                        })()}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div className="rp-form-field">
@@ -624,7 +853,7 @@ export default function LineupPage() {
                           onKeyDown={(e) => {
                             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                           }}
-                          disabled={savingFuelFor === p.custId}
+                          disabled={savingFuelFor === p.custId || p.locked}
                         />
                       </div>
                       {p.fuelSource &&
@@ -637,6 +866,18 @@ export default function LineupPage() {
                           );
                         })()}
                     </div>
+                    <button
+                      className="rp-btn"
+                      onClick={() => toggleLock(p)}
+                      disabled={lockingFor === p.custId || (!p.locked && p.paceMs === null && p.fuelPerLap === null)}
+                      title={
+                        p.locked
+                          ? "Locked for this race - click to unlock and resume auto-syncing"
+                          : "Lock in this driver's current pace/fuel for this race only - stops auto-syncing for them here"
+                      }
+                    >
+                      {p.locked ? "🔒" : "🔓"}
+                    </button>
                   </div>
                 </div>
               </div>

@@ -2,6 +2,7 @@ import { getViewer } from "../../../../_lib/auth";
 import { json, jsonError } from "../../../../_lib/httpJson";
 import { buildAvailabilityBlocks, type ConditionWindow, type AvailabilityBlock } from "../../../../_lib/plannerAvailability";
 import { computeStintProjections, computeDutyWarnings, isPlanVisible, type StintInput, type SpottingAssignment } from "../../../../_lib/plannerRacePlan";
+import { driverProfileRowId } from "../../../../_lib/plannerDriverProfile";
 
 type Pref = "prefer" | "neutral" | "avoid";
 
@@ -68,6 +69,7 @@ export async function onRequestPost(context: any) {
             p.fuel_tank_capacity_liters as fuelTankCapacityLiters,
             p.fatigue_threshold_minutes as fatigueThresholdMinutes, p.race_duration_minutes as raceDurationMinutes,
             p.time_slot_id as timeSlotId, p.availability_block_minutes as blockMinutes,
+            p.car_id as carId, p.default_pace_ms as defaultPaceMs, p.default_fuel_per_lap as defaultFuelPerLap,
             e.track_name as trackName, e.scheduled_start_time as eventStartUtc, e.duration_minutes as eventDurationMinutes
      FROM race_plans p JOIN iracing_events e ON e.id = p.event_id
      WHERE p.id = ?`
@@ -93,11 +95,14 @@ export async function onRequestPost(context: any) {
   const conditionProfileId: string | null = typeof body?.conditionProfileId === "string" && body.conditionProfileId ? body.conditionProfileId : null;
 
   const lineupRows = await DB.prepare(
-    `SELECT l.cust_id as custId, d.display_name as driverName FROM race_plan_lineup l LEFT JOIN drivers d ON d.iracing_member_id = l.cust_id WHERE l.race_plan_id = ?`
+    `SELECT l.cust_id as custId, d.display_name as driverName, l.locked_pace_ms as lockedPaceMs,
+            l.locked_fuel_per_lap as lockedFuelPerLap, l.locked_at as lockedAt
+     FROM race_plan_lineup l LEFT JOIN drivers d ON d.iracing_member_id = l.cust_id WHERE l.race_plan_id = ?`
   )
     .bind(planId)
     .all<any>();
-  const lineup: { custId: string; driverName: string }[] = lineupRows.results ?? [];
+  const lineup: { custId: string; driverName: string; lockedPaceMs: number | null; lockedFuelPerLap: number | null; lockedAt: string | null }[] =
+    lineupRows.results ?? [];
   if (lineup.length === 0) {
     return jsonError(400, { error: "no_lineup", message: "Add drivers to the lineup before generating a stint plan." });
   }
@@ -112,11 +117,23 @@ export async function onRequestPost(context: any) {
 
   const candidates: Candidate[] = [];
   for (const driver of lineup) {
-    const rowId = `${driver.custId}:${plan.trackName}:${conditionProfileId ?? "none"}`;
-    const profile = await DB.prepare(`SELECT pace_ms as paceMs, fuel_per_lap as fuelPerLap FROM driver_track_profiles WHERE id = ?`)
-      .bind(rowId)
-      .first<any>();
-    if (!profile?.paceMs || !profile?.fuelPerLap) continue;
+    let paceMs: number | null;
+    let fuelPerLap: number | null;
+
+    if (driver.lockedAt) {
+      // Locked for this race only - never re-derived from driver_track_profiles here.
+      paceMs = driver.lockedPaceMs;
+      fuelPerLap = driver.lockedFuelPerLap;
+    } else {
+      const rowId = driverProfileRowId(driver.custId, plan.trackName, plan.carId ?? null, conditionProfileId);
+      const profile = await DB.prepare(`SELECT pace_ms as paceMs, fuel_per_lap as fuelPerLap FROM driver_track_profiles WHERE id = ?`)
+        .bind(rowId)
+        .first<any>();
+      paceMs = profile?.paceMs ?? plan.defaultPaceMs ?? null;
+      fuelPerLap = profile?.fuelPerLap ?? plan.defaultFuelPerLap ?? null;
+    }
+
+    if (!paceMs || !fuelPerLap) continue;
 
     const prefRow = await DB.prepare(
       `SELECT p.night_preference as nightPreference, p.wet_preference as wetPreference, p.start_preference as startPreference
@@ -129,8 +146,8 @@ export async function onRequestPost(context: any) {
     candidates.push({
       custId: driver.custId,
       driverName: driver.driverName ?? `Driver ${driver.custId}`,
-      paceMs: profile.paceMs,
-      fuelPerLap: profile.fuelPerLap,
+      paceMs,
+      fuelPerLap,
       nightPreference: prefRow?.nightPreference ?? "neutral",
       wetPreference: prefRow?.wetPreference ?? "neutral",
       startPreference: prefRow?.startPreference ?? "neutral",

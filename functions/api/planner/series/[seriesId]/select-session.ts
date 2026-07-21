@@ -87,6 +87,8 @@ export async function onRequestPost(context: any) {
     maxFuelFillPct: typeof body?.maxFuelFillPct === "number" ? body.maxFuelFillPct : null,
     minTireSets: typeof body?.minTireSets === "number" ? body.minTireSets : null,
     maxTireSets: typeof body?.maxTireSets === "number" ? body.maxTireSets : null,
+    eligibleCarIds: Array.isArray(body?.eligibleCarIds) ? body.eligibleCarIds.filter((v: unknown) => typeof v === "number") : null,
+    carClassIds: Array.isArray(body?.carClassIds) ? body.carClassIds.filter((v: unknown) => typeof v === "number") : null,
   });
 
   // Auto-populate shared conditions from the real forecast, but only the first time -

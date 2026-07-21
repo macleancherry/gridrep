@@ -2,6 +2,7 @@ import { getViewer, getValidAccessToken } from "../../../../_lib/auth";
 import { isPlanVisible } from "../../../../_lib/plannerRacePlan";
 import { discoverAndSyncRecentSessionAtTrack } from "../../../../_lib/plannerLapDiscovery";
 import { computeAndStoreOneDriverProfile } from "../../../../_lib/plannerDriverProfile";
+import { getCachedCarCatalog, carIdsInSameClass } from "../../../../_lib/plannerIracing";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
@@ -26,7 +27,8 @@ export async function onRequestPut(context: any) {
   const { DB } = context.env;
 
   const plan = await DB.prepare(
-    `SELECT p.id, p.race_weekend_id as raceWeekendId, e.track_name as trackName, e.track_config as trackConfig
+    `SELECT p.id, p.race_weekend_id as raceWeekendId, p.car_id as carId, p.car_class_id as carClassId,
+            e.track_name as trackName, e.track_config as trackConfig
      FROM race_plans p JOIN iracing_events e ON e.id = p.event_id WHERE p.id = ?`
   )
     .bind(planId)
@@ -63,8 +65,16 @@ export async function onRequestPut(context: any) {
       .run();
   }
 
-  await DB.prepare(`DELETE FROM race_plan_lineup WHERE race_plan_id = ?`).bind(planId).run();
-  for (const custId of custIds) {
+  // Diff rather than delete-all-then-reinsert - a driver who stays on the lineup keeps
+  // their locked_pace_ms/locked_fuel_per_lap/locked_at untouched (a delete would silently
+  // clear their per-race lock every time anyone edits the lineup, even for an unrelated
+  // driver). Only genuinely removed drivers lose their row (and, with it, any lock).
+  const custIdSet = new Set(custIds);
+  const removedCustIds = [...previousCustIds].filter((id) => !custIdSet.has(id));
+  for (const custId of removedCustIds) {
+    await DB.prepare(`DELETE FROM race_plan_lineup WHERE race_plan_id = ? AND cust_id = ?`).bind(planId, custId).run();
+  }
+  for (const custId of newlyAddedCustIds) {
     await DB.prepare(`INSERT OR IGNORE INTO race_plan_lineup (race_plan_id, cust_id) VALUES (?, ?)`).bind(planId, custId).run();
   }
 
@@ -80,7 +90,20 @@ export async function onRequestPut(context: any) {
         .first<any>();
       garage61TeamSlug = teamRow?.slug ?? null;
     }
-    await kickOffLapDiscovery(context, DB, plan.trackName, plan.trackConfig ?? null, garage61TeamSlug, newlyAddedCustIds, viewer.user!.id);
+
+    const carId: number | null = plan.carId ?? null;
+    let carClassCarIds: number[] | null = null;
+    if (carId !== null && plan.carClassId !== null && plan.carClassId !== undefined) {
+      try {
+        const accessToken = await getValidAccessToken(context, viewer.user!.id);
+        const { catalog } = await getCachedCarCatalog(DB, accessToken);
+        carClassCarIds = carIdsInSameClass(catalog, plan.carClassId).filter((id) => id !== carId);
+      } catch {
+        carClassCarIds = null;
+      }
+    }
+
+    await kickOffLapDiscovery(context, DB, plan.trackName, plan.trackConfig ?? null, carId, carClassCarIds, garage61TeamSlug, newlyAddedCustIds, viewer.user!.id);
   }
 
   const rows = await DB.prepare(
@@ -99,6 +122,8 @@ async function kickOffLapDiscovery(
   DB: any,
   trackName: string,
   trackConfig: string | null,
+  carId: number | null,
+  carClassCarIds: number[] | null,
   garage61TeamSlug: string | null,
   custIds: string[],
   viewerUserId: string
@@ -134,6 +159,8 @@ async function kickOffLapDiscovery(
         custId,
         trackName,
         trackConfig,
+        carId,
+        carClassCarIds,
         conditionProfileId: null,
         tempMid: null,
         garage61TeamSlug,
@@ -174,7 +201,7 @@ async function kickOffLapDiscovery(
 
     try {
       context.waitUntil(
-        discoverAndSyncRecentSessionAtTrack(context, DB, custId, trackName, trackConfig, viewerUserId, accessToken, garage61TeamSlug)
+        discoverAndSyncRecentSessionAtTrack(context, DB, custId, trackName, trackConfig, carId, carClassCarIds, viewerUserId, accessToken, garage61TeamSlug)
       );
     } catch (err: any) {
       // context.waitUntil itself throwing (rather than the promise it's given rejecting)

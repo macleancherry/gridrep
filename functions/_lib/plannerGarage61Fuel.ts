@@ -73,9 +73,22 @@ function median(values: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
-export function fuelPerLapFromLaps(laps: Garage61Lap[]): { fuelPerLap: number; lapsUsed: number } | null {
+/**
+ * carId, when given, requires an exact match against the lap's own car.platform_id -
+ * confirmed live (2026-07-21) that Garage 61 laps carry platform_id as the exact iRacing
+ * car_id string for platform:"iracing" laps. Deliberately no "similar car in class"
+ * fallback here (unlike pace in plannerDriverProfile.ts) - fuel consumption can differ
+ * meaningfully between same-class cars, so no exact-car data means no data, not a guess.
+ */
+export function fuelPerLapFromLaps(laps: Garage61Lap[], carId: number | null = null): { fuelPerLap: number; lapsUsed: number } | null {
   const usable = laps.filter(
-    (l) => l.clean && !l.incomplete && !l.pitlane && typeof l.fuelUsed === "number" && l.fuelUsed > 0
+    (l) =>
+      l.clean &&
+      !l.incomplete &&
+      !l.pitlane &&
+      typeof l.fuelUsed === "number" &&
+      l.fuelUsed > 0 &&
+      (carId === null || l.car.platform_id === String(carId))
   );
   if (usable.length < MIN_CLEAN_LAPS) return null;
 
@@ -115,7 +128,8 @@ export async function resolveGarage61Fuel(
   custId: string,
   trackName: string,
   trackConfig: string | null,
-  garage61TeamSlug: string | null = null
+  garage61TeamSlug: string | null = null,
+  carId: number | null = null
 ): Promise<Garage61FuelResult | null> {
   const directRow = await DB.prepare(
     `SELECT user_id as userId FROM garage61_oauth_tokens WHERE iracing_cust_id = ?`
@@ -127,7 +141,7 @@ export async function resolveGarage61Fuel(
     const accessToken = await getValidGarage61AccessToken(context, directRow.userId).catch(() => null);
     if (accessToken) {
       const laps = await tryFetchLaps(accessToken, trackName, trackConfig, { drivers: ["me"] });
-      const result = laps ? fuelPerLapFromLaps(laps) : null;
+      const result = laps ? fuelPerLapFromLaps(laps, carId) : null;
       if (result) return { ...result, source: "garage61" };
     }
   }
@@ -158,7 +172,7 @@ export async function resolveGarage61Fuel(
     );
     if (!matched || matched.length === 0) continue;
 
-    const computed = fuelPerLapFromLaps(matched);
+    const computed = fuelPerLapFromLaps(matched, carId);
     if (computed) return { ...computed, source: "garage61_matched" };
   }
 

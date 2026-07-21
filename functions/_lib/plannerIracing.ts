@@ -15,7 +15,7 @@ import { iracingDataGet } from "./iracing";
 export type SimSessionInfo = {
   simsessionNumber: number;
   type: "qualifying" | "race";
-  participants: { custId: string; teamId: string | null }[];
+  participants: { custId: string; teamId: string | null; carId: number | null }[];
 };
 
 export function describeIracingError(err: any): string {
@@ -93,13 +93,22 @@ export function describeSimSessionBlocks(resultPayload: any): string {
  * with "team_id is a required argument to get lap data when the session is a team
  * session" if it's omitted, even though the same call works fine without one for a solo
  * entry. Every driver_results[] member inherits their row's team_id, since that's which
- * car/team they were actually driving for. */
-function extractRowDrivers(row: Record<string, unknown>): Array<{ custId: string; name: string | undefined; teamId: string | null }> {
-  const out: Array<{ custId: string; name: string | undefined; teamId: string | null }> = [];
+ * car/team they were actually driving for.
+ *
+ * Also carries car_id - confirmed live (2026-07-21, same real "24 Hours of Spa" payload):
+ * both a solo row and each driver_results[] entry carry their own car_id directly, letting
+ * synced laps be scoped per car (plannerDriverProfile.ts), not just per track. */
+function extractRowDrivers(row: Record<string, unknown>): Array<{ custId: string; name: string | undefined; teamId: string | null; carId: number | null }> {
+  const out: Array<{ custId: string; name: string | undefined; teamId: string | null; carId: number | null }> = [];
 
   const soloId = pickNumber(row?.cust_id ?? row?.id);
   if (soloId !== undefined) {
-    out.push({ custId: String(soloId), name: pickString(row?.display_name) ?? pickString(row?.name), teamId: null });
+    out.push({
+      custId: String(soloId),
+      name: pickString(row?.display_name) ?? pickString(row?.name),
+      teamId: null,
+      carId: pickNumber(row?.car_id) ?? null,
+    });
   }
 
   const rowTeamId = pickNumber(row?.team_id);
@@ -111,6 +120,7 @@ function extractRowDrivers(row: Record<string, unknown>): Array<{ custId: string
       custId: String(teamMemberId),
       name: pickString(dr?.display_name) ?? pickString(dr?.name),
       teamId: rowTeamId !== undefined ? String(rowTeamId) : null,
+      carId: pickNumber(dr?.car_id) ?? pickNumber(row?.car_id) ?? null,
     });
   }
 
@@ -235,12 +245,12 @@ export function identifySimSessions(resultPayload: any): SimSessionInfo[] {
 
     const rows = pickRows(block);
     const seen = new Set<string>();
-    const participants: { custId: string; teamId: string | null }[] = [];
+    const participants: { custId: string; teamId: string | null; carId: number | null }[] = [];
     for (const row of rows) {
       for (const d of extractRowDrivers(row)) {
         if (seen.has(d.custId)) continue;
         seen.add(d.custId);
-        participants.push({ custId: d.custId, teamId: d.teamId });
+        participants.push({ custId: d.custId, teamId: d.teamId, carId: d.carId });
       }
     }
 
@@ -547,6 +557,92 @@ export async function getCachedSchedulesForSeries(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Car catalog (confirmed live 2026-07-21: /data/car/get, /data/carclass/get) - lets a
+// coordinator pick which real car their team is running, and lets pace computation widen
+// its lap search to "any car in the same real racing class" when the exact car has no
+// synced laps yet. Cached the same read-through way as the series catalog (reuses
+// iracing_series_cache rather than a new table - it's the same shape of problem, a big
+// catalog that barely changes) but with a longer TTL since cars/classes change far less
+// often than the live series schedule.
+// ---------------------------------------------------------------------------
+
+export type CarCatalogEntry = { carId: number; carName: string; carNameAbbreviated?: string };
+export type CarCatalog = {
+  cars: Record<number, CarCatalogEntry>; // car_id -> info
+  classCars: Record<number, number[]>; // car_class_id -> car_ids in that class
+};
+
+const CAR_CATALOG_CACHE_ID = "car_catalog_v1";
+const CAR_CATALOG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function fetchCarCatalogRaw(accessToken: string): Promise<{ cars: any[]; carClasses: any[] }> {
+  const [cars, carClasses] = await Promise.all([iracingDataGet<any>("/data/car/get", accessToken), iracingDataGet<any>("/data/carclass/get", accessToken)]);
+  return {
+    cars: Array.isArray(cars) ? cars : [],
+    carClasses: Array.isArray(carClasses) ? carClasses : [],
+  };
+}
+
+function buildCarCatalog(raw: { cars: any[]; carClasses: any[] }): CarCatalog {
+  const cars: Record<number, CarCatalogEntry> = {};
+  for (const c of raw.cars) {
+    const carId = pickNumber(c.car_id);
+    const carName = pickString(c.car_name);
+    if (carId === undefined || !carName) continue;
+    cars[carId] = { carId, carName, carNameAbbreviated: pickString(c.car_name_abbreviated) };
+  }
+
+  const classCars: Record<number, number[]> = {};
+  for (const cls of raw.carClasses) {
+    const classId = pickNumber(cls.car_class_id);
+    if (classId === undefined) continue;
+    const carsInClass = Array.isArray(cls.cars_in_class) ? cls.cars_in_class : [];
+    classCars[classId] = carsInClass.map((c: any) => pickNumber(c.car_id)).filter((v: number | undefined): v is number => v !== undefined);
+  }
+
+  return { cars, classCars };
+}
+
+export async function getCachedCarCatalog(DB: any, accessToken: string): Promise<{ catalog: CarCatalog; cachedAt: string; stale: boolean }> {
+  const row = await readSeriesCacheRow(DB, CAR_CATALOG_CACHE_ID);
+  if (row && Date.now() - Date.parse(row.fetchedAt) < CAR_CATALOG_CACHE_TTL_MS) {
+    return { catalog: JSON.parse(row.json), cachedAt: row.fetchedAt, stale: false };
+  }
+
+  try {
+    const catalog = buildCarCatalog(await fetchCarCatalogRaw(accessToken));
+    const fetchedAt = new Date().toISOString();
+    await writeSeriesCacheRow(DB, CAR_CATALOG_CACHE_ID, JSON.stringify(catalog), fetchedAt);
+    return { catalog, cachedAt: fetchedAt, stale: false };
+  } catch (err) {
+    if (row) {
+      return { catalog: JSON.parse(row.json), cachedAt: row.fetchedAt, stale: true };
+    }
+    throw err;
+  }
+}
+
+export type ResolvedCar = { carId: number; carName: string; carClassId: number | null };
+
+/** Resolves an event's raw eligible_car_ids into display-ready {carId, carName,
+ * carClassId} using the cached catalog - carClassId is whichever of the event's own
+ * carClassIds this specific car actually belongs to (not iRacing's generic catalog-wide
+ * classes), null if it can't be determined. */
+export function resolveEligibleCars(catalog: CarCatalog, eligibleCarIds: number[], eventCarClassIds: number[]): ResolvedCar[] {
+  return eligibleCarIds.map((carId) => {
+    const info = catalog.cars[carId];
+    const carClassId = eventCarClassIds.find((classId) => catalog.classCars[classId]?.includes(carId)) ?? null;
+    return { carId, carName: info?.carName ?? `Car ${carId}`, carClassId };
+  });
+}
+
+/** Every car_id sharing a real racing class with the given one, per the cached catalog -
+ * what the pace "similar car" fallback widens its lap search to. */
+export function carIdsInSameClass(catalog: CarCatalog, carClassId: number): number[] {
+  return catalog.classCars[carClassId] ?? [];
+}
+
 function extractSeasonRows(payload: any): Array<Record<string, unknown>> {
   const rows: any[] =
     (Array.isArray(payload) && payload) ||
@@ -598,6 +694,8 @@ export type UpsertEventInput = {
   maxFuelFillPct?: number | null;
   minTireSets?: number | null;
   maxTireSets?: number | null;
+  eligibleCarIds?: number[] | null;
+  carClassIds?: number[] | null;
 };
 
 /**
@@ -613,9 +711,10 @@ export async function upsertIracingEvent(DB: any, data: UpsertEventInput): Promi
     `INSERT INTO iracing_events (
        id, name, track_name, track_config, event_type, scheduled_start_time,
        duration_minutes, series_id, season_id, series_name, min_team_drivers, max_team_drivers,
-       min_fuel_fill_pct, max_fuel_fill_pct, min_tire_sets, max_tire_sets, source, created_at
+       min_fuel_fill_pct, max_fuel_fill_pct, min_tire_sets, max_tire_sets, eligible_car_ids,
+       car_class_ids, source, created_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'iracing_data_api', ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'iracing_data_api', ?)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        track_name = COALESCE(excluded.track_name, iracing_events.track_name),
@@ -631,7 +730,9 @@ export async function upsertIracingEvent(DB: any, data: UpsertEventInput): Promi
        min_fuel_fill_pct = COALESCE(excluded.min_fuel_fill_pct, iracing_events.min_fuel_fill_pct),
        max_fuel_fill_pct = COALESCE(excluded.max_fuel_fill_pct, iracing_events.max_fuel_fill_pct),
        min_tire_sets = COALESCE(excluded.min_tire_sets, iracing_events.min_tire_sets),
-       max_tire_sets = COALESCE(excluded.max_tire_sets, iracing_events.max_tire_sets)`
+       max_tire_sets = COALESCE(excluded.max_tire_sets, iracing_events.max_tire_sets),
+       eligible_car_ids = COALESCE(excluded.eligible_car_ids, iracing_events.eligible_car_ids),
+       car_class_ids = COALESCE(excluded.car_class_ids, iracing_events.car_class_ids)`
   )
     .bind(
       data.id,
@@ -650,6 +751,8 @@ export async function upsertIracingEvent(DB: any, data: UpsertEventInput): Promi
       data.maxFuelFillPct ?? null,
       data.minTireSets ?? null,
       data.maxTireSets ?? null,
+      data.eligibleCarIds?.length ? JSON.stringify(data.eligibleCarIds) : null,
+      data.carClassIds?.length ? JSON.stringify(data.carClassIds) : null,
       now
     )
     .run();
@@ -767,6 +870,8 @@ export type ScheduleSession = {
   maxFuelFillPct?: number;
   minTireSets?: number;
   maxTireSets?: number;
+  eligibleCarIds?: number[];
+  carClassIds?: number[];
 };
 
 /** Pre-computed temp-high/low + precip-chance summary iRacing already provides right next
@@ -813,6 +918,35 @@ function extractCarRegulationSummary(schedule: Record<string, unknown>): {
     maxFuelFillPct: fuelPcts.length ? Math.max(...fuelPcts) : undefined,
     minTireSets: tireSets.length ? Math.min(...tireSets) : undefined,
     maxTireSets: tireSets.length ? Math.max(...tireSets) : undefined,
+  };
+}
+
+function extractSeasonCarClassIds(season: Record<string, unknown>): number[] {
+  return Array.isArray(season.car_class_ids)
+    ? (season.car_class_ids as unknown[]).map((v) => pickNumber(v)).filter((v): v is number => v !== undefined)
+    : [];
+}
+
+/** Eligible car ids for this specific schedule - the same car_restrictions[] array
+ * extractCarRegulationSummary already reads for fuel/tire caps, just pulling car_id
+ * instead. carClassIds names the real racing class(es) that grouping represents (e.g. GT3
+ * = 2708), preferring the schedule's own race_week_car_class_ids override when non-empty,
+ * else the season-level car_class_ids passed in - both confirmed live 2026-07-21. This is
+ * deliberately NOT iRacing's generic catalog-wide "Hosted All Cars" class - it's what the
+ * pace "similar car" fallback (plannerDriverProfile.ts) widens its lap search to when the
+ * exact car has no data, so it needs to stay scoped to this event's actual class(es). */
+function extractEligibleCars(schedule: Record<string, unknown>, seasonCarClassIds: number[]): { eligibleCarIds?: number[]; carClassIds?: number[] } {
+  const restrictions = Array.isArray(schedule.car_restrictions) ? (schedule.car_restrictions as Record<string, unknown>[]) : [];
+  const carIds = restrictions.map((r) => pickNumber(r.car_id)).filter((v): v is number => v !== undefined);
+
+  const weekClassIds = Array.isArray(schedule.race_week_car_class_ids)
+    ? (schedule.race_week_car_class_ids as unknown[]).map((v) => pickNumber(v)).filter((v): v is number => v !== undefined)
+    : [];
+  const classIds = weekClassIds.length ? weekClassIds : seasonCarClassIds;
+
+  return {
+    eligibleCarIds: carIds.length ? carIds : undefined,
+    carClassIds: classIds.length ? classIds : undefined,
   };
 }
 
@@ -900,6 +1034,7 @@ export function extractSchedulesForSeries(payload: any, seriesId: string): Sched
     const seasonId = pickNumber(seasonRow.season_id);
     const schedules = Array.isArray(seasonRow.schedules) ? seasonRow.schedules : [];
     const teamSizeLimits = extractTeamSizeLimits(seasonRow);
+    const seasonCarClassIds = extractSeasonCarClassIds(seasonRow);
 
     for (const s of schedules as Record<string, unknown>[]) {
       const track = s.track as any;
@@ -924,6 +1059,7 @@ export function extractSchedulesForSeries(payload: any, seriesId: string): Sched
         forecastSummary: extractForecastSummary(s),
         ...teamSizeLimits,
         ...extractCarRegulationSummary(s),
+        ...extractEligibleCars(s, seasonCarClassIds),
       };
 
       const slotTimes = extractSessionTimes(s);

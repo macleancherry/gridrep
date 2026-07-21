@@ -141,6 +141,8 @@ export async function discoverAndSyncRecentSessionAtTrack(
   custId: string,
   trackName: string,
   trackConfig: string | null,
+  carId: number | null,
+  carClassCarIds: number[] | null,
   viewerUserId: string,
   accessToken: string,
   garage61TeamSlug: string | null
@@ -183,7 +185,7 @@ export async function discoverAndSyncRecentSessionAtTrack(
           subsessionId,
           `Synced ${targetLaps!.n} of this driver's own laps from a session at ${header.track_name}.`
         );
-        await computeProfileQuietly(context, DB, custId, trackName, trackConfig, garage61TeamSlug);
+        await computeProfileQuietly(context, DB, custId, trackName, trackConfig, carId, carClassCarIds, garage61TeamSlug);
         return;
       }
 
@@ -209,7 +211,7 @@ export async function discoverAndSyncRecentSessionAtTrack(
     // Still worth a compute pass even with no synced laps - stores a definitive
     // "no_laps_at_track" profile row (fuel may still resolve from Garage 61 alone) instead
     // of leaving the Lineup/Stints pages with nothing to show but the search status.
-    await computeProfileQuietly(context, DB, custId, trackName, trackConfig, garage61TeamSlug);
+    await computeProfileQuietly(context, DB, custId, trackName, trackConfig, carId, carClassCarIds, garage61TeamSlug);
   } catch (err: any) {
     await setStatus(DB, custId, trackName, "error", null, err?.message ?? "Search failed.");
   }
@@ -223,6 +225,8 @@ async function computeProfileQuietly(
   custId: string,
   trackName: string,
   trackConfig: string | null,
+  carId: number | null,
+  carClassCarIds: number[] | null,
   garage61TeamSlug: string | null
 ): Promise<void> {
   try {
@@ -230,6 +234,8 @@ async function computeProfileQuietly(
       custId,
       trackName,
       trackConfig,
+      carId,
+      carClassCarIds,
       conditionProfileId: null,
       tempMid: null,
       garage61TeamSlug,
