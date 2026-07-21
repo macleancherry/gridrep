@@ -84,7 +84,6 @@ export default function LineupPage() {
   const { planId } = useParams<{ planId: string }>();
   const { setContext } = usePlanContext();
   const [eventId, setEventId] = useState<string | null>(null);
-  const [eventTrackName, setEventTrackName] = useState<string | null>(null);
   const [teamSize, setTeamSize] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
   const [lineup, setLineup] = useState<{ custId: string; name: string }[]>([]);
   const [teamRoster, setTeamRoster] = useState<TeamRosterMember[]>([]);
@@ -95,14 +94,11 @@ export default function LineupPage() {
   const [conditionProfiles, setConditionProfiles] = useState<ConditionProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
   const [profiles, setProfiles] = useState<DriverProfile[]>([]);
-  const [computing, setComputing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fuelDrafts, setFuelDrafts] = useState<Record<string, string>>({});
-  const [syncSubsessionId, setSyncSubsessionId] = useState("");
-  const [syncing, setSyncing] = useState(false);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [savingFuelFor, setSavingFuelFor] = useState<string | null>(null);
   const [searchStatus, setSearchStatus] = useState<Record<string, SearchStatus>>({});
 
   // If this weekend isn't linked to a team yet, offer to link one instead of silently
@@ -189,16 +185,26 @@ export default function LineupPage() {
       .then((data) => {
         if (data.ok && data.event) {
           setTeamSize({ min: data.event.min_team_drivers ?? null, max: data.event.max_team_drivers ?? null });
-          setEventTrackName(data.event.track_name ?? null);
         }
       })
       .catch(() => {});
   }, [eventId]);
 
-  // Polls for progress on the background "find a recent session at this track" search
-  // race-plans/:planId/lineup.ts kicks off whenever a driver is newly added - keeps
-  // polling every 2.5s only while at least one driver is still "searching", so an idle
-  // Lineup page (nothing in progress) never polls at all.
+  async function fetchProfiles(conditionProfileId: string): Promise<DriverProfile[]> {
+    if (!eventId || lineup.length === 0) return [];
+    const params = new URLSearchParams({ custIds: lineup.map((d) => d.custId).join(",") });
+    if (conditionProfileId) params.set("conditionProfileId", conditionProfileId);
+    const r = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/driver-profiles?${params.toString()}`, {
+      credentials: "include",
+    });
+    const data = await r.json().catch(() => ({}));
+    return data.profiles ?? [];
+  }
+
+  // Pace/fuel are computed automatically in the background the moment a driver's laps are
+  // found (kicked off by lineup.ts's PUT) - no button to press, nothing to wait on here.
+  // This polls both the lap-search status and the resulting profiles every 2.5s, only
+  // while at least one driver's result is still unresolved, so an idle page never polls.
   const lineupKey = lineup.map((d) => d.custId).join(",");
   useEffect(() => {
     if (!eventId || lineup.length === 0) return;
@@ -207,22 +213,28 @@ export default function LineupPage() {
 
     async function poll() {
       try {
-        const r = await fetch(
-          `/api/planner/events/${encodeURIComponent(eventId!)}/session-search-status?custIds=${encodeURIComponent(lineupKey)}`,
-          { credentials: "include" }
-        );
-        const data = await r.json().catch(() => ({}));
-        if (cancelled || !data.ok) return;
+        const [statusRes, freshProfiles] = await Promise.all([
+          fetch(`/api/planner/events/${encodeURIComponent(eventId!)}/session-search-status?custIds=${encodeURIComponent(lineupKey)}`, {
+            credentials: "include",
+          }).then((r) => r.json().catch(() => ({}))),
+          fetchProfiles(selectedProfileId),
+        ]);
+        if (cancelled) return;
 
-        const next: Record<string, SearchStatus> = {};
-        for (const row of data.results ?? []) next[row.custId] = { status: row.status, message: row.message };
-        setSearchStatus(next);
+        if (statusRes.ok) {
+          const next: Record<string, SearchStatus> = {};
+          for (const row of statusRes.results ?? []) next[row.custId] = { status: row.status, message: row.message };
+          setSearchStatus(next);
+        }
+        setProfiles(freshProfiles);
 
-        if ((data.results ?? []).some((row: any) => row.status === "searching")) {
+        const stillSearching = (statusRes.results ?? []).some((row: any) => row.status === "searching");
+        const everyoneResolved = lineup.every((d) => freshProfiles.some((p) => p.custId === d.custId));
+        if (stillSearching || !everyoneResolved) {
           timer = setTimeout(poll, 2500);
         }
       } catch {
-        // Silent - this is a best-effort background indicator, not core functionality.
+        // Silent - this is a best-effort background refresh, not core functionality.
       }
     }
 
@@ -232,46 +244,7 @@ export default function LineupPage() {
       if (timer) clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId, lineupKey]);
-
-  async function syncLaps() {
-    const subsessionId = syncSubsessionId.trim();
-    if (!subsessionId) return;
-    setSyncing(true);
-    setSyncMessage(null);
-    try {
-      const r = await fetch(`/api/planner/iracing/subsessions/${encodeURIComponent(subsessionId)}/sync`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const data = await r.json().catch(() => ({}));
-
-      if (!r.ok || !data.ok) {
-        setSyncMessage(data.message ?? "Could not sync this subsession.");
-        return;
-      }
-
-      const trackNote =
-        data.trackName && eventTrackName && data.trackName !== eventTrackName
-          ? ` ⚠ This subsession was at "${data.trackName}", not this event's track ("${eventTrackName}") - those laps won't show up below.`
-          : data.trackName
-            ? ` (${data.trackName})`
-            : "";
-
-      if (data.alreadyComplete) {
-        setSyncMessage(`Already fully synced — ${data.lapsIngested} laps across ${data.driversIngested} driver(s)${trackNote}.`);
-      } else {
-        const remaining = data.remainingJobs > 0 ? ` · ${data.remainingJobs} more to go, click Sync again to continue` : "";
-        const failures =
-          data.driverFailures?.length > 0 ? ` · ${data.driverFailures.length} driver(s) failed (${data.driverFailures[0].message})` : "";
-        setSyncMessage(`Synced ${data.lapsIngested} laps across ${data.driversIngested} driver(s)${trackNote}${remaining}${failures}.`);
-      }
-    } catch {
-      setSyncMessage("Network error. Please try again.");
-    } finally {
-      setSyncing(false);
-    }
-  }
+  }, [eventId, lineupKey, selectedProfileId]);
 
   async function saveLineup(next: { custId: string; name: string }[]) {
     if (!planId) return;
@@ -308,40 +281,63 @@ export default function LineupPage() {
     saveLineup(next);
   }
 
-  async function computeProfiles() {
+  // Selecting a specific condition filter needs a real compute pass the first time (each
+  // condition profile gets its own stored row) - fires right from the dropdown instead of
+  // a separate button, same "just works" rule as everything else on this page.
+  async function onProfileFilterChange(nextProfileId: string) {
+    setSelectedProfileId(nextProfileId);
     if (!eventId || lineup.length === 0) return;
-    setComputing(true);
-    setError(null);
     try {
-      const fuelOverrides: Record<string, number> = {};
-      for (const [custId, raw] of Object.entries(fuelDrafts)) {
-        const n = Number(raw);
-        if (raw.trim() !== "" && Number.isFinite(n)) fuelOverrides[custId] = n;
-      }
-
       const r = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/driver-profiles`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
           custIds: lineup.map((d) => d.custId),
-          conditionProfileId: selectedProfileId || undefined,
-          fuelOverrides,
+          conditionProfileId: nextProfileId || undefined,
           teamId: planTeamId || undefined,
         }),
       });
       const data = await r.json().catch(() => ({}));
-
-      if (!r.ok || !data.ok) {
-        setError(data.message ?? "Could not compute driver profiles.");
-        return;
-      }
-
-      setProfiles(data.profiles ?? []);
+      if (r.ok && data.ok) setProfiles(data.profiles ?? []);
     } catch {
-      setError("Network error. Please try again.");
+      // Polling will pick it up on the next tick regardless.
+    }
+  }
+
+  async function saveFuelOverride(custId: string) {
+    if (!eventId) return;
+    const raw = fuelDrafts[custId];
+    const n = Number(raw);
+    if (!raw || raw.trim() === "" || !Number.isFinite(n)) return;
+
+    setSavingFuelFor(custId);
+    try {
+      const r = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/driver-profiles`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          custIds: [custId],
+          conditionProfileId: selectedProfileId || undefined,
+          fuelOverrides: { [custId]: n },
+          teamId: planTeamId || undefined,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data.ok && data.profiles?.length) {
+        const updated = data.profiles[0];
+        setProfiles((prev) => [...prev.filter((p) => p.custId !== custId), updated]);
+        setFuelDrafts((prev) => {
+          const next = { ...prev };
+          delete next[custId];
+          return next;
+        });
+      }
+    } catch {
+      setError("Could not save that fuel value. Please try again.");
     } finally {
-      setComputing(false);
+      setSavingFuelFor(null);
     }
   }
 
@@ -351,7 +347,8 @@ export default function LineupPage() {
     <div>
       <h2>Driver lineup {saving && <span className="rp-text-faint" style={{ fontSize: 12, fontWeight: 400, textTransform: "none" }}>(saving…)</span>}</h2>
       <p className="rp-section-sub" style={{ marginBottom: 16 }}>
-        Pace and fuel profiles, filtered to laps run in conditions matching the selected segment.
+        Add drivers and their pace/fuel are found automatically in the background - no need to wait here, move on
+        whenever you like.
       </p>
 
       {error && <p className="rp-error">{error}</p>}
@@ -471,109 +468,97 @@ export default function LineupPage() {
           </div>
         ) : null)}
 
-      <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
-        <div className="rp-form-field">
-          <label>Sync laps manually</label>
+      {lineup.length > 0 && (
+        <div className="rp-row" style={{ marginBottom: 16 }}>
+          <select className="rp-input" value={selectedProfileId} onChange={(e) => onProfileFilterChange(e.target.value)}>
+            <option value="">All conditions (unfiltered)</option>
+            {conditionProfiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
         </div>
-        <div className="rp-row">
-          <input
-            className="rp-input"
-            placeholder="Subsession ID, e.g. 123456789"
-            value={syncSubsessionId}
-            onChange={(e) => setSyncSubsessionId(e.target.value)}
-            style={{ width: 200 }}
-          />
-          <button className="rp-btn" onClick={syncLaps} disabled={syncing || !syncSubsessionId.trim()}>
-            {syncing ? "Syncing…" : "Sync laps"}
-          </button>
-        </div>
-        <p className="rp-section-sub" style={{ marginTop: 8 }}>
-          Newly added drivers are automatically checked in the background for a recent session at this
-          track{eventTrackName ? ` (${eventTrackName})` : ""} — watch for a status next to their name above. Use this
-          box only if that search comes back empty, or to pull a specific session yourself. Large sessions may need a
-          couple of clicks to finish.
-        </p>
-        {syncMessage && (
-          <p className="rp-section-sub" style={{ marginTop: 8 }}>
-            {syncMessage}
-          </p>
-        )}
-      </div>
+      )}
 
-      <div className="rp-row" style={{ marginBottom: 16 }}>
-        <select className="rp-input" value={selectedProfileId} onChange={(e) => setSelectedProfileId(e.target.value)}>
-          <option value="">All conditions (unfiltered)</option>
-          {conditionProfiles.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-        <button className="rp-btn rp-primary" onClick={computeProfiles} disabled={computing || lineup.length === 0}>
-          {computing ? "Computing…" : "Compute profiles"}
-        </button>
-      </div>
-
-      {profiles.length > 0 && (
+      {lineup.length > 0 && (
         <div className="rp-profile-list">
-          {profiles.map((p) => (
-            <div className="rp-card" key={p.custId}>
-              <div className="rp-profile-row">
-                <div>
-                  <div className="rp-profile-label">{p.driverName}</div>
-                  {p.ok ? (
-                    <div className="rp-mono" style={{ marginTop: 4 }}>
-                      {formatPace(p.paceMs)}
-                      {p.widenedBand && (
-                        <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
-                          Widened band
-                        </span>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="rp-text-faint" style={{ marginTop: 4 }}>
-                      {p.reason === "no_laps_at_track" ? "No synced laps at this track yet" : "No clean laps found"}
-                    </div>
-                  )}
-                  <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }}>
-                    {p.lapsUsed} laps used · {p.sampleSize} in sample
+          {lineup.map((d) => {
+            const p = profiles.find((pr) => pr.custId === d.custId);
+            if (!p) {
+              return (
+                <div className="rp-card" key={d.custId}>
+                  <div className="rp-profile-label">{d.name}</div>
+                  <div className="rp-text-faint" style={{ marginTop: 4, fontSize: 12 }}>
+                    Finding pace and fuel data…
                   </div>
-                  {p.pitTimeSeconds !== null && (
-                    <div
-                      className="rp-text-faint"
-                      style={{ fontSize: 11, marginTop: 2 }}
-                      title="Derived from this driver's own pit laps vs. their clean pace - includes in/out-lap execution, not just stationary time"
-                    >
-                      ~{p.pitTimeSeconds}s in the pits ({p.pitTimeSource === "garage61_derived" ? "Garage 61" : "derived"})
-                    </div>
-                  )}
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div className="rp-form-field">
-                    <label>Fuel / lap (L)</label>
-                    <input
-                      className="rp-input"
-                      style={{ width: 90 }}
-                      type="number"
-                      step="0.01"
-                      placeholder={p.fuelPerLap !== null ? String(p.fuelPerLap) : "manual"}
-                      value={fuelDrafts[p.custId] ?? ""}
-                      onChange={(e) => setFuelDrafts({ ...fuelDrafts, [p.custId]: e.target.value })}
-                    />
+              );
+            }
+            return (
+              <div className="rp-card" key={p.custId}>
+                <div className="rp-profile-row">
+                  <div>
+                    <div className="rp-profile-label">{p.driverName}</div>
+                    {p.ok ? (
+                      <div className="rp-mono" style={{ marginTop: 4 }}>
+                        {formatPace(p.paceMs)}
+                        {p.widenedBand && (
+                          <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
+                            Widened band
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="rp-text-faint" style={{ marginTop: 4 }}>
+                        {p.reason === "no_laps_at_track" ? "No synced laps at this track yet" : "No clean laps found"}
+                      </div>
+                    )}
+                    <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }}>
+                      {p.lapsUsed} laps used · {p.sampleSize} in sample
+                    </div>
+                    {p.pitTimeSeconds !== null && (
+                      <div
+                        className="rp-text-faint"
+                        style={{ fontSize: 11, marginTop: 2 }}
+                        title="Derived from this driver's own pit laps vs. their clean pace - includes in/out-lap execution, not just stationary time"
+                      >
+                        ~{p.pitTimeSeconds}s in the pits ({p.pitTimeSource === "garage61_derived" ? "Garage 61" : "derived"})
+                      </div>
+                    )}
                   </div>
-                  {p.fuelSource &&
-                    (() => {
-                      const badge = fuelSourceBadge(p.fuelSource);
-                      return (
-                        <span className={`rp-badge ${badge.className}`} title={badge.title}>
-                          {badge.label}
-                        </span>
-                      );
-                    })()}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div className="rp-form-field">
+                      <label>Fuel / lap (L)</label>
+                      <input
+                        className="rp-input"
+                        style={{ width: 90 }}
+                        type="number"
+                        step="0.01"
+                        placeholder={p.fuelPerLap !== null ? String(p.fuelPerLap) : "manual"}
+                        value={fuelDrafts[p.custId] ?? ""}
+                        onChange={(e) => setFuelDrafts({ ...fuelDrafts, [p.custId]: e.target.value })}
+                        onBlur={() => saveFuelOverride(p.custId)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                        }}
+                        disabled={savingFuelFor === p.custId}
+                      />
+                    </div>
+                    {p.fuelSource &&
+                      (() => {
+                        const badge = fuelSourceBadge(p.fuelSource);
+                        return (
+                          <span className={`rp-badge ${badge.className}`} title={badge.title}>
+                            {badge.label}
+                          </span>
+                        );
+                      })()}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

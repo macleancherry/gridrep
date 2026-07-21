@@ -1,6 +1,7 @@
 import { getViewer, getValidAccessToken } from "../../../../_lib/auth";
 import { isPlanVisible } from "../../../../_lib/plannerRacePlan";
 import { discoverAndSyncRecentSessionAtTrack } from "../../../../_lib/plannerLapDiscovery";
+import { computeAndStoreOneDriverProfile } from "../../../../_lib/plannerDriverProfile";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
@@ -8,10 +9,12 @@ import { json, jsonError } from "../../../../_lib/httpJson";
  * stints.ts's PUT already uses). Gives LineupPage somewhere real to save to - until now
  * its driver picks only ever lived in local component state and were lost on navigation.
  *
- * Also kicks off a background "find a recent session at this track" search for any
- * driver newly added to the lineup (via context.waitUntil - keeps running after this
- * response returns), so by the time anyone loads the Lineup page there's a decent chance
- * real laps are already synced without anyone having to paste a subsession ID.
+ * Also kicks off a background "find a recent session at this track, then compute a pace/
+ * fuel profile from it" pipeline for any driver newly added to the lineup (via
+ * context.waitUntil - keeps running after this response returns), so a coordinator never
+ * has to sit on the Lineup page, paste a subsession id, or press a "compute" button - by
+ * the time they (or anyone else) checks back, there's a real profile or a definitive
+ * "nothing found" result waiting, purely from adding the driver.
  */
 export async function onRequestPut(context: any) {
   const viewer = await getViewer(context);
@@ -23,7 +26,8 @@ export async function onRequestPut(context: any) {
   const { DB } = context.env;
 
   const plan = await DB.prepare(
-    `SELECT p.id, e.track_name as trackName FROM race_plans p JOIN iracing_events e ON e.id = p.event_id WHERE p.id = ?`
+    `SELECT p.id, p.race_weekend_id as raceWeekendId, e.track_name as trackName, e.track_config as trackConfig
+     FROM race_plans p JOIN iracing_events e ON e.id = p.event_id WHERE p.id = ?`
   )
     .bind(planId)
     .first<any>();
@@ -67,7 +71,16 @@ export async function onRequestPut(context: any) {
   await DB.prepare(`UPDATE race_plans SET updated_at = ? WHERE id = ?`).bind(new Date().toISOString(), planId).run();
 
   if (plan.trackName && newlyAddedCustIds.length > 0) {
-    await kickOffLapDiscovery(context, DB, plan.trackName, newlyAddedCustIds, viewer.user!.id);
+    let garage61TeamSlug: string | null = null;
+    if (plan.raceWeekendId) {
+      const teamRow = await DB.prepare(
+        `SELECT t.garage61_team_slug as slug FROM race_weekends w JOIN teams t ON t.id = w.team_id WHERE w.id = ?`
+      )
+        .bind(plan.raceWeekendId)
+        .first<any>();
+      garage61TeamSlug = teamRow?.slug ?? null;
+    }
+    await kickOffLapDiscovery(context, DB, plan.trackName, plan.trackConfig ?? null, garage61TeamSlug, newlyAddedCustIds, viewer.user!.id);
   }
 
   const rows = await DB.prepare(
@@ -81,8 +94,17 @@ export async function onRequestPut(context: any) {
   return json({ ok: true, planId, lineup: rows.results ?? [] });
 }
 
-async function kickOffLapDiscovery(context: any, DB: any, trackName: string, custIds: string[], viewerUserId: string): Promise<void> {
-  const eligible: string[] = [];
+async function kickOffLapDiscovery(
+  context: any,
+  DB: any,
+  trackName: string,
+  trackConfig: string | null,
+  garage61TeamSlug: string | null,
+  custIds: string[],
+  viewerUserId: string
+): Promise<void> {
+  const eligibleForSearch: string[] = [];
+  const alreadyHaveLaps: string[] = [];
 
   for (const custId of custIds) {
     const existingLaps = await DB.prepare(
@@ -91,27 +113,44 @@ async function kickOffLapDiscovery(context: any, DB: any, trackName: string, cus
     )
       .bind(custId, trackName)
       .first<any>();
-    if (existingLaps) continue; // already have real laps here - nothing to search for
+    if (existingLaps) {
+      // Already have real laps here - no search needed, but still worth computing a
+      // profile now in case this is this driver's first time on this specific plan/event.
+      alreadyHaveLaps.push(custId);
+      continue;
+    }
 
     const existingSearch = await DB.prepare(`SELECT status FROM driver_recent_session_search WHERE cust_id = ? AND track_name = ?`)
       .bind(custId, trackName)
       .first<any>();
     if (existingSearch && (existingSearch.status === "searching" || existingSearch.status === "found")) continue;
 
-    eligible.push(custId);
+    eligibleForSearch.push(custId);
   }
 
-  if (eligible.length === 0) return;
+  for (const custId of alreadyHaveLaps) {
+    context.waitUntil(
+      computeAndStoreOneDriverProfile(context, DB, {
+        custId,
+        trackName,
+        trackConfig,
+        conditionProfileId: null,
+        tempMid: null,
+        garage61TeamSlug,
+      }).catch(() => {})
+    );
+  }
+
+  if (eligibleForSearch.length === 0) return;
 
   let accessToken: string;
   try {
     accessToken = await getValidAccessToken(context, viewerUserId);
   } catch (err: any) {
     // Record why, rather than vanishing silently - a driver's status badge should never
-    // just stay blank with no trace of what happened. The manual paste-ID box still
-    // works regardless.
+    // just stay blank with no trace of what happened.
     const now = new Date().toISOString();
-    for (const custId of eligible) {
+    for (const custId of eligibleForSearch) {
       await DB.prepare(
         `INSERT INTO driver_recent_session_search (cust_id, track_name, status, subsession_id, message, updated_at)
          VALUES (?, ?, 'error', NULL, ?, ?)
@@ -124,7 +163,7 @@ async function kickOffLapDiscovery(context: any, DB: any, trackName: string, cus
   }
 
   const now = new Date().toISOString();
-  for (const custId of eligible) {
+  for (const custId of eligibleForSearch) {
     await DB.prepare(
       `INSERT INTO driver_recent_session_search (cust_id, track_name, status, subsession_id, message, updated_at)
        VALUES (?, ?, 'searching', NULL, NULL, ?)
@@ -134,7 +173,9 @@ async function kickOffLapDiscovery(context: any, DB: any, trackName: string, cus
       .run();
 
     try {
-      context.waitUntil(discoverAndSyncRecentSessionAtTrack(DB, custId, trackName, viewerUserId, accessToken));
+      context.waitUntil(
+        discoverAndSyncRecentSessionAtTrack(context, DB, custId, trackName, trackConfig, viewerUserId, accessToken, garage61TeamSlug)
+      );
     } catch (err: any) {
       // context.waitUntil itself throwing (rather than the promise it's given rejecting)
       // is unusual, but make sure it's visible rather than leaving the row stuck on

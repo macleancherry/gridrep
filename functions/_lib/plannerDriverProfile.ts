@@ -1,4 +1,6 @@
 import { computeCleanPace, type StoredLap } from "./plannerCleanPace";
+import { resolveGarage61Fuel } from "./plannerGarage61Fuel";
+import { resolveGarage61PitTime } from "./plannerGarage61PitTime";
 
 /**
  * "Closest conditions" matching (PRD §6): filter a driver's laps at a track to those run
@@ -131,4 +133,159 @@ export function computePitTimeSeconds(laps: StoredLap[], cleanPaceMs: number | n
   const medianMs = deltas.length % 2 === 0 ? (deltas[mid - 1] + deltas[mid]) / 2 : deltas[mid];
 
   return Math.round((medianMs / 1000) * 10) / 10; // one decimal place
+}
+
+export function driverProfileRowId(custId: string, trackName: string, conditionProfileId: string | null): string {
+  return `${custId}:${trackName}:${conditionProfileId ?? "none"}`;
+}
+
+export type ComputeAndStoreOpts = {
+  custId: string;
+  trackName: string;
+  trackConfig: string | null;
+  conditionProfileId: string | null;
+  tempMid: number | null;
+  garage61TeamSlug: string | null;
+  fuelOverride?: number;
+};
+
+export type StoredDriverProfileResult = {
+  custId: string;
+  driverName: string;
+  trackName: string;
+  conditionProfileId: string | null;
+  ok: boolean;
+  reason?: "no_clean_laps" | "no_laps_at_track";
+  paceMs: number | null;
+  lapsUsed: number;
+  sampleSize: number;
+  widenedBand: boolean;
+  bandWidthC: number | null;
+  fuelPerLap: number | null;
+  fuelSource: string | null;
+  pitTimeSeconds: number | null;
+  pitTimeSource: string | null;
+};
+
+/**
+ * Computes and persists one driver's track/condition profile - pace (this file's own
+ * computeDriverTrackProfile), pit time (computePitTimeSeconds, falling back to Garage 61's
+ * directly-reported pitlane data), and fuel-per-lap (Garage 61, respecting a previously
+ * saved manual override). Extracted from driver-profiles.ts's POST handler so the
+ * lineup-add background trigger (functions/api/planner/race-plans/[planId]/lineup.ts) can
+ * compute a profile the moment a driver's laps are found, without a coordinator ever
+ * needing to visit this page and click a "compute" button themselves.
+ */
+export async function computeAndStoreOneDriverProfile(context: any, DB: any, opts: ComputeAndStoreOpts): Promise<StoredDriverProfileResult> {
+  const { custId, trackName, trackConfig, conditionProfileId, tempMid, garage61TeamSlug, fuelOverride } = opts;
+
+  const lapsRes = await DB.prepare(
+    `SELECT l.lap_time_ms as lapTimeMs, l.is_pit_lap as isPitLap, l.is_clean as isClean, s.track_temp as trackTemp
+     FROM planner_iracing_laps l
+     JOIN planner_iracing_subsessions s ON s.subsession_id = l.subsession_id
+     WHERE s.track_name = ? AND l.cust_id = ?`
+  )
+    .bind(trackName, custId)
+    .all<any>();
+
+  const laps: LapRow[] = (lapsRes.results ?? []).map((r: any) => ({
+    lapTimeMs: r.lapTimeMs,
+    isPitLap: Boolean(r.isPitLap),
+    isClean: r.isClean === null ? null : Boolean(r.isClean),
+    trackTemp: r.trackTemp,
+  }));
+
+  const computed = computeDriverTrackProfile(custId, trackName, laps, { tempMid });
+  let pitTimeSeconds = computePitTimeSeconds(laps, computed.paceMs);
+  let pitTimeSource: string | null = pitTimeSeconds === null ? null : "derived";
+
+  if (pitTimeSeconds === null) {
+    const garage61PitTime = await resolveGarage61PitTime(context, DB, custId, trackName, trackConfig);
+    if (garage61PitTime !== null) {
+      pitTimeSeconds = garage61PitTime;
+      pitTimeSource = "garage61_derived";
+    }
+  }
+
+  const rowId = driverProfileRowId(custId, trackName, conditionProfileId);
+  const existing = await DB.prepare(`SELECT fuel_per_lap as fuelPerLap, fuel_source as fuelSource FROM driver_track_profiles WHERE id = ?`)
+    .bind(rowId)
+    .first<any>();
+
+  let fuelPerLap: number | null;
+  let fuelSource: string | null;
+
+  if (typeof fuelOverride === "number" && Number.isFinite(fuelOverride)) {
+    // An explicit manual entry for this call always wins - never overwritten by a guess.
+    fuelPerLap = fuelOverride;
+    fuelSource = "manual";
+  } else if (existing?.fuelSource === "manual") {
+    // A human already vetted this value - don't silently clobber it with real data that
+    // might reflect a different car/conditions than what they actually confirmed.
+    fuelPerLap = existing.fuelPerLap;
+    fuelSource = existing.fuelSource;
+  } else {
+    const garage61Result = await resolveGarage61Fuel(context, DB, custId, trackName, trackConfig, garage61TeamSlug);
+    if (garage61Result) {
+      fuelPerLap = garage61Result.fuelPerLap;
+      fuelSource = garage61Result.source;
+    } else {
+      fuelPerLap = existing?.fuelPerLap ?? null;
+      fuelSource = fuelPerLap === null ? null : (existing?.fuelSource ?? "manual");
+    }
+  }
+
+  const now = new Date().toISOString();
+  await DB.prepare(
+    `INSERT INTO driver_track_profiles (
+       id, cust_id, track_name, condition_profile_id, pace_ms, laps_used, sample_size,
+       widened_band, fuel_per_lap, fuel_source, pit_time_seconds, pit_time_source, computed_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       pace_ms = excluded.pace_ms,
+       laps_used = excluded.laps_used,
+       sample_size = excluded.sample_size,
+       widened_band = excluded.widened_band,
+       fuel_per_lap = excluded.fuel_per_lap,
+       fuel_source = excluded.fuel_source,
+       pit_time_seconds = excluded.pit_time_seconds,
+       pit_time_source = excluded.pit_time_source,
+       computed_at = excluded.computed_at`
+  )
+    .bind(
+      rowId,
+      custId,
+      trackName,
+      conditionProfileId,
+      computed.paceMs,
+      computed.lapsUsed,
+      computed.sampleSize,
+      computed.widenedBand ? 1 : 0,
+      fuelPerLap,
+      fuelSource,
+      pitTimeSeconds,
+      pitTimeSource,
+      now
+    )
+    .run();
+
+  const driver = await DB.prepare(`SELECT display_name as driverName FROM drivers WHERE iracing_member_id = ?`).bind(custId).first<any>();
+
+  return {
+    custId,
+    driverName: driver?.driverName ?? `Driver ${custId}`,
+    trackName,
+    conditionProfileId,
+    ok: computed.ok,
+    reason: computed.reason,
+    paceMs: computed.paceMs,
+    lapsUsed: computed.lapsUsed,
+    sampleSize: computed.sampleSize,
+    widenedBand: computed.widenedBand,
+    bandWidthC: computed.bandWidthC,
+    fuelPerLap,
+    fuelSource,
+    pitTimeSeconds,
+    pitTimeSource,
+  };
 }

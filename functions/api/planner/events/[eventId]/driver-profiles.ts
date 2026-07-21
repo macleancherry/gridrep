@@ -1,12 +1,6 @@
 import { getViewer } from "../../../../_lib/auth";
-import { computeDriverTrackProfile, computePitTimeSeconds, type LapRow } from "../../../../_lib/plannerDriverProfile";
-import { resolveGarage61Fuel } from "../../../../_lib/plannerGarage61Fuel";
-import { resolveGarage61PitTime } from "../../../../_lib/plannerGarage61PitTime";
+import { computeAndStoreOneDriverProfile, driverProfileRowId } from "../../../../_lib/plannerDriverProfile";
 import { json, jsonError } from "../../../../_lib/httpJson";
-
-function profileRowId(custId: string, trackName: string, conditionProfileId: string | null): string {
-  return `${custId}:${trackName}:${conditionProfileId ?? "none"}`;
-}
 
 /**
  * Driver track/condition profile computation (PRD §4 steps 4-5, §6, §7). Reads whatever
@@ -78,121 +72,20 @@ export async function onRequestPost(context: any) {
     }
   }
 
-  const now = new Date().toISOString();
   const results: any[] = [];
 
   for (const custId of custIds) {
-    const lapsRes = await DB.prepare(
-      `SELECT l.lap_time_ms as lapTimeMs, l.is_pit_lap as isPitLap, l.is_clean as isClean, s.track_temp as trackTemp
-       FROM planner_iracing_laps l
-       JOIN planner_iracing_subsessions s ON s.subsession_id = l.subsession_id
-       WHERE s.track_name = ? AND l.cust_id = ?`
-    )
-      .bind(event.trackName, custId)
-      .all<any>();
-
-    const laps: LapRow[] = (lapsRes.results ?? []).map((r: any) => ({
-      lapTimeMs: r.lapTimeMs,
-      isPitLap: Boolean(r.isPitLap),
-      isClean: r.isClean === null ? null : Boolean(r.isClean),
-      trackTemp: r.trackTemp,
-    }));
-
-    const computed = computeDriverTrackProfile(custId, event.trackName, laps, { tempMid });
-    let pitTimeSeconds = computePitTimeSeconds(laps, computed.paceMs);
-    let pitTimeSource = pitTimeSeconds === null ? null : "derived";
-
-    // Not enough iRacing-sourced pit laps synced yet for this track - try Garage 61's own
-    // (directly-reported pitlane flag) lap data as a fallback before giving up.
-    if (pitTimeSeconds === null) {
-      const garage61PitTime = await resolveGarage61PitTime(context, DB, custId, event.trackName, event.trackConfig ?? null);
-      if (garage61PitTime !== null) {
-        pitTimeSeconds = garage61PitTime;
-        pitTimeSource = "garage61_derived";
-      }
-    }
-
-    const rowId = profileRowId(custId, event.trackName, conditionProfileId);
-    const existing = await DB.prepare(`SELECT fuel_per_lap as fuelPerLap, fuel_source as fuelSource FROM driver_track_profiles WHERE id = ?`)
-      .bind(rowId)
-      .first<any>();
-
     const overrideFuel = fuelOverrides[custId];
-    let fuelPerLap: number | null;
-    let fuelSource: string | null;
-
-    if (typeof overrideFuel === "number" && Number.isFinite(overrideFuel)) {
-      // An explicit manual entry for this call always wins - never overwritten by a guess.
-      fuelPerLap = overrideFuel;
-      fuelSource = "manual";
-    } else if (existing?.fuelSource === "manual") {
-      // A human already vetted this value - don't silently clobber it with real data that
-      // might reflect a different car/conditions than what they actually confirmed.
-      fuelPerLap = existing.fuelPerLap;
-      fuelSource = existing.fuelSource;
-    } else {
-      const garage61Result = await resolveGarage61Fuel(context, DB, custId, event.trackName, event.trackConfig ?? null, garage61TeamSlug);
-      if (garage61Result) {
-        fuelPerLap = garage61Result.fuelPerLap;
-        fuelSource = garage61Result.source;
-      } else {
-        fuelPerLap = existing?.fuelPerLap ?? null;
-        fuelSource = fuelPerLap === null ? null : (existing?.fuelSource ?? "manual");
-      }
-    }
-
-    await DB.prepare(
-      `INSERT INTO driver_track_profiles (
-         id, cust_id, track_name, condition_profile_id, pace_ms, laps_used, sample_size,
-         widened_band, fuel_per_lap, fuel_source, pit_time_seconds, pit_time_source, computed_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         pace_ms = excluded.pace_ms,
-         laps_used = excluded.laps_used,
-         sample_size = excluded.sample_size,
-         widened_band = excluded.widened_band,
-         fuel_per_lap = excluded.fuel_per_lap,
-         fuel_source = excluded.fuel_source,
-         pit_time_seconds = excluded.pit_time_seconds,
-         pit_time_source = excluded.pit_time_source,
-         computed_at = excluded.computed_at`
-    )
-      .bind(
-        rowId,
-        custId,
-        event.trackName,
-        conditionProfileId,
-        computed.paceMs,
-        computed.lapsUsed,
-        computed.sampleSize,
-        computed.widenedBand ? 1 : 0,
-        fuelPerLap,
-        fuelSource,
-        pitTimeSeconds,
-        pitTimeSource,
-        now
-      )
-      .run();
-
-    const driver = await DB.prepare(`SELECT display_name as driverName FROM drivers WHERE iracing_member_id = ?`).bind(custId).first<any>();
-
-    results.push({
+    const result = await computeAndStoreOneDriverProfile(context, DB, {
       custId,
-      driverName: driver?.driverName ?? `Driver ${custId}`,
       trackName: event.trackName,
+      trackConfig: event.trackConfig ?? null,
       conditionProfileId,
-      ok: computed.ok,
-      reason: computed.reason,
-      paceMs: computed.paceMs,
-      lapsUsed: computed.lapsUsed,
-      sampleSize: computed.sampleSize,
-      widenedBand: computed.widenedBand,
-      bandWidthC: computed.bandWidthC,
-      fuelPerLap,
-      fuelSource,
-      pitTimeSeconds,
-      pitTimeSource,
+      tempMid,
+      garage61TeamSlug,
+      fuelOverride: typeof overrideFuel === "number" && Number.isFinite(overrideFuel) ? overrideFuel : undefined,
     });
+    results.push(result);
   }
 
   return json({ ok: true, eventId, profiles: results });
@@ -215,7 +108,7 @@ export async function onRequestGet(context: any) {
     return json({ ok: true, eventId, profiles: [] });
   }
 
-  const ids = custIds.map((custId) => profileRowId(custId, event.trackName, conditionProfileId));
+  const ids = custIds.map((custId) => driverProfileRowId(custId, event.trackName, conditionProfileId));
   const placeholders = ids.map(() => "?").join(",");
 
   const rows = await DB.prepare(

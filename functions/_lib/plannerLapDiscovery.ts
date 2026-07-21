@@ -1,6 +1,7 @@
 import { iracingDataGet } from "./iracing";
 import { fetchSubsessionResult, extractSessionHeader } from "./plannerIracing";
 import { ingestPlannerSubsession } from "./plannerIngest";
+import { computeAndStoreOneDriverProfile } from "./plannerDriverProfile";
 
 /**
  * Background "find a recent session at this track" search - fires from race-plans/
@@ -135,11 +136,14 @@ async function setStatus(
 }
 
 export async function discoverAndSyncRecentSessionAtTrack(
+  context: any,
   DB: any,
   custId: string,
   trackName: string,
+  trackConfig: string | null,
   viewerUserId: string,
-  accessToken: string
+  accessToken: string,
+  garage61TeamSlug: string | null
 ): Promise<void> {
   try {
     const candidateIds = await discoverRecentSubsessionIds(custId, accessToken, MAX_CANDIDATES_TO_CHECK);
@@ -179,6 +183,7 @@ export async function discoverAndSyncRecentSessionAtTrack(
           subsessionId,
           `Synced ${targetLaps!.n} of this driver's own laps from a session at ${header.track_name}.`
         );
+        await computeProfileQuietly(context, DB, custId, trackName, trackConfig, garage61TeamSlug);
         return;
       }
 
@@ -201,7 +206,35 @@ export async function discoverAndSyncRecentSessionAtTrack(
     }
 
     await setStatus(DB, custId, trackName, "not_found", null, "No recent session found at this track in the driver's last races.");
+    // Still worth a compute pass even with no synced laps - stores a definitive
+    // "no_laps_at_track" profile row (fuel may still resolve from Garage 61 alone) instead
+    // of leaving the Lineup/Stints pages with nothing to show but the search status.
+    await computeProfileQuietly(context, DB, custId, trackName, trackConfig, garage61TeamSlug);
   } catch (err: any) {
     await setStatus(DB, custId, trackName, "error", null, err?.message ?? "Search failed.");
+  }
+}
+
+/** Best-effort profile compute at the end of a background search - never lets a compute
+ *  failure (e.g. a Garage 61 hiccup) mask the lap-search result that already landed. */
+async function computeProfileQuietly(
+  context: any,
+  DB: any,
+  custId: string,
+  trackName: string,
+  trackConfig: string | null,
+  garage61TeamSlug: string | null
+): Promise<void> {
+  try {
+    await computeAndStoreOneDriverProfile(context, DB, {
+      custId,
+      trackName,
+      trackConfig,
+      conditionProfileId: null,
+      tempMid: null,
+      garage61TeamSlug,
+    });
+  } catch {
+    // Best-effort only - the frontend's polling will just keep showing "not computed yet".
   }
 }

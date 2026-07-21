@@ -52,6 +52,7 @@ export default function StintsPage() {
   const { planId } = useParams<{ planId: string }>();
   const { setContext } = usePlanContext();
   const [eventId, setEventId] = useState<string | null>(null);
+  const [planTeamId, setPlanTeamId] = useState<string | null>(null);
   const [lineup, setLineup] = useState<LineupDriver[]>([]);
   const [conditionProfiles, setConditionProfiles] = useState<ConditionProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
@@ -92,6 +93,7 @@ export default function StintsPage() {
       return;
     }
     setEventId(data.eventId);
+    setPlanTeamId(data.teamId ?? null);
     setLineup(data.lineup ?? []);
     setStints(data.stints ?? []);
     setTotals(data.totals ?? null);
@@ -99,6 +101,56 @@ export default function StintsPage() {
     setWarnings(data.warnings ?? null);
     await loadDriverProfiles((data.lineup ?? []).map((d: LineupDriver) => d.custId), selectedProfileId, data.eventId);
     return data.eventId as string;
+  }
+
+  // Pace/fuel are computed automatically in the background as soon as a driver's added on
+  // the Lineup page (see lineup.ts's PUT) - poll here too so a coordinator who navigates
+  // straight to Stints without waiting on Lineup still sees results land without a manual
+  // refresh, and so "Generate stint plan" can unlock itself the moment everyone's ready.
+  useEffect(() => {
+    if (!eventId || lineup.length === 0) return;
+    const allReady = lineup.every((d) => {
+      const p = driverProfiles.find((x) => x.custId === d.custId);
+      return p && p.paceMs !== null && p.fuelPerLap !== null;
+    });
+    if (allReady) return;
+
+    const timer = setTimeout(() => {
+      loadDriverProfiles(lineup.map((d) => d.custId), selectedProfileId);
+    }, 2500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId, lineup, selectedProfileId, driverProfiles]);
+
+  const allProfilesReady =
+    lineup.length > 0 &&
+    lineup.every((d) => {
+      const p = driverProfiles.find((x) => x.custId === d.custId);
+      return p && p.paceMs !== null && p.fuelPerLap !== null;
+    });
+
+  // Selecting a specific condition filter needs a real compute pass the first time (each
+  // condition profile gets its own stored row) - fires right from the dropdown instead of
+  // a separate button, same rule as the Lineup page.
+  async function onProfileFilterChange(nextProfileId: string) {
+    setSelectedProfileId(nextProfileId);
+    if (!eventId || lineup.length === 0) return;
+    try {
+      const r = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/driver-profiles`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          custIds: lineup.map((d) => d.custId),
+          conditionProfileId: nextProfileId || undefined,
+          teamId: planTeamId || undefined,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data.ok) setDriverProfiles(data.profiles ?? []);
+    } catch {
+      await loadDriverProfiles(lineup.map((d) => d.custId), nextProfileId);
+    }
   }
 
   // The plan already exists by the time this page loads - it's created at series/session
@@ -323,10 +375,23 @@ export default function StintsPage() {
             <p className="rp-section-sub" style={{ margin: 0 }}>
               Auto-fill a starting stint order from driver pace/fuel, fatigue rules, and availability — then edit freely below.
             </p>
-            <button className="rp-btn rp-primary" onClick={generateStints} disabled={generating || lineup.length === 0}>
+            <button className="rp-btn rp-primary" onClick={generateStints} disabled={generating || !allProfilesReady} title={!allProfilesReady ? "Waiting for pace/fuel data - see below" : undefined}>
               {generating ? "Generating…" : "✨ Generate stint plan"}
             </button>
           </div>
+          {lineup.length > 0 && !allProfilesReady && (
+            <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
+              <p className="rp-section-sub" style={{ margin: 0 }}>
+                Still finding pace and fuel for{" "}
+                {lineup.filter((d) => {
+                  const p = driverProfiles.find((x) => x.custId === d.custId);
+                  return !p || p.paceMs === null || p.fuelPerLap === null;
+                }).length}{" "}
+                of {lineup.length} driver(s) — this happens automatically in the background, no need to wait here.
+                Check the <Link to={`/race-planner/lineup/${planId}`}>Lineup page</Link> if one seems stuck.
+              </p>
+            </div>
+          )}
           {generateNotes.length > 0 && (
             <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
               {generateNotes.map((n, i) => (
@@ -339,14 +404,7 @@ export default function StintsPage() {
 
           <div className="rp-card" style={{ marginBottom: 16 }}>
             <div className="rp-row" style={{ marginBottom: 10 }}>
-              <select
-                className="rp-input"
-                value={selectedProfileId}
-                onChange={async (e) => {
-                  setSelectedProfileId(e.target.value);
-                  await loadDriverProfiles(lineup.map((d) => d.custId), e.target.value);
-                }}
-              >
+              <select className="rp-input" value={selectedProfileId} onChange={(e) => onProfileFilterChange(e.target.value)}>
                 <option value="">All conditions (unfiltered)</option>
                 {conditionProfiles.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -356,12 +414,16 @@ export default function StintsPage() {
               </select>
               <select className="rp-input" value={newDriverId} onChange={(e) => setNewDriverId(e.target.value)}>
                 <option value="">Select driver…</option>
-                {driverProfiles.map((p) => (
-                  <option key={p.custId} value={p.custId} disabled={!p.paceMs || !p.fuelPerLap}>
-                    {p.driverName}
-                    {!p.paceMs || !p.fuelPerLap ? " (no profile computed)" : ""}
-                  </option>
-                ))}
+                {lineup.map((d) => {
+                  const p = driverProfiles.find((x) => x.custId === d.custId);
+                  const ready = Boolean(p?.paceMs && p?.fuelPerLap);
+                  return (
+                    <option key={d.custId} value={d.custId} disabled={!ready}>
+                      {d.driverName}
+                      {!ready ? " (finding pace/fuel…)" : ""}
+                    </option>
+                  );
+                })}
               </select>
               <input
                 className="rp-input"
@@ -371,12 +433,17 @@ export default function StintsPage() {
                 value={newLapCount}
                 onChange={(e) => setNewLapCount(e.target.value)}
               />
-              <button className="rp-btn rp-primary" onClick={addStint} disabled={!newDriverId}>
+              <button
+                className="rp-btn rp-primary"
+                onClick={addStint}
+                disabled={!newDriverId || !driverProfiles.find((p) => p.custId === newDriverId)?.paceMs || !driverProfiles.find((p) => p.custId === newDriverId)?.fuelPerLap}
+              >
                 + Add stint
               </button>
             </div>
             <p className="rp-section-sub">
-              Driver profiles come from the Lineup page — compute them there first if a driver shows "no profile computed".
+              Pace and fuel come from the Lineup page's automatic background search — a driver shows "finding
+              pace/fuel…" until that's ready.
             </p>
           </div>
 
