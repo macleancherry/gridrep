@@ -226,11 +226,13 @@ export type Garage61LapSearchParams = {
   unclean?: boolean;
   group?: "driver" | "driver-car" | "none";
   limit?: number;
+  offset?: number;
 };
 
 export type Garage61Team = {
   id: string;
   name: string;
+  slug: string;
 };
 
 export type Garage61TeamMember = {
@@ -268,7 +270,12 @@ export async function fetchGarage61TeamDetail(accessToken: string, teamId: strin
  * required filter. Omitting `drivers`/`teams`/`extraDrivers` entirely makes the API default
  * to "driving data visible to the authenticated user" - confirmed this already includes the
  * caller's teammates, not just their own laps, which is what the team-wide name-matched fuel
- * lookup in plannerGarage61Fuel.ts relies on.
+ * lookup in plannerGarage61Fuel.ts relies on. Confirmed live: `teams` filters correctly, but
+ * only by the team's *slug* (e.g. "ignium-motorsport") - passing its opaque id instead is
+ * silently ignored and falls through to the unscoped default. `limit`'s own real API default
+ * and maximum are both 1000 (confirmed against the OpenAPI spec), not the 200 this wrapper
+ * used to default to - that mismatch is what let a busy shared track silently bury a driver's
+ * own laps past the end of a single page (see plannerGarage61Fuel.ts's pagination loop).
  */
 export async function fetchGarage61Laps(
   accessToken: string,
@@ -281,7 +288,8 @@ export async function fetchGarage61Laps(
   if (params.extraDrivers?.length) q.set("extraDrivers", params.extraDrivers.join(","));
   q.set("unclean", params.unclean ? "true" : "false");
   q.set("group", params.group ?? "none");
-  q.set("limit", String(params.limit ?? 200));
+  q.set("limit", String(params.limit ?? 1000));
+  if (params.offset) q.set("offset", String(params.offset));
 
   return garage61ApiGet<{ items: Garage61Lap[]; total: number }>(`/laps?${q.toString()}`, accessToken);
 }

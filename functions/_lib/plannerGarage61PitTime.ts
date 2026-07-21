@@ -80,7 +80,7 @@ export async function resolveGarage61PitTime(
       drivers: ["me"],
       unclean: true,
       group: "none",
-      limit: 200,
+      limit: 1000,
     });
     return computePitTimeFromGarage61Laps(lapsResp.items ?? []);
   } catch {

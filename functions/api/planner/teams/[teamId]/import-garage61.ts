@@ -46,6 +46,13 @@ export async function onRequestPost(context: any) {
     return jsonError(502, { error: "garage61_unreachable", message: "Could not load that Garage 61 team. Please try again." });
   }
 
+  // Remember which Garage 61 team this roster came from - lets the fuel/pit-time
+  // name-matching fallback (plannerGarage61Fuel.ts) scope its lap search to just this
+  // team instead of every Garage 61 team the connecting coordinator happens to belong to.
+  if (detail.slug) {
+    await DB.prepare(`UPDATE teams SET garage61_team_slug = ? WHERE id = ?`).bind(detail.slug, teamId).run();
+  }
+
   const now = new Date().toISOString();
   let imported = 0;
   let alreadyOnRoster = 0;

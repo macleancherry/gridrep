@@ -47,6 +47,17 @@ export async function onRequestPost(context: any) {
   const conditionProfileId: string | null = typeof body?.conditionProfileId === "string" ? body.conditionProfileId : null;
   const fuelOverrides: Record<string, number> = body?.fuelOverrides && typeof body.fuelOverrides === "object" ? body.fuelOverrides : {};
 
+  // Optional: the gridrep team this plan belongs to, if any - lets the Garage 61 fuel
+  // fallback (plannerGarage61Fuel.ts) scope its lap search to that team's own Garage 61
+  // team (when one was ever linked via "Import roster from Garage 61") instead of every
+  // Garage 61 team the connecting coordinator happens to belong to.
+  const requestTeamId: string | null = typeof body?.teamId === "string" ? body.teamId : null;
+  let garage61TeamSlug: string | null = null;
+  if (requestTeamId) {
+    const teamRow = await DB.prepare(`SELECT garage61_team_slug as slug FROM teams WHERE id = ?`).bind(requestTeamId).first<any>();
+    garage61TeamSlug = teamRow?.slug ?? null;
+  }
+
   let tempMid: number | null = null;
   if (conditionProfileId) {
     const profile = await DB.prepare(
@@ -120,7 +131,7 @@ export async function onRequestPost(context: any) {
       fuelPerLap = existing.fuelPerLap;
       fuelSource = existing.fuelSource;
     } else {
-      const garage61Result = await resolveGarage61Fuel(context, DB, custId, event.trackName, event.trackConfig ?? null);
+      const garage61Result = await resolveGarage61Fuel(context, DB, custId, event.trackName, event.trackConfig ?? null, garage61TeamSlug);
       if (garage61Result) {
         fuelPerLap = garage61Result.fuelPerLap;
         fuelSource = garage61Result.source;

@@ -88,6 +88,7 @@ export default function LineupPage() {
   const [teamSize, setTeamSize] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
   const [lineup, setLineup] = useState<{ custId: string; name: string }[]>([]);
   const [teamRoster, setTeamRoster] = useState<TeamRosterMember[]>([]);
+  const [planTeamId, setPlanTeamId] = useState<string | null>(null);
   const [weekendId, setWeekendId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const { results: searchResults, livePending: liveSearchPending } = useDriverSearch(query);
@@ -125,6 +126,7 @@ export default function LineupPage() {
         setEventId(data.eventId);
         setLineup((data.lineup ?? []).map((d: any) => ({ custId: d.custId, name: d.driverName ?? `Driver ${d.custId}` })));
         setTeamRoster(data.teamRoster ?? []);
+        setPlanTeamId(data.teamId ?? null);
         setWeekendId(data.weekendId ?? null);
       })
       .catch(() => setError("Network error. Please try again."))
@@ -325,6 +327,7 @@ export default function LineupPage() {
           custIds: lineup.map((d) => d.custId),
           conditionProfileId: selectedProfileId || undefined,
           fuelOverrides,
+          teamId: planTeamId || undefined,
         }),
       });
       const data = await r.json().catch(() => ({}));
