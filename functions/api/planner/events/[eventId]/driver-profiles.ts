@@ -11,8 +11,10 @@ import { json, jsonError } from "../../../../_lib/httpJson";
  *
  * Fuel-per-lap prefers real Garage 61 data (plannerGarage61Fuel.ts) when a confident match
  * is available, falling back to manual entry (PRD §5.2/§5.4's required fallback) otherwise.
- * A driver's own explicit manual entry always wins and is never silently overwritten by a
- * real-data lookup on a later recompute.
+ * Pace has the same manual fallback for a driver with no synced clean laps at this track -
+ * with neither, Stints' pace+fuel readiness gate could never open for them. Either field's
+ * own explicit manual entry always wins and is never silently overwritten by a later
+ * automated recompute.
  */
 export async function onRequestPost(context: any) {
   const viewer = await getViewer(context);
@@ -40,6 +42,7 @@ export async function onRequestPost(context: any) {
   }
   const conditionProfileId: string | null = typeof body?.conditionProfileId === "string" ? body.conditionProfileId : null;
   const fuelOverrides: Record<string, number> = body?.fuelOverrides && typeof body.fuelOverrides === "object" ? body.fuelOverrides : {};
+  const paceOverridesMs: Record<string, number> = body?.paceOverrides && typeof body.paceOverrides === "object" ? body.paceOverrides : {};
 
   // Optional: the gridrep team this plan belongs to, if any - lets the Garage 61 fuel
   // fallback (plannerGarage61Fuel.ts) scope its lap search to that team's own Garage 61
@@ -76,6 +79,7 @@ export async function onRequestPost(context: any) {
 
   for (const custId of custIds) {
     const overrideFuel = fuelOverrides[custId];
+    const overridePaceMs = paceOverridesMs[custId];
     const result = await computeAndStoreOneDriverProfile(context, DB, {
       custId,
       trackName: event.trackName,
@@ -84,6 +88,7 @@ export async function onRequestPost(context: any) {
       tempMid,
       garage61TeamSlug,
       fuelOverride: typeof overrideFuel === "number" && Number.isFinite(overrideFuel) ? overrideFuel : undefined,
+      paceOverrideMs: typeof overridePaceMs === "number" && Number.isFinite(overridePaceMs) ? overridePaceMs : undefined,
     });
     results.push(result);
   }
@@ -113,10 +118,10 @@ export async function onRequestGet(context: any) {
 
   const rows = await DB.prepare(
     `SELECT p.cust_id as custId, d.display_name as driverName, p.track_name as trackName,
-            p.condition_profile_id as conditionProfileId, p.pace_ms as paceMs, p.laps_used as lapsUsed,
-            p.sample_size as sampleSize, p.widened_band as widenedBand, p.fuel_per_lap as fuelPerLap,
-            p.fuel_source as fuelSource, p.pit_time_seconds as pitTimeSeconds, p.pit_time_source as pitTimeSource,
-            p.computed_at as computedAt
+            p.condition_profile_id as conditionProfileId, p.pace_ms as paceMs, p.pace_source as paceSource,
+            p.laps_used as lapsUsed, p.sample_size as sampleSize, p.widened_band as widenedBand,
+            p.fuel_per_lap as fuelPerLap, p.fuel_source as fuelSource, p.pit_time_seconds as pitTimeSeconds,
+            p.pit_time_source as pitTimeSource, p.computed_at as computedAt
      FROM driver_track_profiles p
      LEFT JOIN drivers d ON d.iracing_member_id = p.cust_id
      WHERE p.id IN (${placeholders})`

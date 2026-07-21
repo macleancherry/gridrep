@@ -11,6 +11,7 @@ type DriverProfile = {
   ok: boolean;
   reason?: string;
   paceMs: number | null;
+  paceSource: string | null;
   lapsUsed: number;
   sampleSize: number;
   widenedBand: boolean;
@@ -48,6 +49,25 @@ function formatPace(ms: number | null): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = (totalSeconds % 60).toFixed(3).padStart(6, "0");
   return `${minutes}:${seconds}`;
+}
+
+// Accepts either "m:ss.sss" (matching formatPace's own display format) or plain seconds
+// ("92.456") - whatever's fastest for a coordinator to type in from a stopwatch or a
+// results screen. Returns null for anything that doesn't parse to a positive lap time.
+function parsePaceInput(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const colonMatch = trimmed.match(/^(\d+):(\d{1,2}(?:\.\d+)?)$/);
+  if (colonMatch) {
+    const minutes = Number(colonMatch[1]);
+    const seconds = Number(colonMatch[2]);
+    if (!Number.isFinite(minutes) || !Number.isFinite(seconds) || seconds >= 60) return null;
+    const ms = Math.round((minutes * 60 + seconds) * 1000);
+    return ms > 0 ? ms : null;
+  }
+  const secondsOnly = Number(trimmed);
+  if (Number.isFinite(secondsOnly) && secondsOnly > 0) return Math.round(secondsOnly * 1000);
+  return null;
 }
 
 function StatusBadge({ s }: { s: SearchStatus | undefined }) {
@@ -99,6 +119,8 @@ export default function LineupPage() {
   const [error, setError] = useState<string | null>(null);
   const [fuelDrafts, setFuelDrafts] = useState<Record<string, string>>({});
   const [savingFuelFor, setSavingFuelFor] = useState<string | null>(null);
+  const [paceDrafts, setPaceDrafts] = useState<Record<string, string>>({});
+  const [savingPaceFor, setSavingPaceFor] = useState<string | null>(null);
   const [searchStatus, setSearchStatus] = useState<Record<string, SearchStatus>>({});
 
   // If this weekend isn't linked to a team yet, offer to link one instead of silently
@@ -302,6 +324,45 @@ export default function LineupPage() {
       if (r.ok && data.ok) setProfiles(data.profiles ?? []);
     } catch {
       // Polling will pick it up on the next tick regardless.
+    }
+  }
+
+  // Manual pace entry - the same required fallback fuel already has (PRD §5.2/§5.4), for a
+  // driver with no synced clean laps at this track. Without it, Stints' pace+fuel readiness
+  // gate could never open for them no matter what fuel value was entered.
+  async function savePaceOverride(custId: string) {
+    if (!eventId) return;
+    const raw = paceDrafts[custId];
+    const ms = raw ? parsePaceInput(raw) : null;
+    if (!raw || raw.trim() === "" || ms === null) return;
+
+    setSavingPaceFor(custId);
+    try {
+      const r = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/driver-profiles`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          custIds: [custId],
+          conditionProfileId: selectedProfileId || undefined,
+          paceOverrides: { [custId]: ms },
+          teamId: planTeamId || undefined,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data.ok && data.profiles?.length) {
+        const updated = data.profiles[0];
+        setProfiles((prev) => [...prev.filter((p) => p.custId !== custId), updated]);
+        setPaceDrafts((prev) => {
+          const next = { ...prev };
+          delete next[custId];
+          return next;
+        });
+      }
+    } catch {
+      setError("Could not save that pace value. Please try again.");
+    } finally {
+      setSavingPaceFor(null);
     }
   }
 
@@ -527,33 +588,55 @@ export default function LineupPage() {
                       </div>
                     )}
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div className="rp-form-field">
-                      <label>Fuel / lap (L)</label>
-                      <input
-                        className="rp-input"
-                        style={{ width: 90 }}
-                        type="number"
-                        step="0.01"
-                        placeholder={p.fuelPerLap !== null ? String(p.fuelPerLap) : "manual"}
-                        value={fuelDrafts[p.custId] ?? ""}
-                        onChange={(e) => setFuelDrafts({ ...fuelDrafts, [p.custId]: e.target.value })}
-                        onBlur={() => saveFuelOverride(p.custId)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                        }}
-                        disabled={savingFuelFor === p.custId}
-                      />
+                  <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div className="rp-form-field">
+                        <label>Pace (lap time)</label>
+                        <input
+                          className="rp-input"
+                          style={{ width: 100 }}
+                          type="text"
+                          placeholder={p.paceMs !== null ? formatPace(p.paceMs) : "m:ss.sss"}
+                          value={paceDrafts[p.custId] ?? ""}
+                          onChange={(e) => setPaceDrafts({ ...paceDrafts, [p.custId]: e.target.value })}
+                          onBlur={() => savePaceOverride(p.custId)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                          }}
+                          disabled={savingPaceFor === p.custId}
+                          title="No recent laps synced at this track? Type a lap time here (e.g. 1:32.456) to unblock stint planning."
+                        />
+                      </div>
+                      {p.paceSource === "manual" && <span className="rp-badge rp-dim">Manual</span>}
                     </div>
-                    {p.fuelSource &&
-                      (() => {
-                        const badge = fuelSourceBadge(p.fuelSource);
-                        return (
-                          <span className={`rp-badge ${badge.className}`} title={badge.title}>
-                            {badge.label}
-                          </span>
-                        );
-                      })()}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div className="rp-form-field">
+                        <label>Fuel / lap (L)</label>
+                        <input
+                          className="rp-input"
+                          style={{ width: 90 }}
+                          type="number"
+                          step="0.01"
+                          placeholder={p.fuelPerLap !== null ? String(p.fuelPerLap) : "manual"}
+                          value={fuelDrafts[p.custId] ?? ""}
+                          onChange={(e) => setFuelDrafts({ ...fuelDrafts, [p.custId]: e.target.value })}
+                          onBlur={() => saveFuelOverride(p.custId)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                          }}
+                          disabled={savingFuelFor === p.custId}
+                        />
+                      </div>
+                      {p.fuelSource &&
+                        (() => {
+                          const badge = fuelSourceBadge(p.fuelSource);
+                          return (
+                            <span className={`rp-badge ${badge.className}`} title={badge.title}>
+                              {badge.label}
+                            </span>
+                          );
+                        })()}
+                    </div>
                   </div>
                 </div>
               </div>

@@ -147,6 +147,7 @@ export type ComputeAndStoreOpts = {
   tempMid: number | null;
   garage61TeamSlug: string | null;
   fuelOverride?: number;
+  paceOverrideMs?: number;
 };
 
 export type StoredDriverProfileResult = {
@@ -161,6 +162,7 @@ export type StoredDriverProfileResult = {
   sampleSize: number;
   widenedBand: boolean;
   bandWidthC: number | null;
+  paceSource: string | null;
   fuelPerLap: number | null;
   fuelSource: string | null;
   pitTimeSeconds: number | null;
@@ -169,7 +171,9 @@ export type StoredDriverProfileResult = {
 
 /**
  * Computes and persists one driver's track/condition profile - pace (this file's own
- * computeDriverTrackProfile), pit time (computePitTimeSeconds, falling back to Garage 61's
+ * computeDriverTrackProfile, respecting a previously saved manual override - a driver with
+ * no synced clean laps at this track has no other way to unblock Stints' pace+fuel
+ * readiness gate), pit time (computePitTimeSeconds, falling back to Garage 61's
  * directly-reported pitlane data), and fuel-per-lap (Garage 61, respecting a previously
  * saved manual override). Extracted from driver-profiles.ts's POST handler so the
  * lineup-add background trigger (functions/api/planner/race-plans/[planId]/lineup.ts) can
@@ -177,7 +181,7 @@ export type StoredDriverProfileResult = {
  * needing to visit this page and click a "compute" button themselves.
  */
 export async function computeAndStoreOneDriverProfile(context: any, DB: any, opts: ComputeAndStoreOpts): Promise<StoredDriverProfileResult> {
-  const { custId, trackName, trackConfig, conditionProfileId, tempMid, garage61TeamSlug, fuelOverride } = opts;
+  const { custId, trackName, trackConfig, conditionProfileId, tempMid, garage61TeamSlug, fuelOverride, paceOverrideMs } = opts;
 
   const lapsRes = await DB.prepare(
     `SELECT l.lap_time_ms as lapTimeMs, l.is_pit_lap as isPitLap, l.is_clean as isClean, s.track_temp as trackTemp
@@ -195,7 +199,33 @@ export async function computeAndStoreOneDriverProfile(context: any, DB: any, opt
     trackTemp: r.trackTemp,
   }));
 
-  const computed = computeDriverTrackProfile(custId, trackName, laps, { tempMid });
+  const computedFromLaps = computeDriverTrackProfile(custId, trackName, laps, { tempMid });
+
+  const rowId = driverProfileRowId(custId, trackName, conditionProfileId);
+  const existing = await DB.prepare(
+    `SELECT pace_ms as paceMs, pace_source as paceSource, fuel_per_lap as fuelPerLap, fuel_source as fuelSource
+     FROM driver_track_profiles WHERE id = ?`
+  )
+    .bind(rowId)
+    .first<any>();
+
+  let computed: DriverProfileResult;
+  let paceSource: string | null;
+
+  if (typeof paceOverrideMs === "number" && Number.isFinite(paceOverrideMs) && paceOverrideMs > 0) {
+    // An explicit manual entry for this call always wins - never overwritten by a real
+    // computation on a later recompute, same rule fuel already follows below.
+    computed = { ...computedFromLaps, paceMs: paceOverrideMs, ok: true, reason: undefined };
+    paceSource = "manual";
+  } else if (existing?.paceSource === "manual" && existing.paceMs !== null) {
+    // A human already vetted this value - don't silently clobber it once real laps sync in.
+    computed = { ...computedFromLaps, paceMs: existing.paceMs, ok: true, reason: undefined };
+    paceSource = "manual";
+  } else {
+    computed = computedFromLaps;
+    paceSource = computed.ok ? "computed" : null;
+  }
+
   let pitTimeSeconds = computePitTimeSeconds(laps, computed.paceMs);
   let pitTimeSource: string | null = pitTimeSeconds === null ? null : "derived";
 
@@ -206,11 +236,6 @@ export async function computeAndStoreOneDriverProfile(context: any, DB: any, opt
       pitTimeSource = "garage61_derived";
     }
   }
-
-  const rowId = driverProfileRowId(custId, trackName, conditionProfileId);
-  const existing = await DB.prepare(`SELECT fuel_per_lap as fuelPerLap, fuel_source as fuelSource FROM driver_track_profiles WHERE id = ?`)
-    .bind(rowId)
-    .first<any>();
 
   let fuelPerLap: number | null;
   let fuelSource: string | null;
@@ -238,11 +263,12 @@ export async function computeAndStoreOneDriverProfile(context: any, DB: any, opt
   const now = new Date().toISOString();
   await DB.prepare(
     `INSERT INTO driver_track_profiles (
-       id, cust_id, track_name, condition_profile_id, pace_ms, laps_used, sample_size,
+       id, cust_id, track_name, condition_profile_id, pace_ms, pace_source, laps_used, sample_size,
        widened_band, fuel_per_lap, fuel_source, pit_time_seconds, pit_time_source, computed_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        pace_ms = excluded.pace_ms,
+       pace_source = excluded.pace_source,
        laps_used = excluded.laps_used,
        sample_size = excluded.sample_size,
        widened_band = excluded.widened_band,
@@ -258,6 +284,7 @@ export async function computeAndStoreOneDriverProfile(context: any, DB: any, opt
       trackName,
       conditionProfileId,
       computed.paceMs,
+      paceSource,
       computed.lapsUsed,
       computed.sampleSize,
       computed.widenedBand ? 1 : 0,
@@ -283,6 +310,7 @@ export async function computeAndStoreOneDriverProfile(context: any, DB: any, opt
     sampleSize: computed.sampleSize,
     widenedBand: computed.widenedBand,
     bandWidthC: computed.bandWidthC,
+    paceSource,
     fuelPerLap,
     fuelSource,
     pitTimeSeconds,
