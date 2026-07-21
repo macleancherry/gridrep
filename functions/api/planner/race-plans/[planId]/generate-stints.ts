@@ -10,7 +10,6 @@ type Candidate = {
   driverName: string;
   paceMs: number;
   fuelPerLap: number;
-  maxLaps: number;
   nightPreference: Pref;
   wetPreference: Pref;
   startPreference: Pref;
@@ -21,6 +20,12 @@ function blockForOffset(blocks: AvailabilityBlock[], offsetMinutes: number): Ava
     if (offsetMinutes >= b.blockStartOffsetMinutes && offsetMinutes < b.blockEndOffsetMinutes) return b;
   }
   return blocks.length > 0 ? blocks[blocks.length - 1] : null;
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
 /**
@@ -37,6 +42,17 @@ function blockForOffset(blocks: AvailabilityBlock[], offsetMinutes: number): Ava
  * the fatigue-stretch warning the manual flow already surfaces doesn't fire by
  * construction (except in the single-eligible-driver case, which is genuinely
  * unavoidable and called out in the response).
+ *
+ * Stint *length* (lap count) is deliberately decoupled from *who* gets picked: it comes
+ * from the median pace/fuel across every candidate with a computed profile, not from
+ * whichever specific driver the scoring above lands on. Otherwise two structurally
+ * identical stints could come out different lengths purely because a faster or slower
+ * driver happened to get picked - the track-average keeps stint structure predictable,
+ * while each stint's actual duration/fuel/pit-target still reflects its real assigned
+ * driver's own numbers (cursorMinutes advances on `best`'s real pace, never the average).
+ * A coordinator can also reassign any stint's driver afterward on the Stints page - that
+ * keeps this same lap count and recomputes duration/fuel from the new driver's real
+ * profile client-side (src/racePlanner/stintMath.ts), confirmed here again on save.
  */
 export async function onRequestPost(context: any) {
   const viewer = await getViewer(context);
@@ -110,16 +126,11 @@ export async function onRequestPost(context: any) {
       .bind(driver.custId)
       .first<any>();
 
-    const lapMinutes = profile.paceMs / 60000;
-    const maxLapsByFuel = tankCapacityLiters !== null ? Math.max(1, Math.floor(tankCapacityLiters / profile.fuelPerLap)) : Infinity;
-    const maxLapsByFatigue = Math.max(1, Math.floor(fatigueThresholdMinutes / lapMinutes));
-
     candidates.push({
       custId: driver.custId,
       driverName: driver.driverName ?? `Driver ${driver.custId}`,
       paceMs: profile.paceMs,
       fuelPerLap: profile.fuelPerLap,
-      maxLaps: Math.min(maxLapsByFuel, maxLapsByFatigue),
       nightPreference: prefRow?.nightPreference ?? "neutral",
       wetPreference: prefRow?.wetPreference ?? "neutral",
       startPreference: prefRow?.startPreference ?? "neutral",
@@ -135,6 +146,16 @@ export async function onRequestPost(context: any) {
   if (candidates.length === 1) {
     notes.push(`Only ${candidates[0].driverName} has a computed profile - every stint goes to them, so the fatigue warning below is expected.`);
   }
+
+  // Track-average lap count: the median pace/fuel across every candidate with a computed
+  // profile, used only to decide how many laps each *slot* in the timeline gets - keeps
+  // stint structure predictable regardless of who ends up assigned to it (see docstring).
+  const avgPaceMs = median(candidates.map((c) => c.paceMs));
+  const avgFuelPerLap = median(candidates.map((c) => c.fuelPerLap));
+  const avgLapMinutes = avgPaceMs / 60000;
+  const avgMaxLapsByFuel = tankCapacityLiters !== null ? Math.max(1, Math.floor(tankCapacityLiters / avgFuelPerLap)) : Infinity;
+  const avgMaxLapsByFatigue = Math.max(1, Math.floor(fatigueThresholdMinutes / avgLapMinutes));
+  const avgPerStintMaxLaps = Math.min(avgMaxLapsByFuel, avgMaxLapsByFatigue);
 
   // Availability + condition-window lookups, both optional signals - missing data never
   // blocks generation, it just falls back to "assume available" / "no preference."
@@ -225,15 +246,14 @@ export async function onRequestPost(context: any) {
     }
 
     const remainingMinutes = raceDurationMinutes - cursorMinutes;
-    const lapMinutes = best.paceMs / 60000;
-    const lapsNeededForRemaining = Math.max(1, Math.ceil(remainingMinutes / lapMinutes));
-    const lapCount = Math.max(1, Math.min(best.maxLaps, lapsNeededForRemaining));
+    const lapsNeededForRemaining = Math.max(1, Math.ceil(remainingMinutes / avgLapMinutes));
+    const lapCount = Math.max(1, Math.min(avgPerStintMaxLaps, lapsNeededForRemaining));
 
     stintInputs.push({ custId: best.custId, lapCount, paceMs: best.paceMs, fuelPerLap: best.fuelPerLap });
     stintCountByCustId[best.custId] = (stintCountByCustId[best.custId] ?? 0) + 1;
 
     const pitStopMinutes = plan.pitStopSeconds / 60;
-    cursorMinutes += lapCount * lapMinutes + pitStopMinutes;
+    cursorMinutes += lapCount * (best.paceMs / 60000) + pitStopMinutes;
     lastCustId = best.custId;
   }
 

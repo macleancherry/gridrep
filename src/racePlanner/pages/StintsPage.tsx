@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { usePlanContext } from "../PlanContext";
+import { computeStintProjections, computeDutyWarnings, type StintInput, type SpottingAssignment as StintMathSpotting } from "../stintMath";
 
 type LineupDriver = { custId: string; driverName: string };
 type ConditionProfile = { id: string; label: string };
@@ -53,6 +54,12 @@ export default function StintsPage() {
   const { setContext } = usePlanContext();
   const [eventId, setEventId] = useState<string | null>(null);
   const [planTeamId, setPlanTeamId] = useState<string | null>(null);
+  // Plan-level numbers computeStintProjections/computeDutyWarnings need for instant local
+  // recompute (driver swap, add/remove/reorder) - mirrors exactly what the server already
+  // uses in stints.ts/generate-stints.ts, just read once here for client-side preview math.
+  const [pitStopSeconds, setPitStopSeconds] = useState(55);
+  const [tankCapacityLiters, setTankCapacityLiters] = useState<number | null>(null);
+  const [fatigueThresholdMinutes, setFatigueThresholdMinutes] = useState(120);
   const [lineup, setLineup] = useState<LineupDriver[]>([]);
   const [conditionProfiles, setConditionProfiles] = useState<ConditionProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
@@ -94,6 +101,9 @@ export default function StintsPage() {
     }
     setEventId(data.eventId);
     setPlanTeamId(data.teamId ?? null);
+    setPitStopSeconds(data.plan?.pit_stop_seconds ?? 55);
+    setTankCapacityLiters(data.plan?.fuel_tank_capacity_liters ?? null);
+    setFatigueThresholdMinutes(data.plan?.fatigue_threshold_minutes ?? 120);
     setLineup(data.lineup ?? []);
     setStints(data.stints ?? []);
     setTotals(data.totals ?? null);
@@ -183,12 +193,36 @@ export default function StintsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId, eventId]);
 
+  // Instant local preview (no network call) for every local-only edit - driver swap,
+  // add/remove/reorder. Mirrors exactly what the server does on save (computeStintProjections
+  // + computeDutyWarnings in stints.ts), using the client-side port in stintMath.ts, so the
+  // numbers shown here are real, not placeholders - "Save stint plan" still round-trips
+  // through the server, which remains authoritative and overwrites this preview either way.
+  function recomputeLocally(nextStints: Stint[]) {
+    const driverNameByCustId = new Map(nextStints.map((s) => [s.custId, s.driverName]));
+    const inputs: StintInput[] = nextStints.map((s) => ({ custId: s.custId, lapCount: s.lapCount, paceMs: s.paceMs, fuelPerLap: s.fuelPerLap }));
+    const { stints: computed, totals: newTotals } = computeStintProjections(inputs, { pitStopSeconds, tankCapacityLiters });
+    const withNames: Stint[] = computed.map((c) => ({
+      ...c,
+      driverName: driverNameByCustId.get(c.custId) ?? lineup.find((d) => d.custId === c.custId)?.driverName ?? c.custId,
+    }));
+    setStints(withNames);
+    setTotals(newTotals);
+
+    const spottingInputs: StintMathSpotting[] = spotting.map((s) => ({
+      custId: s.custId,
+      startOffsetMinutes: s.startOffsetMinutes,
+      endOffsetMinutes: s.endOffsetMinutes,
+    }));
+    setWarnings(computeDutyWarnings(computed, spottingInputs, fatigueThresholdMinutes));
+  }
+
   function addStint() {
     const profile = driverProfiles.find((p) => p.custId === newDriverId);
     const lapCount = Number(newLapCount);
     if (!profile || !profile.paceMs || !profile.fuelPerLap || !lapCount) return;
 
-    setStints([
+    recomputeLocally([
       ...stints,
       {
         custId: profile.custId,
@@ -207,17 +241,30 @@ export default function StintsPage() {
   }
 
   function removeStint(index: number) {
-    setStints(stints.filter((_, i) => i !== index));
+    recomputeLocally(stints.filter((_, i) => i !== index));
   }
 
   function moveStint(from: number, to: number) {
     if (to < 0 || to >= stints.length || from === to) return;
-    setStints((prev) => {
-      const next = [...prev];
-      const [item] = next.splice(from, 1);
-      next.splice(to, 0, item);
-      return next;
-    });
+    const next = [...stints];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    recomputeLocally(next);
+  }
+
+  // Swap a stint's driver, keeping its lap count fixed (the structural choice made at
+  // generation time) - duration/fuel/pit-target update to the new driver's real numbers,
+  // and the "Over fuel capacity" warning appears immediately if their real fuel-per-lap
+  // pushes this stint's fuel load past the tank. Every later stint's offsets cascade too.
+  function changeStintDriver(index: number, newCustId: string) {
+    const profile = driverProfiles.find((p) => p.custId === newCustId);
+    if (!profile || profile.paceMs === null || profile.fuelPerLap === null) return;
+    const driverName = lineup.find((d) => d.custId === newCustId)?.driverName ?? profile.driverName;
+
+    const next = stints.map((s, i) =>
+      i === index ? { ...s, custId: newCustId, driverName, paceMs: profile.paceMs as number, fuelPerLap: profile.fuelPerLap as number } : s
+    );
+    recomputeLocally(next);
   }
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -484,7 +531,24 @@ export default function StintsPage() {
                         <span className="rp-badge rp-dim rp-mono" style={{ marginRight: 8 }}>
                           #{String(i + 1).padStart(2, "0")}
                         </span>
-                        <span className="rp-profile-label">{s.driverName}</span>
+                        <select
+                          className="rp-input"
+                          style={{ display: "inline-block", width: "auto", fontWeight: 600 }}
+                          value={s.custId}
+                          onChange={(e) => changeStintDriver(i, e.target.value)}
+                          title="Change who drives this stint - lap count stays the same, everything else recalculates"
+                        >
+                          {lineup.map((d) => {
+                            const p = driverProfiles.find((x) => x.custId === d.custId);
+                            const ready = Boolean(p?.paceMs && p?.fuelPerLap);
+                            return (
+                              <option key={d.custId} value={d.custId} disabled={!ready}>
+                                {d.driverName}
+                                {!ready ? " (finding pace/fuel…)" : ""}
+                              </option>
+                            );
+                          })}
+                        </select>
                         {s.fuelWarning && (
                           <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
                             Over fuel capacity
