@@ -537,7 +537,11 @@ export async function getCachedSchedulesForSeries(
   accessToken: string,
   seriesId: string
 ): Promise<{ sessions: ScheduleSession[]; cachedAt: string; stale: boolean }> {
-  const cacheId = `series_schedule:${seriesId}`;
+  // Versioned (v2 adds eligibleCarIds/carClassIds - see extractEligibleCars) so a cache row
+  // populated by the pre-car-selection extraction shape is never silently served back
+  // missing those fields for up to its full 6h TTL. Bump this suffix again any time
+  // extractSchedulesForSeries's output shape changes.
+  const cacheId = `series_schedule_v2:${seriesId}`;
   const row = await readSeriesCacheRow(DB, cacheId);
   if (isRowFresh(row)) {
     return { sessions: JSON.parse(row!.json), cachedAt: row!.fetchedAt, stale: false };
@@ -630,11 +634,35 @@ export type ResolvedCar = { carId: number; carName: string; carClassId: number |
  * carClassIds this specific car actually belongs to (not iRacing's generic catalog-wide
  * classes), null if it can't be determined. */
 export function resolveEligibleCars(catalog: CarCatalog, eligibleCarIds: number[], eventCarClassIds: number[]): ResolvedCar[] {
-  return eligibleCarIds.map((carId) => {
-    const info = catalog.cars[carId];
-    const carClassId = eventCarClassIds.find((classId) => catalog.classCars[classId]?.includes(carId)) ?? null;
-    return { carId, carName: info?.carName ?? `Car ${carId}`, carClassId };
-  });
+  if (eligibleCarIds.length > 0) {
+    return eligibleCarIds.map((carId) => {
+      const info = catalog.cars[carId];
+      const carClassId = eventCarClassIds.find((classId) => catalog.classCars[classId]?.includes(carId)) ?? null;
+      return { carId, carName: info?.carName ?? `Car ${carId}`, carClassId };
+    });
+  }
+
+  // No explicit per-car restriction list - confirmed live (2026-07-21, "Global Endurance
+  // Tour"): a genuine multi-class series names its eligible car_class_ids at the season
+  // level but leaves each schedule's car_restrictions[] empty rather than enumerating
+  // every allowed car individually. Fall back to every car in those known classes rather
+  // than showing an empty picker.
+  if (eventCarClassIds.length > 0) {
+    const seen = new Set<number>();
+    const out: ResolvedCar[] = [];
+    for (const classId of eventCarClassIds) {
+      for (const carId of catalog.classCars[classId] ?? []) {
+        if (seen.has(carId)) continue;
+        seen.add(carId);
+        const info = catalog.cars[carId];
+        if (!info) continue; // unknown/retired car id in the catalog - skip rather than show a bare number
+        out.push({ carId, carName: info.carName, carClassId: classId });
+      }
+    }
+    return out.sort((a, b) => a.carName.localeCompare(b.carName));
+  }
+
+  return [];
 }
 
 /** Every car_id sharing a real racing class with the given one, per the cached catalog -

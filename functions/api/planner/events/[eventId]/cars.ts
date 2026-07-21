@@ -6,7 +6,7 @@ import { json, jsonError } from "../../../../_lib/httpJson";
  * Resolves this event's eligible_car_ids/car_class_ids (captured at select-session time
  * from car_restrictions[]/season.car_class_ids - see plannerIracing.ts) into a display-
  * ready {carId, carName, carClassId} list for the "Race car" picker on LineupPage.tsx.
- * An event with no car-restriction data (most regular series) returns an empty list - the
+ * An event with neither piece of data (most regular series) returns an empty list - the
  * picker degrades to free-text car_name entry, same as before this feature existed.
  */
 export async function onRequestGet(context: any) {
@@ -28,7 +28,7 @@ export async function onRequestGet(context: any) {
   const eligibleCarIds: number[] = event.eligibleCarIds ? JSON.parse(event.eligibleCarIds) : [];
   const carClassIds: number[] = event.carClassIds ? JSON.parse(event.carClassIds) : [];
 
-  if (eligibleCarIds.length === 0) {
+  if (eligibleCarIds.length === 0 && carClassIds.length === 0) {
     return json({ ok: true, eventId, cars: [] });
   }
 
