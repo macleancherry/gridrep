@@ -751,6 +751,7 @@ export type ScheduleSession = {
   trackConfig?: string;
   specialEventType?: number;
   scheduledStartTime?: string; // ISO - this slot's real-world start (when practice opens, if attached)
+  weekEndTime?: string; // ISO - confirmed live: when this schedule/build stops being joinable at all
   slotIndex: number; // which alternative real-world start time this row represents
   slotCount: number; // how many alternative start times this schedule entry offers in total
   practiceLengthMinutes?: number;
@@ -861,7 +862,10 @@ function extractSessionTimes(row: Record<string, unknown>): string[] {
  * fallback to a week_end_time/start_date diff: that window includes practice and
  * qualifying time, which is exactly the bug this replaces (see plan report, Bug #2).
  * A lap-limited race with no time limit correctly comes back `undefined` rather than
- * a wrong number - existing UI already renders "—" for a missing duration. */
+ * a wrong number - existing UI already renders "—" for a missing duration.
+ * (`week_end_time` itself is still real, useful data - just for a different question:
+ * SeriesSessionsPage.tsx uses it, unmodified, as the "is this schedule still joinable at
+ * all" boundary, not for this race-duration calc.) */
 function deriveRaceLengthMinutes(row: Record<string, unknown>): number | undefined {
   return pickNumber(row.race_time_limit);
 }
@@ -914,6 +918,7 @@ export function extractSchedulesForSeries(payload: any, seriesId: string): Sched
         qualifyLengthMinutes: qualAttached ? pickNumber(s.qualify_length) : undefined,
         warmupLengthMinutes: pickNumber(s.warmup_length),
         raceLengthMinutes: deriveRaceLengthMinutes(s),
+        weekEndTime: pickString(s.week_end_time),
         forecastAvailable: Boolean(weatherUrl),
         weatherUrl,
         forecastSummary: extractForecastSummary(s),

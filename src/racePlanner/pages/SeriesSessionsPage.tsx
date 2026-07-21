@@ -9,6 +9,7 @@ type ScheduleSession = {
   trackConfig?: string;
   specialEventType?: number;
   scheduledStartTime?: string;
+  weekEndTime?: string;
   slotIndex: number;
   slotCount: number;
   practiceLengthMinutes?: number;
@@ -42,16 +43,32 @@ function phaseSummary(s: ScheduleSession): string {
 }
 
 // scheduledStartTime is when PRACTICE opens (real-world), not the green flag - add back
-// the practice+qualifying+warmup lead-in to find when the race itself actually ends, so a
-// session already fully run isn't offered as something new to plan for. A slot with no
-// known start time (Time TBD) is never filtered - there's nothing to compare against.
+// the practice+qualifying+warmup lead-in to find when this specific instance ends. That's
+// the right check for a genuine special event's alternative real-world start times (each
+// one really is a one-off instance) - but for a regular repeating series, there's no
+// explicit list of alternative times at all (extractSessionTimes falls back to a single
+// derived start), even though iRacing keeps spawning fresh hosted sessions of that same
+// build every day, all week (confirmed live: race_time_descriptors[0].repeating +
+// day_offset covering every day). Filtering by that one instance's own short duration was
+// hiding a series that's still joinable for days - e.g. a Tuesday-opened week looking
+// "finished" by Wednesday. iRacing's own `week_end_time` (confirmed live, present on both
+// regular and special schedules) is the real signal for how long a schedule/build stays
+// joinable at all, so it's taken as a floor on top of the per-instance calc - whichever is
+// later wins, never earlier. Falls back to 7 days from start (iRacing's week length) on
+// the rare chance week_end_time is ever missing. A slot with no known start time (Time
+// TBD) is never filtered - there's nothing to compare against.
 function hasEnded(s: ScheduleSession): boolean {
   if (!s.scheduledStartTime) return false;
   const startMs = Date.parse(s.scheduledStartTime);
   if (!Number.isFinite(startMs)) return false;
+
   const raceStartOffsetMinutes = (s.practiceLengthMinutes ?? 0) + (s.qualifyLengthMinutes ?? 0) + (s.warmupLengthMinutes ?? 0);
-  const endMs = startMs + (raceStartOffsetMinutes + (s.raceLengthMinutes ?? 0)) * 60_000;
-  return endMs < Date.now();
+  const ownInstanceEndMs = startMs + (raceStartOffsetMinutes + (s.raceLengthMinutes ?? 0)) * 60_000;
+
+  const weekEndMs = s.weekEndTime ? Date.parse(s.weekEndTime) : NaN;
+  const scheduleEndMs = Number.isFinite(weekEndMs) ? weekEndMs : startMs + 7 * 24 * 60 * 60_000;
+
+  return Math.max(ownInstanceEndMs, scheduleEndMs) < Date.now();
 }
 
 // The API returns one flat row per real-world start-time slot; group them back into
