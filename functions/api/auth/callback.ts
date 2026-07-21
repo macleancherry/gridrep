@@ -265,6 +265,21 @@ export async function onRequestGet(context: any) {
     .bind(String(identity.iracingId), identity.name ?? `Driver ${identity.iracingId}`, now)
     .run();
 
+  // Link up any team roster spot a coordinator added by name search before this driver
+  // ever had a gridrep account (functions/api/planner/teams/[teamId]/members.ts inserts
+  // those as user_id NULL, status 'invited' since there was no account yet to link to).
+  // Same "instant grant once we know who they are" rule that endpoint already applies
+  // when adding someone who *does* already have an account - nothing here should require
+  // a separate accept step, or this driver would have no way to ever discover the team
+  // was waiting for them at all (GET /api/planner/teams only returns rows matched to a
+  // real user_id).
+  await DB.prepare(
+    `UPDATE team_members SET user_id = ?, status = 'active', joined_at = COALESCE(joined_at, ?)
+     WHERE cust_id = ? AND status = 'invited' AND user_id IS NULL`
+  )
+    .bind(userId, now, String(identity.iracingId))
+    .run();
+
   // Store tokens
   await DB.prepare(
     `INSERT INTO oauth_tokens (user_id, access_token, refresh_token, access_expires_at, refresh_expires_at, scope, updated_at)

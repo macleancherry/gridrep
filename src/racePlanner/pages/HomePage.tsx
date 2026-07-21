@@ -92,11 +92,6 @@ export default function HomePage() {
         </button>
       </div>
 
-      {allTeams.length === 0 && (
-        <p className="rp-text-faint" style={{ marginTop: 24, fontSize: 12 }}>
-          Invited to a team by a coordinator? Use the link they sent you instead of this page.
-        </p>
-      )}
     </div>
   );
 }
