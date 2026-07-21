@@ -7,6 +7,7 @@ type Garage61TeamSummary = { id: string; name: string };
 
 type RosterMember = {
   custId: string;
+  userId: string | null;
   driverName: string | null;
   role: "coordinator" | "driver";
   status: "invited" | "active";
@@ -26,7 +27,7 @@ type TeamWeekend = {
 };
 
 type TeamDetail = {
-  team: { id: string; name: string };
+  team: { id: string; name: string; createdBy: string };
   roster: RosterMember[];
   isCoordinator: boolean;
   inviteToken: string | null;
@@ -52,6 +53,13 @@ export default function TeamPage() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSummary, setImportSummary] = useState<string | null>(null);
+
+  const [removingCustId, setRemovingCustId] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deletingTeam, setDeletingTeam] = useState(false);
+  const [deleteTeamError, setDeleteTeamError] = useState<string | null>(null);
 
   function load() {
     if (!teamId) return;
@@ -153,6 +161,52 @@ export default function TeamPage() {
       setImportError("Network error. Please try again.");
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function removeMember(custId: string, name: string) {
+    if (!teamId) return;
+    if (!window.confirm(`Remove ${name} from this team's roster? They'll keep any race plan they're already in — this just takes them off the team.`)) {
+      return;
+    }
+    setRemovingCustId(custId);
+    setRemoveError(null);
+    try {
+      const r = await fetch(`/api/planner/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(custId)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setRemoveError(data.message ?? "Could not remove that driver.");
+        return;
+      }
+      load();
+    } catch {
+      setRemoveError("Network error. Please try again.");
+    } finally {
+      setRemovingCustId(null);
+    }
+  }
+
+  const deleteTeamConfirmed = detail !== null && deleteConfirmText === detail.team.name;
+
+  async function deleteTeam() {
+    if (!teamId || !deleteTeamConfirmed) return;
+    setDeletingTeam(true);
+    setDeleteTeamError(null);
+    try {
+      const r = await fetch(`/api/planner/teams/${encodeURIComponent(teamId)}`, { method: "DELETE", credentials: "include" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setDeleteTeamError(data.message ?? "Could not delete this team. Please try again.");
+        return;
+      }
+      navigate("/race-planner/team");
+    } catch {
+      setDeleteTeamError("Network error. Please try again.");
+    } finally {
+      setDeletingTeam(false);
     }
   }
 
@@ -327,20 +381,66 @@ export default function TeamPage() {
       )}
 
       <h3>Roster</h3>
+      {removeError && <p className="rp-error">{removeError}</p>}
       <div className="rp-event-grid">
-        {detail.roster.map((m) => (
-          <div className="rp-event-card" key={m.custId}>
-            <h3 className="rp-event-track">{m.driverName ?? `Driver ${m.custId}`}</h3>
-            <div className="rp-row" style={{ gap: 6 }}>
-              {m.role === "coordinator" && <span className="rp-badge rp-dim">Coordinator</span>}
-              <span className={`rp-badge ${m.status === "active" ? "rp-green" : "rp-amber"}`}>
-                {m.status === "active" ? "Active" : "Invited — not joined yet"}
-              </span>
+        {detail.roster.map((m) => {
+          const isCreator = m.userId !== null && m.userId === detail.team.createdBy;
+          return (
+            <div className="rp-event-card" key={m.custId}>
+              <h3 className="rp-event-track">{m.driverName ?? `Driver ${m.custId}`}</h3>
+              <div className="rp-row" style={{ gap: 6 }}>
+                {m.role === "coordinator" && <span className="rp-badge rp-dim">Coordinator</span>}
+                <span className={`rp-badge ${m.status === "active" ? "rp-green" : "rp-amber"}`}>
+                  {m.status === "active" ? "Active" : "Invited — not joined yet"}
+                </span>
+              </div>
+              {detail.isCoordinator && !isCreator && (
+                <button
+                  className="rp-btn"
+                  style={{ marginTop: 8, alignSelf: "flex-start" }}
+                  onClick={() => removeMember(m.custId, m.driverName ?? `Driver ${m.custId}`)}
+                  disabled={removingCustId === m.custId}
+                >
+                  {removingCustId === m.custId ? "Removing…" : "Remove from team"}
+                </button>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
         {detail.roster.length === 0 && <p className="rp-section-sub">No one on this roster yet.</p>}
       </div>
+
+      {detail.isCoordinator && (
+        <div className="rp-card" style={{ marginTop: 24, borderColor: "var(--rp-red)" }}>
+          <h3 style={{ marginTop: 0, color: "var(--rp-red)" }}>Danger zone</h3>
+          <p className="rp-section-sub">
+            Permanently deletes this team: its whole roster, invite link, and every race weekend it owns — including
+            each weekend's cars, lineups, stints, and everyone's submitted availability for them.{" "}
+            <strong>This can't be undone.</strong>
+          </p>
+          {deleteTeamError && <p className="rp-error">{deleteTeamError}</p>}
+          <div className="rp-form-field" style={{ marginBottom: 10, maxWidth: 320 }}>
+            <label>
+              Type the team's name (<strong>{detail.team.name}</strong>) to confirm
+            </label>
+            <input
+              className="rp-input"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              disabled={deletingTeam}
+              placeholder={detail.team.name}
+            />
+          </div>
+          <button
+            className="rp-btn"
+            style={{ borderColor: "var(--rp-red)", color: "var(--rp-red)" }}
+            onClick={deleteTeam}
+            disabled={!deleteTeamConfirmed || deletingTeam}
+          >
+            {deletingTeam ? "Deleting…" : "Delete this team permanently"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

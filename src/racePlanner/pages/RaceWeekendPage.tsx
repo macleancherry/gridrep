@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 
 type Car = { carId: string; name: string; carName: string | null };
 type RosterMember = { custId: string; driverName: string | null };
@@ -16,7 +16,9 @@ type Assignment = { carId: string; custId: string; driverName: string | null; av
  */
 export default function RaceWeekendPage() {
   const { weekendId } = useParams<{ weekendId: string }>();
+  const navigate = useNavigate();
   const [weekendName, setWeekendName] = useState<string>("");
+  const [teamId, setTeamId] = useState<string | null>(null);
   const [cars, setCars] = useState<Car[]>([]);
   const [isCoordinator, setIsCoordinator] = useState(false);
   const [roster, setRoster] = useState<RosterMember[]>([]);
@@ -29,6 +31,7 @@ export default function RaceWeekendPage() {
   const [suggesting, setSuggesting] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [confirmedMessage, setConfirmedMessage] = useState<string | null>(null);
+  const [deletingWeekend, setDeletingWeekend] = useState(false);
 
   function loadWeekend() {
     if (!weekendId) return;
@@ -40,6 +43,7 @@ export default function RaceWeekendPage() {
           return;
         }
         setWeekendName(data.weekend.name ?? "Race weekend");
+        setTeamId(data.weekend.teamId ?? null);
         setCars(data.cars ?? []);
         setIsCoordinator(Boolean(data.isCoordinator));
       })
@@ -166,6 +170,32 @@ export default function RaceWeekendPage() {
       setError("Network error. Please try again.");
     } finally {
       setConfirming(false);
+    }
+  }
+
+  async function deleteWeekend() {
+    if (!weekendId) return;
+    if (
+      !window.confirm(
+        `Delete "${weekendName}"? This removes all ${cars.length} car${cars.length === 1 ? "" : "s"}, their lineups and stints, and everyone's submitted availability for this weekend. This can't be undone.`
+      )
+    ) {
+      return;
+    }
+    setDeletingWeekend(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/planner/race-weekends/${encodeURIComponent(weekendId)}`, { method: "DELETE", credentials: "include" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setError(data.message ?? "Could not delete this race weekend.");
+        return;
+      }
+      navigate(teamId ? `/race-planner/team/${teamId}` : "/race-planner/team");
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setDeletingWeekend(false);
     }
   }
 
@@ -311,6 +341,19 @@ export default function RaceWeekendPage() {
           </>
         )}
       </div>
+
+      {isCoordinator && (
+        <div className="rp-row" style={{ marginTop: 20, justifyContent: "flex-end" }}>
+          <button
+            className="rp-btn"
+            style={{ borderColor: "var(--rp-red)", color: "var(--rp-red)" }}
+            onClick={deleteWeekend}
+            disabled={deletingWeekend}
+          >
+            {deletingWeekend ? "Deleting…" : "Delete this race weekend"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

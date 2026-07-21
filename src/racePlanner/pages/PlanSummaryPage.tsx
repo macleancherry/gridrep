@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { usePlanContext } from "../PlanContext";
 
 type EventRecord = { id: string; name: string; track_name: string | null; scheduled_start_time: string | null };
@@ -44,6 +44,7 @@ function spotterFor(stint: Stint, spotting: Spotting[]): Spotting | null {
 
 export default function PlanSummaryPage() {
   const { planId } = useParams<{ planId: string }>();
+  const navigate = useNavigate();
   const { setContext } = usePlanContext();
   const [eventId, setEventId] = useState<string | null>(null);
   const [event, setEvent] = useState<EventRecord | null>(null);
@@ -51,9 +52,12 @@ export default function PlanSummaryPage() {
   const [spotting, setSpotting] = useState<Spotting[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
   const [driverNames, setDriverNames] = useState<Record<string, string>>({});
+  const [canDelete, setCanDelete] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function init() {
     if (!planId) return;
@@ -76,6 +80,7 @@ export default function PlanSummaryPage() {
       setDriverNames(names);
 
       setEventId(planData.eventId ?? null);
+      setCanDelete(Boolean(planData.canDelete));
 
       const eventRes = await fetch(`/api/planner/events/${encodeURIComponent(planData.eventId)}`, { credentials: "include" });
       const eventData = await eventRes.json().catch(() => ({}));
@@ -84,6 +89,36 @@ export default function PlanSummaryPage() {
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function deletePlan() {
+    if (!planId) return;
+    if (
+      !window.confirm(
+        "Delete this plan? Removes its lineup, stints, and crew assignments. If this is the only plan for its race weekend, the weekend is removed too. This can't be undone."
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const r = await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}`, { method: "DELETE", credentials: "include" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setDeleteError(data.message ?? "Could not delete this plan.");
+        return;
+      }
+      if (data.weekendDeleted) {
+        navigate(data.teamId ? `/race-planner/team/${data.teamId}` : "/race-planner");
+      } else {
+        navigate(`/race-planner/weekend/${data.weekendId}`);
+      }
+    } catch {
+      setDeleteError("Network error. Please try again.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -244,6 +279,20 @@ export default function PlanSummaryPage() {
           Live tracking →
         </Link>
       </div>
+
+      {canDelete && (
+        <div className="rp-row" style={{ marginTop: 20, justifyContent: "flex-end", alignItems: "center", gap: 10 }}>
+          {deleteError && <p className="rp-error" style={{ margin: 0 }}>{deleteError}</p>}
+          <button
+            className="rp-btn"
+            style={{ borderColor: "var(--rp-red)", color: "var(--rp-red)" }}
+            onClick={deletePlan}
+            disabled={deleting}
+          >
+            {deleting ? "Deleting…" : "Delete this plan"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

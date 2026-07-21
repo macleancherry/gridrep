@@ -1,3 +1,5 @@
+import { isTeamCoordinator } from "./plannerTeams";
+
 /**
  * Race-plan creation (PRD §7/§8) - extracted from functions/api/planner/race-plans.ts's
  * POST handler so the new series/session select-session flow can create a plan the same
@@ -157,6 +159,89 @@ export async function isPlanVisibleToTeam(DB: any, planId: string, viewer: { use
     .first();
 
   return Boolean(row);
+}
+
+/**
+ * Who may delete a Car Entry (race plan): its own creator, or - for a team-owned weekend -
+ * any coordinator of that team. Reused by the plan-delete endpoint and by the plan GET
+ * response's `canDelete` flag so the frontend never has to re-derive coordinator status
+ * itself.
+ */
+export async function canManagePlan(DB: any, planId: string, viewer: { userId: string; iracingId: string }): Promise<boolean> {
+  const plan = await DB.prepare(`SELECT created_by as createdBy, race_weekend_id as weekendId FROM race_plans WHERE id = ?`)
+    .bind(planId)
+    .first<any>();
+  if (!plan) return false;
+  if (plan.createdBy === viewer.userId) return true;
+  if (!plan.weekendId) return false;
+
+  const weekend = await DB.prepare(`SELECT team_id as teamId FROM race_weekends WHERE id = ?`).bind(plan.weekendId).first<any>();
+  if (!weekend?.teamId) return false;
+  return isTeamCoordinator(DB, weekend.teamId, viewer.userId);
+}
+
+/**
+ * Deletes one Car Entry and everything scoped to it (lineup/stints/duty assignments).
+ * If that was the weekend's last remaining car, the now-empty weekend is cascaded away
+ * too - the common single-car case wraps every plan in a weekend transparently
+ * (createRacePlan above), so deleting "the plan" should mean deleting the whole thing from
+ * the driver's point of view, not leaving an empty weekend behind for them to notice later.
+ * A multi-car weekend with other cars still in it is left untouched.
+ */
+export async function cascadeDeleteRacePlan(DB: any, planId: string): Promise<{ weekendId: string | null; weekendDeleted: boolean; teamId: string | null }> {
+  const plan = await DB.prepare(`SELECT race_weekend_id as weekendId FROM race_plans WHERE id = ?`).bind(planId).first<any>();
+  const weekendId: string | null = plan?.weekendId ?? null;
+
+  await DB.batch([
+    DB.prepare(`DELETE FROM race_plan_lineup WHERE race_plan_id = ?`).bind(planId),
+    DB.prepare(`DELETE FROM race_plan_stints WHERE race_plan_id = ?`).bind(planId),
+    DB.prepare(`DELETE FROM race_plan_duty_assignments WHERE race_plan_id = ?`).bind(planId),
+    DB.prepare(`DELETE FROM race_plans WHERE id = ?`).bind(planId),
+  ]);
+
+  let weekendDeleted = false;
+  let teamId: string | null = null;
+  if (weekendId) {
+    const weekend = await DB.prepare(`SELECT team_id as teamId FROM race_weekends WHERE id = ?`).bind(weekendId).first<any>();
+    teamId = weekend?.teamId ?? null;
+
+    const remaining = await DB.prepare(`SELECT COUNT(*) as n FROM race_plans WHERE race_weekend_id = ?`).bind(weekendId).first<any>();
+    if ((remaining?.n ?? 0) === 0) {
+      await DB.batch([
+        DB.prepare(`DELETE FROM race_weekend_participants WHERE race_weekend_id = ?`).bind(weekendId),
+        DB.prepare(`DELETE FROM driver_availability WHERE race_weekend_id = ?`).bind(weekendId),
+        DB.prepare(`DELETE FROM race_weekends WHERE id = ?`).bind(weekendId),
+      ]);
+      weekendDeleted = true;
+    }
+  }
+
+  return { weekendId, weekendDeleted, teamId };
+}
+
+/** Deletes a Race Weekend and every Car Entry in it (child-before-parent, same order as the
+ *  single-plan cascade above and functions/api/account.ts's own per-team cascade). */
+export async function cascadeDeleteRaceWeekend(DB: any, weekendId: string): Promise<void> {
+  const planRows = await DB.prepare(`SELECT id FROM race_plans WHERE race_weekend_id = ?`).bind(weekendId).all<any>();
+  const planIds: string[] = (planRows.results ?? []).map((r: any) => r.id);
+  const planPh = planIds.length ? planIds.map(() => "?").join(",") : null;
+
+  const statements: any[] = [];
+  if (planPh) {
+    statements.push(
+      DB.prepare(`DELETE FROM race_plan_lineup WHERE race_plan_id IN (${planPh})`).bind(...planIds),
+      DB.prepare(`DELETE FROM race_plan_stints WHERE race_plan_id IN (${planPh})`).bind(...planIds),
+      DB.prepare(`DELETE FROM race_plan_duty_assignments WHERE race_plan_id IN (${planPh})`).bind(...planIds)
+    );
+  }
+  statements.push(
+    DB.prepare(`DELETE FROM race_plans WHERE race_weekend_id = ?`).bind(weekendId),
+    DB.prepare(`DELETE FROM race_weekend_participants WHERE race_weekend_id = ?`).bind(weekendId),
+    DB.prepare(`DELETE FROM driver_availability WHERE race_weekend_id = ?`).bind(weekendId),
+    DB.prepare(`DELETE FROM race_weekends WHERE id = ?`).bind(weekendId)
+  );
+
+  await DB.batch(statements);
 }
 
 /**

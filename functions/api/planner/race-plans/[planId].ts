@@ -4,6 +4,8 @@ import {
   computeStintProjections,
   computeDutyWarnings,
   isPlanVisibleToTeam,
+  canManagePlan,
+  cascadeDeleteRacePlan,
   type StintInput,
   type SpottingAssignment,
 } from "../../../_lib/plannerRacePlan";
@@ -107,6 +109,8 @@ export async function onRequestGet(context: any) {
 
   const warnings = computeDutyWarnings(stints, spottingAssignments, plan.fatigue_threshold_minutes ?? 120);
 
+  const canDelete = await canManagePlan(DB, planId, viewerIdentity);
+
   return json({
     ok: true,
     plan,
@@ -119,5 +123,32 @@ export async function onRequestGet(context: any) {
     totals,
     spotting: spottingRows.results ?? [],
     warnings,
+    canDelete,
   });
+}
+
+/** Deletes this Car Entry (and, if it was its weekend's last remaining car, the now-empty
+ *  weekend too - see cascadeDeleteRacePlan). Creator-or-team-coordinator only. */
+export async function onRequestDelete(context: any) {
+  const viewer = await getViewer(context);
+  if (!viewer.verified) {
+    return jsonError(401, { error: "not_verified", message: "Sign in to delete this plan." });
+  }
+
+  const planId = context.params.planId as string;
+  const { DB } = context.env;
+
+  const plan = await DB.prepare(`SELECT id FROM race_plans WHERE id = ?`).bind(planId).first<any>();
+  if (!plan) {
+    return jsonError(404, { error: "not_found", message: "Race plan not found." });
+  }
+
+  const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
+  if (!(await canManagePlan(DB, planId, viewerIdentity))) {
+    return jsonError(403, { error: "forbidden", message: "You don't have permission to delete this plan." });
+  }
+
+  const { weekendId, weekendDeleted, teamId } = await cascadeDeleteRacePlan(DB, planId);
+
+  return json({ ok: true, weekendId, weekendDeleted, teamId });
 }

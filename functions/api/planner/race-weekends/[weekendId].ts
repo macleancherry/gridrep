@@ -1,5 +1,6 @@
 import { getViewer } from "../../../_lib/auth";
 import { isTeamMember, isTeamCoordinator } from "../../../_lib/plannerTeams";
+import { cascadeDeleteRaceWeekend } from "../../../_lib/plannerRacePlan";
 import { json, jsonError } from "../../../_lib/httpJson";
 
 /** Race Weekend detail: its Car Entries and team. Only visible to the owning team's
@@ -34,4 +35,28 @@ export async function onRequestGet(context: any) {
   const coordinator = await isTeamCoordinator(DB, weekend.teamId, viewer.user!.id);
 
   return json({ ok: true, weekend, cars: carsRows.results ?? [], isCoordinator: coordinator });
+}
+
+/** Deletes this Race Weekend and every Car Entry in it. Coordinator-only, same gating as
+ *  the rest of this weekend's write endpoints (add car, set participants, distribution). */
+export async function onRequestDelete(context: any) {
+  const viewer = await getViewer(context);
+  if (!viewer.verified) {
+    return jsonError(401, { error: "not_verified", message: "Sign in to delete this race weekend." });
+  }
+
+  const weekendId = context.params.weekendId as string;
+  const { DB } = context.env;
+
+  const weekend = await DB.prepare(`SELECT team_id as teamId FROM race_weekends WHERE id = ?`).bind(weekendId).first<any>();
+  if (!weekend) {
+    return jsonError(404, { error: "not_found", message: "Race weekend not found." });
+  }
+  if (!weekend.teamId || !(await isTeamCoordinator(DB, weekend.teamId, viewer.user!.id))) {
+    return jsonError(403, { error: "forbidden", message: "Only this team's coordinator can delete this race weekend." });
+  }
+
+  await cascadeDeleteRaceWeekend(DB, weekendId);
+
+  return json({ ok: true, teamId: weekend.teamId });
 }

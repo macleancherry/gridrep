@@ -1,5 +1,6 @@
 import { getViewer } from "../../../_lib/auth";
 import { isTeamMember, isTeamCoordinator } from "../../../_lib/plannerTeams";
+import { cascadeDeleteRaceWeekend } from "../../../_lib/plannerRacePlan";
 import { json, jsonError } from "../../../_lib/httpJson";
 
 /** Team detail + roster - only visible to the team's own members, never to an outsider
@@ -26,7 +27,7 @@ export async function onRequestGet(context: any) {
   }
 
   const rosterRows = await DB.prepare(
-    `SELECT m.cust_id as custId, d.display_name as driverName, m.role, m.status,
+    `SELECT m.cust_id as custId, m.user_id as userId, d.display_name as driverName, m.role, m.status,
             m.invited_at as invitedAt, m.joined_at as joinedAt
      FROM team_members m LEFT JOIN drivers d ON d.iracing_member_id = m.cust_id
      WHERE m.team_id = ?
@@ -94,4 +95,39 @@ export async function onRequestGet(context: any) {
     inviteToken,
     weekends,
   });
+}
+
+/** Deletes a team outright: every race weekend it owns (and each weekend's Car Entries,
+ *  same cascade as a single weekend delete), its invite link, its whole roster, then the
+ *  team itself. Coordinator-only - matches every other team-wide write (invite, add/remove
+ *  driver) rather than being creator-only, since a team can have more than one coordinator. */
+export async function onRequestDelete(context: any) {
+  const viewer = await getViewer(context);
+  if (!viewer.verified) {
+    return jsonError(401, { error: "not_verified", message: "Sign in to delete this team." });
+  }
+
+  const teamId = context.params.teamId as string;
+  const { DB } = context.env;
+
+  const team = await DB.prepare(`SELECT id FROM teams WHERE id = ?`).bind(teamId).first<any>();
+  if (!team) {
+    return jsonError(404, { error: "not_found", message: "Team not found." });
+  }
+  if (!(await isTeamCoordinator(DB, teamId, viewer.user!.id))) {
+    return jsonError(403, { error: "forbidden", message: "Only a coordinator can delete this team." });
+  }
+
+  const weekendRows = await DB.prepare(`SELECT id FROM race_weekends WHERE team_id = ?`).bind(teamId).all<any>();
+  for (const w of weekendRows.results ?? []) {
+    await cascadeDeleteRaceWeekend(DB, w.id);
+  }
+
+  await DB.batch([
+    DB.prepare(`DELETE FROM team_invites WHERE team_id = ?`).bind(teamId),
+    DB.prepare(`DELETE FROM team_members WHERE team_id = ?`).bind(teamId),
+    DB.prepare(`DELETE FROM teams WHERE id = ?`).bind(teamId),
+  ]);
+
+  return json({ ok: true });
 }
