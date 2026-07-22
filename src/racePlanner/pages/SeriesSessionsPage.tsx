@@ -91,9 +91,19 @@ export default function SeriesSessionsPage() {
   const { seriesId } = useParams<{ seriesId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const navState = location.state as { seriesName?: string; preselectedTeamId?: string | null } | null;
+  const navState = location.state as {
+    seriesName?: string;
+    preselectedTeamId?: string | null;
+    attachPlanId?: string | null;
+    attachWeekendId?: string | null;
+  } | null;
   const seriesName = navState?.seriesName ?? "Series";
   const preselectedTeamId = navState?.preselectedTeamId ?? null;
+  // Set when reached via a Car Entry's "Select race →" step - this session gets attached
+  // to that already-existing car instead of creating a new plan (select-session.ts's
+  // planId-attach mode), and we return to that weekend's checklist afterward.
+  const attachPlanId = navState?.attachPlanId ?? null;
+  const attachWeekendId = navState?.attachWeekendId ?? null;
 
   const [sessions, setSessions] = useState<ScheduleSession[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -167,12 +177,18 @@ export default function SeriesSessionsPage() {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ ...session, seriesId, seriesName, teamId: teamId || null }),
+        body: JSON.stringify({ ...session, seriesId, seriesName, teamId: teamId || null, planId: attachPlanId || undefined }),
       });
       const data = await r.json().catch(() => ({}));
 
       if (!r.ok || !data.ok) {
         setError(data.message ?? "Could not select this session.");
+        return;
+      }
+
+      if (data.attachedPlanId) {
+        // Attached to an existing car from the weekend checklist - go straight back there.
+        navigate(attachWeekendId ? `/race-planner/weekend/${encodeURIComponent(attachWeekendId)}` : "/race-planner/weekend");
         return;
       }
 
@@ -390,7 +406,14 @@ export default function SeriesSessionsPage() {
       )}
 
       <div className="rp-row" style={{ marginTop: 20 }}>
-        <Link to="/race-planner/series" className="rp-btn">
+        <Link
+          to={
+            attachPlanId
+              ? `/race-planner/series?planId=${encodeURIComponent(attachPlanId)}${attachWeekendId ? `&weekendId=${encodeURIComponent(attachWeekendId)}` : ""}`
+              : "/race-planner/series"
+          }
+          className="rp-btn"
+        >
           ← Back to series
         </Link>
       </div>

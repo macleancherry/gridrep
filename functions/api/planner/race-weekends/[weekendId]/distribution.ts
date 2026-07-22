@@ -27,6 +27,7 @@ export async function onRequestGet(context: any) {
     .all<any>();
   const cars: CarEntry[] = (carsRows.results ?? []).map((r: any) => ({ carId: r.carId, name: r.name }));
   const blockMinutes = carsRows.results?.[0]?.blockMinutes ?? 60;
+  const carIds: string[] = (carsRows.results ?? []).map((r: any) => r.carId);
 
   const participantRows = await DB.prepare(
     `SELECT p.cust_id as custId, d.display_name as driverName
@@ -37,14 +38,23 @@ export async function onRequestGet(context: any) {
     .all<any>();
   const participants = (participantRows.results ?? []).map((r: any) => ({ custId: r.custId, driverName: r.driverName }));
 
-  const availRows = await DB.prepare(`SELECT cust_id as custId, status FROM driver_availability WHERE race_weekend_id = ?`)
-    .bind(weekendId)
-    .all<any>();
+  // Availability is scoped per Car Entry, not the weekend as a whole - this suggestion only
+  // makes sense for cars sharing one real-world race (RaceWeekendPage.tsx only shows it in
+  // that case), so union each car's own submitted availability per driver rather than
+  // reading one shared weekend-level row that no longer exists.
   const availabilityByCustId = new Map<string, WeekendAvailabilityBlock[]>();
-  for (const r of (availRows.results ?? []) as any[]) {
-    const list = availabilityByCustId.get(r.custId) ?? [];
-    list.push({ custId: r.custId, status: r.status });
-    availabilityByCustId.set(r.custId, list);
+  if (carIds.length > 0) {
+    const placeholders = carIds.map(() => "?").join(",");
+    const availRows = await DB.prepare(
+      `SELECT cust_id as custId, status FROM driver_availability WHERE race_plan_id IN (${placeholders})`
+    )
+      .bind(...carIds)
+      .all<any>();
+    for (const r of (availRows.results ?? []) as any[]) {
+      const list = availabilityByCustId.get(r.custId) ?? [];
+      list.push({ custId: r.custId, status: r.status });
+      availabilityByCustId.set(r.custId, list);
+    }
   }
 
   const result = suggestDistribution(participants, availabilityByCustId, cars, blockMinutes);

@@ -26,7 +26,7 @@ export async function onRequestGet(context: any) {
   const plan = await DB.prepare(
     `SELECT p.id, p.event_id as eventId, p.time_slot_id as timeSlotId, p.availability_block_minutes as blockMinutes,
             p.race_duration_minutes as raceDurationMinutes, e.scheduled_start_time as eventStartUtc, e.duration_minutes as eventDurationMinutes
-     FROM race_plans p JOIN iracing_events e ON e.id = p.event_id
+     FROM race_plans p LEFT JOIN iracing_events e ON e.id = p.event_id
      WHERE p.id = ?`
   )
     .bind(planId)
@@ -34,6 +34,9 @@ export async function onRequestGet(context: any) {
 
   if (!plan) {
     return jsonError(404, { error: "not_found", message: "Race plan not found." });
+  }
+  if (!plan.eventId) {
+    return jsonError(400, { error: "no_event", message: "This car hasn't been assigned a race yet - pick one from the weekend page first." });
   }
 
   let startUtcIso = plan.eventStartUtc;

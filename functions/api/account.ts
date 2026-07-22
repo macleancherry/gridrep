@@ -67,7 +67,9 @@ export async function onRequestDelete(context: any) {
   }
   if (weekendPh) {
     statements.push(DB.prepare(`DELETE FROM race_weekend_participants WHERE race_weekend_id IN (${weekendPh})`).bind(...weekendIds));
-    statements.push(DB.prepare(`DELETE FROM driver_availability WHERE race_weekend_id IN (${weekendPh})`).bind(...weekendIds));
+  }
+  if (planPh) {
+    statements.push(DB.prepare(`DELETE FROM driver_availability WHERE race_plan_id IN (${planPh})`).bind(...planIds));
   }
   if (planPh) statements.push(DB.prepare(`DELETE FROM race_plans WHERE id IN (${planPh})`).bind(...planIds));
   if (weekendPh) statements.push(DB.prepare(`DELETE FROM race_weekends WHERE id IN (${weekendPh})`).bind(...weekendIds));

@@ -1,15 +1,17 @@
 /**
  * Multi-car driver distribution (PRD phase 6): given a race weekend's participant pool,
- * each driver's weekend-level availability (driver_availability, already scoped to
- * race_weekend_id since migration 0022), and a set of Car Entries, propose a balanced
- * split of drivers across cars.
+ * each driver's availability unioned across every car sharing this race (driver_availability
+ * is scoped per Car Entry since the coordinator navigation rebuild, 2026-07-22 - this
+ * suggestion is only ever surfaced when 2+ cars in a weekend share the exact same event,
+ * see RaceWeekendPage.tsx), and a set of Car Entries, propose a balanced split of drivers
+ * across cars.
  *
  * Deliberately scoped: this is a suggestion the coordinator reviews and edits before
  * confirming (PRD decision - "suggest, coordinator confirms," never fully automatic),
- * not an attempt at optimal stint-level scheduling. All cars in one race weekend share
- * the same green-flag time, so "never double-booking a driver into two cars at
- * overlapping real-world times" collapses to a much simpler constraint than a general
- * interval-scheduling problem: each driver is simply assigned to at most one car.
+ * not an attempt at optimal stint-level scheduling. Every car this suggestion runs over
+ * shares the same green-flag time by construction, so "never double-booking a driver into
+ * two cars at overlapping real-world times" collapses to a much simpler constraint than a
+ * general interval-scheduling problem: each driver is simply assigned to at most one car.
  *
  * Algorithm: classic greedy load-balancing (longest-processing-time-first bin packing).
  * Each driver's "load" is their total available minutes across the weekend (available

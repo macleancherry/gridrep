@@ -19,6 +19,12 @@ export default function EventsHome() {
   // "exactly one coordinated team" auto-select which doesn't help a coordinator of more
   // than one team.
   const preselectedTeamId = searchParams.get("teamId");
+  // Carried through from a Car Entry's "Select race →" step on RaceWeekendPage.tsx's
+  // checklist - when present, selecting a session attaches its event to this already-
+  // existing car (select-session.ts's planId-attach mode) instead of creating a new plan,
+  // and the picker returns to that weekend's checklist afterward instead of Conditions.
+  const attachPlanId = searchParams.get("planId");
+  const attachWeekendId = searchParams.get("weekendId");
   const [query, setQuery] = useState("");
   const [series, setSeries] = useState<SeriesSummary[] | null>(null);
   const [tailored, setTailored] = useState(false);
@@ -131,7 +137,7 @@ export default function EventsHome() {
                 style={{ marginTop: 8, alignSelf: "flex-start" }}
                 onClick={() =>
                   navigate(`/race-planner/series/${encodeURIComponent(s.seriesId)}`, {
-                    state: { seriesName: s.name, preselectedTeamId },
+                    state: { seriesName: s.name, preselectedTeamId, attachPlanId, attachWeekendId },
                   })
                 }
               >

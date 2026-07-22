@@ -27,6 +27,10 @@ import JoinTeamPage from "./racePlanner/pages/JoinTeamPage";
 import DriverProfilePage from "./racePlanner/pages/DriverProfilePage";
 import HomePage from "./racePlanner/pages/HomePage";
 import RaceWeekendPage from "./racePlanner/pages/RaceWeekendPage";
+import WeekendListPage from "./racePlanner/pages/WeekendListPage";
+import NewWeekendPage from "./racePlanner/pages/NewWeekendPage";
+import PlansListPage from "./racePlanner/pages/PlansListPage";
+import LiveListPage from "./racePlanner/pages/LiveListPage";
 
 const AUTH_BASE = "https://gridrep.gg";
 
@@ -260,10 +264,42 @@ function RacePlannerApp() {
         }
       />
       <Route
+        path="/race-planner/weekend"
+        element={
+          <RacePlannerLayout>
+            <WeekendListPage />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/weekend/new"
+        element={
+          <RacePlannerLayout>
+            <NewWeekendPage />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
         path="/race-planner/weekend/:weekendId"
         element={
           <RacePlannerLayout>
             <RaceWeekendPage />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/plans"
+        element={
+          <RacePlannerLayout>
+            <PlansListPage />
+          </RacePlannerLayout>
+        }
+      />
+      <Route
+        path="/race-planner/live"
+        element={
+          <RacePlannerLayout>
+            <LiveListPage />
           </RacePlannerLayout>
         }
       />
@@ -376,14 +412,6 @@ function RacePlannerApp() {
         element={
           <RacePlannerLayout>
             <PlanSummaryPage />
-          </RacePlannerLayout>
-        }
-      />
-      <Route
-        path="/race-planner/live"
-        element={
-          <RacePlannerLayout>
-            <PlaceholderPage title="Live" note="Select a session first — its live tracking page lives at /race-planner/live/:planId." />
           </RacePlannerLayout>
         }
       />

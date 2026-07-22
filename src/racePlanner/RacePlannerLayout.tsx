@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useRacePlannerViewer } from "./useRacePlannerViewer";
-import { usePlanContext } from "./PlanContext";
 import "./racePlanner.css";
 
 type Theme = "light" | "dark";
@@ -15,34 +14,19 @@ function getInitialTheme(): Theme {
 }
 
 /**
- * Nav targets depend on the currently-selected event/plan (Conditions needs an eventId,
- * Lineup/Availability/Stints/Plan need a planId) - built from PlanContext rather than
- * static paths, so clicking a sidebar item carries your current plan forward instead of
- * dropping it on the id-less placeholder route. Falls back to the bare path (which shows
- * a "select a session first" prompt) when nothing's selected yet.
+ * Coordinator navigation rebuild (2026-07-22): the sidebar collapses to the four top-level
+ * jobs a coordinator actually has - Teams, Race Weekends, Plans, Live. Everything that used
+ * to be its own always-visible pipeline item (Conditions/Lineup/Availability/Stints/Plan)
+ * now lives inside a specific Car Entry's own checklist (RaceWeekendPage.tsx) or is reached
+ * via in-page links once a plan is already in context - never a standalone nav item a
+ * context-less viewer has to make sense of up front.
  */
-function buildNavItems(eventId: string | null, planId: string | null) {
+function buildNavItems() {
   return [
     {
-      to: "/race-planner/series",
-      end: true,
-      label: "Events",
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-          <rect x="3" y="4" width="18" height="16" rx="1.5" />
-          <path d="M3 9h18M8 4v5" />
-        </svg>
-      ),
-    },
-    {
-      // A driver's actual job-to-be-done (set availability, check the roster) lives on
-      // their team page, not inside the coordinator-oriented Events -> Conditions ->
-      // Lineup pipeline below - this is the one item on the sidebar that's always
-      // reachable regardless of role or whether a plan is currently in context, so "back
-      // to my team" never depends on remembering a URL or re-searching a series.
       to: "/race-planner/team",
       end: true,
-      label: "My teams",
+      label: "Teams",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
           <circle cx="8.5" cy="8" r="3" />
@@ -53,51 +37,20 @@ function buildNavItems(eventId: string | null, planId: string | null) {
       ),
     },
     {
-      to: eventId ? `/race-planner/conditions/${eventId}` : "/race-planner/conditions",
-      label: "Conditions",
+      to: "/race-planner/weekend",
+      end: true,
+      label: "Race Weekends",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-          <circle cx="12" cy="12" r="4" />
-          <path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
+          <rect x="3" y="4" width="18" height="16" rx="1.5" />
+          <path d="M3 9h18M8 4v5" />
         </svg>
       ),
     },
     {
-      to: planId ? `/race-planner/lineup/${planId}` : "/race-planner/lineup",
-      label: "Lineup",
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-          <circle cx="9" cy="8" r="3" />
-          <path d="M2 21c0-4 3-6 7-6s7 2 7 6" />
-          <circle cx="18" cy="8" r="2.4" />
-          <path d="M15.5 15.2c2.7.3 4.5 2 4.5 5.8" />
-        </svg>
-      ),
-    },
-    {
-      to: planId ? `/race-planner/availability/${planId}` : "/race-planner/availability",
-      label: "Availability",
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7v5l3.5 2" />
-        </svg>
-      ),
-    },
-    {
-      to: planId ? `/race-planner/stints/${planId}` : "/race-planner/stints",
-      label: "Stints",
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
-          <rect x="3" y="10" width="6" height="7" />
-          <rect x="9" y="6" width="6" height="11" />
-          <rect x="15" y="13" width="6" height="4" />
-        </svg>
-      ),
-    },
-    {
-      to: planId ? `/race-planner/plan/${planId}` : "/race-planner/plan",
-      label: "Plan",
+      to: "/race-planner/plans",
+      end: true,
+      label: "Plans",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
           <path d="M7 3h8l4 4v14H7z" />
@@ -106,7 +59,8 @@ function buildNavItems(eventId: string | null, planId: string | null) {
       ),
     },
     {
-      to: planId ? `/race-planner/live/${planId}` : "/race-planner/live",
+      to: "/race-planner/live",
+      end: true,
       label: "Live",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}>
@@ -133,8 +87,7 @@ export default function RacePlannerLayout({
   const viewer = useRacePlannerViewer();
   const location = useLocation();
   const navigate = useNavigate();
-  const { eventId, planId } = usePlanContext();
-  const navItems = buildNavItems(eventId, planId);
+  const navItems = buildNavItems();
 
   useEffect(() => {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
@@ -161,14 +114,11 @@ export default function RacePlannerLayout({
 
   // Every /race-planner/* page requires a signed-in viewer - there's no useful anonymous
   // surface here (every page either 401s or shows nothing meaningful without a session).
-  // A full navigation (not client-side routing) is required since sign-in is a real OAuth
-  // round-trip; verifyHref already carries the current path through returnTo so the visitor
-  // lands back exactly where they started once signed in.
-  useEffect(() => {
-    if (viewer.loading || viewer.verified) return;
-    window.location.href = verifyHref;
-  }, [viewer.loading, viewer.verified, verifyHref]);
-
+  // Unlike before, signing in is never automatic: a first-time (or signed-out) visitor sees
+  // a real welcome screen explaining what this app is and does, with an explicit "Connect
+  // iRacing" button - clicking it is a full navigation (not client-side routing) since
+  // sign-in is a real OAuth round-trip; verifyHref already carries the current path through
+  // returnTo so the visitor lands back exactly where they started once signed in.
   if (!viewer.loading && !viewer.verified) {
     return (
       <div className="rp-shell" data-theme={theme}>
@@ -176,7 +126,17 @@ export default function RacePlannerLayout({
           <div className="rp-mark" style={{ margin: "0 auto 16px" }}>
             RP
           </div>
-          <p className="rp-section-sub">Redirecting you to sign in with iRacing…</p>
+          <h1 className="rp-welcome-title" style={{ marginBottom: 8 }}>
+            Welcome to GridRep Race Planner
+          </h1>
+          <p className="rp-section-sub" style={{ maxWidth: 440, marginBottom: 24 }}>
+            This app uses iRacing and Garage 61 data to help you plan race weekends - build a
+            team roster, schedule cars and drivers, and manage stints from practice through
+            the checkered flag.
+          </p>
+          <a className="rp-btn rp-primary" href={verifyHref}>
+            Connect iRacing →
+          </a>
         </div>
       </div>
     );

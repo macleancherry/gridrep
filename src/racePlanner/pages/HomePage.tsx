@@ -80,15 +80,17 @@ export default function HomePage() {
           <span className="rp-welcome-card-desc">Build your roster, invite drivers, plan race weekends together.</span>
         </button>
 
-        <button type="button" className="rp-welcome-card" onClick={() => navigate("/race-planner/series")}>
+        <button type="button" className="rp-welcome-card" onClick={() => navigate("/race-planner/weekend")}>
           <span className="rp-welcome-card-icon">
             <svg {...ICON_PROPS}>
               <circle cx="12" cy="12" r="9" />
               <path d="M12 7v5l3.5 2" />
             </svg>
           </span>
-          <span className="rp-welcome-card-title">Plan a race</span>
-          <span className="rp-welcome-card-desc">Search for a series and session — solo, or for a team you coordinate.</span>
+          <span className="rp-welcome-card-title">Create or manage race weekends</span>
+          <span className="rp-welcome-card-desc">
+            Add cars, pick each one's race, bring in drivers, and run stints through to the checkered flag.
+          </span>
         </button>
       </div>
 

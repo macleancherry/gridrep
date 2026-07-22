@@ -29,7 +29,7 @@ export async function onRequestPut(context: any) {
   const plan = await DB.prepare(
     `SELECT p.id, p.race_weekend_id as raceWeekendId, p.car_id as carId, p.car_class_id as carClassId,
             e.track_name as trackName, e.track_config as trackConfig
-     FROM race_plans p JOIN iracing_events e ON e.id = p.event_id WHERE p.id = ?`
+     FROM race_plans p LEFT JOIN iracing_events e ON e.id = p.event_id WHERE p.id = ?`
   )
     .bind(planId)
     .first<any>();

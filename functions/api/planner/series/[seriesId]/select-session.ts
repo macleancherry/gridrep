@@ -6,7 +6,7 @@ import {
   derivePreRacePhaseProfiles,
   raceStartOffsetMinutes,
 } from "../../../../_lib/plannerIracing";
-import { createRacePlan, listVisiblePlansForEvent, CreateRacePlanError } from "../../../../_lib/plannerRacePlan";
+import { createRacePlan, listVisiblePlansForEvent, canManagePlan, CreateRacePlanError } from "../../../../_lib/plannerRacePlan";
 import { isTeamCoordinator } from "../../../../_lib/plannerTeams";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
@@ -18,9 +18,13 @@ import { json, jsonError } from "../../../../_lib/httpJson";
  *
  * Does three things in one call: upserts the real event (track/duration/exact start time,
  * fixing the gap where season-level selection had no track data at all), auto-populates
- * shared condition profiles from the real forecast when one's available, and either
- * creates a new race plan or returns the viewer's own existing ones to resume - never
- * someone else's plan for the same shared event.
+ * shared condition profiles from the real forecast when one's available, and then either:
+ *  - attaches this event to an already-existing, event-less Car Entry (`body.planId` -
+ *    the coordinator navigation rebuild's "pick this car's race" step, reached from
+ *    RaceWeekendPage.tsx's checklist), or
+ *  - creates a new race plan or returns the viewer's own existing ones to resume for this
+ *    event - never someone else's plan for the same shared event (today's original flow,
+ *    still used when a car's own weekend already has one via the team invite path).
  */
 export async function onRequestPost(context: any) {
   const viewer = await getViewer(context);
@@ -184,6 +188,53 @@ export async function onRequestPost(context: any) {
   }
 
   const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
+
+  // "Pick this car's race" mode: attach the just-upserted event to an already-existing Car
+  // Entry instead of creating a new plan or offering to resume one - the car was created
+  // first (RaceWeekendPage.tsx's "+ Add a car"), with no race chosen yet.
+  const attachToPlanId = typeof body?.planId === "string" && body.planId ? body.planId : null;
+  if (attachToPlanId) {
+    if (!(await canManagePlan(DB, attachToPlanId, viewerIdentity))) {
+      return jsonError(403, { error: "forbidden", message: "You don't have permission to set this car's race." });
+    }
+
+    const existingPlan = await DB.prepare(`SELECT pit_stop_seconds as pitStopSeconds, race_weekend_id as raceWeekendId FROM race_plans WHERE id = ?`)
+      .bind(attachToPlanId)
+      .first<any>();
+    if (!existingPlan) {
+      return jsonError(404, { error: "not_found", message: "That car no longer exists." });
+    }
+
+    let pitStopSeconds = existingPlan.pitStopSeconds;
+    if (!pitStopSeconds || pitStopSeconds <= 0) {
+      const pitRules = await DB.prepare(
+        `SELECT base_pit_time_seconds as basePitTimeSeconds, simultaneous_fuel_tyres as simultaneousFuelTyres,
+                sequential_time_penalty_seconds as sequentialTimePenaltySeconds
+         FROM event_pit_rules WHERE event_id = ?`
+      )
+        .bind(eventId)
+        .first<any>();
+      pitStopSeconds = pitRules
+        ? pitRules.basePitTimeSeconds + (pitRules.simultaneousFuelTyres ? 0 : pitRules.sequentialTimePenaltySeconds)
+        : 55;
+    }
+
+    await DB.prepare(`UPDATE race_plans SET event_id = ?, race_duration_minutes = ?, pit_stop_seconds = ?, updated_at = ? WHERE id = ?`)
+      .bind(eventId, typeof body?.raceLengthMinutes === "number" ? body.raceLengthMinutes : null, pitStopSeconds, new Date().toISOString(), attachToPlanId)
+      .run();
+
+    // Display convenience only (see cars.ts) - fills in the weekend's own event_id the
+    // first time any of its cars gets one, so a still-single-race weekend shows a real
+    // track/date in TeamPage's list; never overwrites an event a weekend already has.
+    if (existingPlan.raceWeekendId) {
+      await DB.prepare(`UPDATE race_weekends SET event_id = COALESCE(event_id, ?) WHERE id = ?`)
+        .bind(eventId, existingPlan.raceWeekendId)
+        .run();
+    }
+
+    return json({ ok: true, event, conditionProfiles, attachedPlanId: attachToPlanId });
+  }
+
   const existingPlans = await listVisiblePlansForEvent(DB, eventId, viewerIdentity);
 
   let newPlanId: string | undefined;

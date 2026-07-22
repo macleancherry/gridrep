@@ -274,8 +274,8 @@ export default function TeamPage() {
       <div className="rp-row" style={{ justifyContent: "space-between", flexWrap: "wrap", marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>{detail.team.name}</h2>
         {detail.isCoordinator && (
-          <button className="rp-btn rp-primary" onClick={() => navigate(`/race-planner/series?teamId=${encodeURIComponent(teamId!)}`)}>
-            Plan a race for this team →
+          <button className="rp-btn rp-primary" onClick={() => navigate(`/race-planner/weekend/new?teamId=${encodeURIComponent(teamId!)}`)}>
+            Create a race weekend →
           </button>
         )}
       </div>
@@ -299,21 +299,8 @@ export default function TeamPage() {
                     {w.carCount > 1 ? ` · ${w.carCount} cars` : ""}
                   </div>
                 </div>
-                <Link
-                  className={`rp-btn ${w.viewerHasSubmittedAvailability ? "" : "rp-primary"}`}
-                  to={
-                    w.carCount > 1
-                      ? `/race-planner/weekend/${w.weekendId}`
-                      : w.planId
-                        ? `/race-planner/availability/${w.planId}`
-                        : `/race-planner/weekend/${w.weekendId}`
-                  }
-                >
-                  {w.carCount > 1
-                    ? "Manage this weekend →"
-                    : w.viewerHasSubmittedAvailability
-                      ? "✓ Availability set — adjust →"
-                      : "Set your availability →"}
+                <Link className="rp-btn rp-primary" to={`/race-planner/weekend/${w.weekendId}`}>
+                  {w.carCount === 0 ? "Add cars →" : "Manage this weekend →"}
                 </Link>
               </div>
             ))}

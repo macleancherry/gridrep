@@ -51,40 +51,47 @@ export async function onRequestGet(context: any) {
   // to link into Availability (weekend-scoped data, any of its cars' pages resolves it);
   // multi-car weekends also carry carCount so the UI can link management to the weekend
   // page instead of a single car.
+  // LEFT JOIN, not JOIN: a brand-new weekend (created blank, before any of its cars has
+  // picked a race yet) has no event at all - it must still show up in this list so the
+  // coordinator can get back into it and start adding cars/races.
   const weekendRows = await DB.prepare(
     `SELECT rw.id as weekendId, rw.name as weekendName, rw.event_id as eventId,
             e.name as eventName, e.track_name as trackName, e.scheduled_start_time as scheduledStartTime,
             (SELECT p.id FROM race_plans p WHERE p.race_weekend_id = rw.id ORDER BY p.created_at ASC LIMIT 1) as planId,
             (SELECT COUNT(*) FROM race_plans p WHERE p.race_weekend_id = rw.id) as carCount
      FROM race_weekends rw
-     JOIN iracing_events e ON e.id = rw.event_id
+     LEFT JOIN iracing_events e ON e.id = rw.event_id
      WHERE rw.team_id = ?
      ORDER BY e.scheduled_start_time DESC`
   )
     .bind(teamId)
     .all<any>();
 
-  const weekendIds = (weekendRows.results ?? []).map((r: any) => r.weekendId);
-  let submittedWeekendIds = new Set<string>();
-  if (weekendIds.length > 0) {
-    const placeholders = weekendIds.map(() => "?").join(",");
+  // Availability is now scoped per Car Entry, not the weekend - "has the viewer submitted
+  // anything for this weekend" is checked against its representative planId (the same one
+  // this response already links into), matching how a single-car weekend's availability
+  // has always worked.
+  const representativePlanIds = (weekendRows.results ?? []).map((r: any) => r.planId).filter(Boolean);
+  let submittedPlanIds = new Set<string>();
+  if (representativePlanIds.length > 0) {
+    const placeholders = representativePlanIds.map(() => "?").join(",");
     const submittedRows = await DB.prepare(
-      `SELECT DISTINCT race_weekend_id as weekendId FROM driver_availability WHERE cust_id = ? AND race_weekend_id IN (${placeholders})`
+      `SELECT DISTINCT race_plan_id as planId FROM driver_availability WHERE cust_id = ? AND race_plan_id IN (${placeholders})`
     )
-      .bind(viewer.user!.iracingId, ...weekendIds)
+      .bind(viewer.user!.iracingId, ...representativePlanIds)
       .all<any>();
-    submittedWeekendIds = new Set((submittedRows.results ?? []).map((r: any) => r.weekendId));
+    submittedPlanIds = new Set((submittedRows.results ?? []).map((r: any) => r.planId));
   }
 
   const weekends = (weekendRows.results ?? []).map((r: any) => ({
     weekendId: r.weekendId,
-    name: r.weekendName ?? r.eventName,
+    name: r.weekendName ?? r.eventName ?? "New race weekend",
     eventId: r.eventId,
     trackName: r.trackName,
     scheduledStartTime: r.scheduledStartTime,
     planId: r.planId,
     carCount: r.carCount,
-    viewerHasSubmittedAvailability: submittedWeekendIds.has(r.weekendId),
+    viewerHasSubmittedAvailability: r.planId ? submittedPlanIds.has(r.planId) : false,
   }));
 
   return json({

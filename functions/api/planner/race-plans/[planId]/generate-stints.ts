@@ -71,7 +71,7 @@ export async function onRequestPost(context: any) {
             p.time_slot_id as timeSlotId, p.availability_block_minutes as blockMinutes,
             p.car_id as carId, p.default_pace_ms as defaultPaceMs, p.default_fuel_per_lap as defaultFuelPerLap,
             e.track_name as trackName, e.scheduled_start_time as eventStartUtc, e.duration_minutes as eventDurationMinutes
-     FROM race_plans p JOIN iracing_events e ON e.id = p.event_id
+     FROM race_plans p LEFT JOIN iracing_events e ON e.id = p.event_id
      WHERE p.id = ?`
   )
     .bind(planId)
@@ -79,6 +79,9 @@ export async function onRequestPost(context: any) {
 
   if (!plan) {
     return jsonError(404, { error: "not_found", message: "Race plan not found." });
+  }
+  if (!plan.eventId) {
+    return jsonError(400, { error: "no_event", message: "This car hasn't been assigned a race yet - pick one from the weekend page first." });
   }
 
   const viewerIdentity = { userId: viewer.user!.id, iracingId: viewer.user!.iracingId };
@@ -175,14 +178,14 @@ export async function onRequestPost(context: any) {
   const avgPerStintMaxLaps = Math.min(avgMaxLapsByFuel, avgMaxLapsByFatigue);
 
   // Availability + condition-window lookups, both optional signals - missing data never
-  // blocks generation, it just falls back to "assume available" / "no preference."
-  const availRows = plan.raceWeekendId
-    ? await DB.prepare(
-        `SELECT cust_id as custId, block_start_offset_minutes as blockStartOffsetMinutes, status FROM driver_availability WHERE race_weekend_id = ?`
-      )
-        .bind(plan.raceWeekendId)
-        .all<any>()
-    : { results: [] };
+  // blocks generation, it just falls back to "assume available" / "no preference." Scoped
+  // to this Car Entry, not the whole Race Weekend, since another car in the same weekend
+  // may now be running a completely different race with a different real-world schedule.
+  const availRows = await DB.prepare(
+    `SELECT cust_id as custId, block_start_offset_minutes as blockStartOffsetMinutes, status FROM driver_availability WHERE race_plan_id = ?`
+  )
+    .bind(planId)
+    .all<any>();
   const availabilityByKey = new Map<string, string>();
   for (const r of availRows.results ?? []) {
     availabilityByKey.set(`${r.custId}:${r.blockStartOffsetMinutes}`, r.status);

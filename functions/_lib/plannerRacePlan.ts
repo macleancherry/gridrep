@@ -7,7 +7,10 @@ import { isTeamCoordinator } from "./plannerTeams";
  */
 
 export type CreateRacePlanOpts = {
-  eventId: string;
+  /** Optional/null when a car is created before it has a race picked yet (the coordinator
+   *  navigation rebuild's "add a car, pick its race afterward" flow) - the plan's event_id
+   *  stays NULL until a later select-session call attaches one. */
+  eventId?: string | null;
   createdByUserId: string;
   custIds?: string[];
   name?: string;
@@ -34,33 +37,39 @@ export class CreateRacePlanError extends Error {
 }
 
 export async function createRacePlan(DB: any, opts: CreateRacePlanOpts): Promise<any> {
-  const event = await DB.prepare(`SELECT id, name, duration_minutes as durationMinutes FROM iracing_events WHERE id = ?`)
-    .bind(opts.eventId)
-    .first<any>();
-  if (!event) {
-    throw new CreateRacePlanError("event_not_found", "Select this event before creating a plan.");
+  let event: any = null;
+  if (opts.eventId) {
+    event = await DB.prepare(`SELECT id, name, duration_minutes as durationMinutes FROM iracing_events WHERE id = ?`)
+      .bind(opts.eventId)
+      .first<any>();
+    if (!event) {
+      throw new CreateRacePlanError("event_not_found", "Select this event before creating a plan.");
+    }
   }
 
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  const name = opts.name?.trim() || event.name;
+  const name = opts.name?.trim() || event?.name || "New car";
   const carName = opts.carName ?? null;
   const fuelTankCapacityLiters = opts.fuelTankCapacityLiters ?? null;
-  const raceDurationMinutes = opts.raceDurationMinutes && opts.raceDurationMinutes > 0 ? opts.raceDurationMinutes : event.durationMinutes ?? null;
+  const raceDurationMinutes = opts.raceDurationMinutes && opts.raceDurationMinutes > 0 ? opts.raceDurationMinutes : event?.durationMinutes ?? null;
 
   // Inherit the event's shared pit rules (§15.2) as the plan's default pit-stop time
   // unless the caller explicitly overrides it - a plan-level override is still just a
   // normal field from here on, per the PRD's "shared record is the default source of
-  // truth, override stays possible" model.
+  // truth, override stays possible" model. No event yet (a car created before its race is
+  // picked) means no pit rules to inherit either - falls straight to the same 55s default.
   let pitStopSeconds = opts.pitStopSeconds && opts.pitStopSeconds > 0 ? opts.pitStopSeconds : null;
   if (pitStopSeconds === null) {
-    const pitRules = await DB.prepare(
-      `SELECT base_pit_time_seconds as basePitTimeSeconds, simultaneous_fuel_tyres as simultaneousFuelTyres,
-              sequential_time_penalty_seconds as sequentialTimePenaltySeconds
-       FROM event_pit_rules WHERE event_id = ?`
-    )
-      .bind(opts.eventId)
-      .first<any>();
+    const pitRules = opts.eventId
+      ? await DB.prepare(
+          `SELECT base_pit_time_seconds as basePitTimeSeconds, simultaneous_fuel_tyres as simultaneousFuelTyres,
+                sequential_time_penalty_seconds as sequentialTimePenaltySeconds
+         FROM event_pit_rules WHERE event_id = ?`
+        )
+          .bind(opts.eventId)
+          .first<any>()
+      : null;
 
     pitStopSeconds = pitRules
       ? pitRules.basePitTimeSeconds + (pitRules.simultaneousFuelTyres ? 0 : pitRules.sequentialTimePenaltySeconds)
@@ -78,7 +87,7 @@ export async function createRacePlan(DB: any, opts: CreateRacePlanOpts): Promise
     await DB.prepare(
       `INSERT INTO race_weekends (id, team_id, event_id, name, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)`
     )
-      .bind(raceWeekendId, opts.teamId ?? null, opts.eventId, name, opts.createdByUserId, now)
+      .bind(raceWeekendId, opts.teamId ?? null, opts.eventId ?? null, name, opts.createdByUserId, now)
       .run();
   }
 
@@ -86,7 +95,7 @@ export async function createRacePlan(DB: any, opts: CreateRacePlanOpts): Promise
     `INSERT INTO race_plans (id, event_id, race_weekend_id, name, car_name, fuel_tank_capacity_liters, pit_stop_seconds, race_duration_minutes, created_by, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(id, opts.eventId, raceWeekendId, name, carName, fuelTankCapacityLiters, pitStopSeconds, raceDurationMinutes, opts.createdByUserId, now, now)
+    .bind(id, opts.eventId ?? null, raceWeekendId, name, carName, fuelTankCapacityLiters, pitStopSeconds, raceDurationMinutes, opts.createdByUserId, now, now)
     .run();
 
   const custIds = opts.custIds ?? [];
@@ -114,6 +123,39 @@ export async function listVisiblePlansForEvent(DB: any, eventId: string, viewer:
      ORDER BY p.updated_at DESC`
   )
     .bind(eventId, viewer.userId, viewer.iracingId)
+    .all<any>();
+
+  return rows.results ?? [];
+}
+
+/**
+ * Every plan (Car Entry) the viewer can see, across every team and weekend - the "Plans"
+ * and "Live" global list pages (coordinator navigation rebuild, 2026-07-22). Same
+ * visibility rule as isPlanVisibleToTeam (creator, rostered driver, or active member of
+ * the owning team), just without a single planId filter. `onlyLive` narrows to plans
+ * currently linked to live tracking (live_subsession_id set via race-plans/[planId]/
+ * live.ts) - "Live" is a real, coordinator-set link, not a time-window guess.
+ */
+export async function listVisiblePlansForViewer(
+  DB: any,
+  viewer: { userId: string; iracingId: string },
+  opts: { onlyLive?: boolean } = {}
+): Promise<any[]> {
+  const rows = await DB.prepare(
+    `SELECT DISTINCT p.id as planId, p.name, p.car_name as carName, p.live_subsession_id as liveSubsessionId,
+            p.race_weekend_id as weekendId, w.name as weekendName, w.team_id as teamId, t.name as teamName,
+            p.event_id as eventId, e.name as eventName, e.track_name as trackName, e.scheduled_start_time as scheduledStartTime
+     FROM race_plans p
+     LEFT JOIN race_weekends w ON w.id = p.race_weekend_id
+     LEFT JOIN teams t ON t.id = w.team_id
+     LEFT JOIN iracing_events e ON e.id = p.event_id
+     LEFT JOIN race_plan_lineup l ON l.race_plan_id = p.id
+     LEFT JOIN team_members m ON m.team_id = w.team_id AND m.status = 'active' AND (m.user_id = ? OR m.cust_id = ?)
+     WHERE (p.created_by = ? OR l.cust_id = ? OR m.team_id IS NOT NULL)
+       ${opts.onlyLive ? "AND p.live_subsession_id IS NOT NULL" : ""}
+     ORDER BY e.scheduled_start_time DESC, p.updated_at DESC`
+  )
+    .bind(viewer.userId, viewer.iracingId, viewer.userId, viewer.iracingId)
     .all<any>();
 
   return rows.results ?? [];
@@ -196,6 +238,7 @@ export async function cascadeDeleteRacePlan(DB: any, planId: string): Promise<{ 
     DB.prepare(`DELETE FROM race_plan_lineup WHERE race_plan_id = ?`).bind(planId),
     DB.prepare(`DELETE FROM race_plan_stints WHERE race_plan_id = ?`).bind(planId),
     DB.prepare(`DELETE FROM race_plan_duty_assignments WHERE race_plan_id = ?`).bind(planId),
+    DB.prepare(`DELETE FROM driver_availability WHERE race_plan_id = ?`).bind(planId),
     DB.prepare(`DELETE FROM race_plans WHERE id = ?`).bind(planId),
   ]);
 
@@ -209,7 +252,6 @@ export async function cascadeDeleteRacePlan(DB: any, planId: string): Promise<{ 
     if ((remaining?.n ?? 0) === 0) {
       await DB.batch([
         DB.prepare(`DELETE FROM race_weekend_participants WHERE race_weekend_id = ?`).bind(weekendId),
-        DB.prepare(`DELETE FROM driver_availability WHERE race_weekend_id = ?`).bind(weekendId),
         DB.prepare(`DELETE FROM race_weekends WHERE id = ?`).bind(weekendId),
       ]);
       weekendDeleted = true;
@@ -231,13 +273,13 @@ export async function cascadeDeleteRaceWeekend(DB: any, weekendId: string): Prom
     statements.push(
       DB.prepare(`DELETE FROM race_plan_lineup WHERE race_plan_id IN (${planPh})`).bind(...planIds),
       DB.prepare(`DELETE FROM race_plan_stints WHERE race_plan_id IN (${planPh})`).bind(...planIds),
-      DB.prepare(`DELETE FROM race_plan_duty_assignments WHERE race_plan_id IN (${planPh})`).bind(...planIds)
+      DB.prepare(`DELETE FROM race_plan_duty_assignments WHERE race_plan_id IN (${planPh})`).bind(...planIds),
+      DB.prepare(`DELETE FROM driver_availability WHERE race_plan_id IN (${planPh})`).bind(...planIds)
     );
   }
   statements.push(
     DB.prepare(`DELETE FROM race_plans WHERE race_weekend_id = ?`).bind(weekendId),
     DB.prepare(`DELETE FROM race_weekend_participants WHERE race_weekend_id = ?`).bind(weekendId),
-    DB.prepare(`DELETE FROM driver_availability WHERE race_weekend_id = ?`).bind(weekendId),
     DB.prepare(`DELETE FROM race_weekends WHERE id = ?`).bind(weekendId)
   );
 
