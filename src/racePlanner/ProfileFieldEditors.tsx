@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 type Pref = "prefer" | "neutral" | "avoid";
 type ConditionPrefs = { nightPreference: Pref; wetPreference: Pref; startPreference: Pref };
-type TemplateEntry = { dayOfWeek: number; startMinuteOfDay: number; endMinuteOfDay: number };
+type TemplateEntry = { dayOfWeek: number; startMinuteOfDay: number; endMinuteOfDay: number; endDayOffset: number };
 
 const PREF_LABEL: Record<Pref, string> = { prefer: "Prefer", neutral: "No preference", avoid: "Avoid" };
 const PREF_COLOR: Record<Pref, string> = { prefer: "var(--rp-green)", neutral: "var(--rp-text-faint)", avoid: "var(--rp-red)" };
@@ -134,12 +134,17 @@ export function AvailabilityTemplateEditor() {
   function addBlock() {
     const start = timeInputToMinutes(newBlock.start);
     const end = timeInputToMinutes(newBlock.end);
-    if (start === null || end === null || end <= start) {
-      setError("Enter a valid start time before the end time.");
+    if (start === null || end === null || end === start) {
+      setError("Enter a valid start and end time.");
       return;
     }
+    // An end time at or before the start time means the block runs past midnight into
+    // the next day (e.g. Friday 18:00 -> Saturday 02:00 for a night race) - stored as one
+    // self-describing block (endDayOffset: 1) rather than forcing it to be split into two
+    // separate same-day entries.
+    const endDayOffset = end <= start ? 1 : 0;
     setError(null);
-    saveTemplate([...template, { dayOfWeek: newBlock.dayOfWeek, startMinuteOfDay: start, endMinuteOfDay: end }]);
+    saveTemplate([...template, { dayOfWeek: newBlock.dayOfWeek, startMinuteOfDay: start, endMinuteOfDay: end, endDayOffset }]);
   }
 
   function removeBlock(index: number) {
@@ -169,6 +174,16 @@ export function AvailabilityTemplateEditor() {
           Add block
         </button>
       </div>
+      {(() => {
+        const start = timeInputToMinutes(newBlock.start);
+        const end = timeInputToMinutes(newBlock.end);
+        if (start === null || end === null || end > start) return null;
+        return (
+          <p className="rp-text-faint" style={{ fontSize: 11, marginTop: -6, marginBottom: 8 }}>
+            Ends after midnight, on {DAY_NAMES[(newBlock.dayOfWeek + 1) % 7]}.
+          </p>
+        );
+      })()}
       {error && <p className="rp-error">{error}</p>}
       {template.length === 0 ? (
         <p className="rp-text-faint">No standard availability set yet.</p>
@@ -176,7 +191,9 @@ export function AvailabilityTemplateEditor() {
         <div className="rp-row" style={{ flexWrap: "wrap", gap: 6 }}>
           {template.map((b, i) => (
             <span className="rp-badge" key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              {DAY_NAMES[b.dayOfWeek]} {minutesToTimeInput(b.startMinuteOfDay)}–{minutesToTimeInput(b.endMinuteOfDay)}
+              {b.endDayOffset === 1
+                ? `${DAY_NAMES[b.dayOfWeek]} ${minutesToTimeInput(b.startMinuteOfDay)} → ${DAY_NAMES[(b.dayOfWeek + 1) % 7]} ${minutesToTimeInput(b.endMinuteOfDay)}`
+                : `${DAY_NAMES[b.dayOfWeek]} ${minutesToTimeInput(b.startMinuteOfDay)}–${minutesToTimeInput(b.endMinuteOfDay)}`}
               <button
                 onClick={() => removeBlock(i)}
                 disabled={saving}

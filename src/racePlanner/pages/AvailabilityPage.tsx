@@ -41,7 +41,7 @@ function isWetBlock(condition: Block["condition"]): boolean {
   return condition?.trackState === "wet";
 }
 
-type TemplateEntry = { dayOfWeek: number; startMinuteOfDay: number; endMinuteOfDay: number };
+type TemplateEntry = { dayOfWeek: number; startMinuteOfDay: number; endMinuteOfDay: number; endDayOffset: number };
 
 const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
@@ -131,7 +131,18 @@ export default function AvailabilityPage() {
       for (const b of blocks) {
         if (next[b.blockStartOffsetMinutes] !== undefined) continue;
         const { dayOfWeek, minuteOfDay } = dayOfWeekAndMinuteInZone(b.utcStart, timeZone);
-        const covered = template.some((t) => t.dayOfWeek === dayOfWeek && minuteOfDay >= t.startMinuteOfDay && minuteOfDay < t.endMinuteOfDay);
+        const covered = template.some((t) => {
+          if (t.endDayOffset === 1) {
+            // Overnight block (e.g. Friday 18:00 -> Saturday 02:00): covers the rest of
+            // its start day from startMinuteOfDay onward, plus the start of the next day
+            // up to endMinuteOfDay.
+            return (
+              (dayOfWeek === t.dayOfWeek && minuteOfDay >= t.startMinuteOfDay) ||
+              (dayOfWeek === (t.dayOfWeek + 1) % 7 && minuteOfDay < t.endMinuteOfDay)
+            );
+          }
+          return t.dayOfWeek === dayOfWeek && minuteOfDay >= t.startMinuteOfDay && minuteOfDay < t.endMinuteOfDay;
+        });
         next[b.blockStartOffsetMinutes] = covered ? "available" : "unavailable";
       }
       return next;

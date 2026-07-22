@@ -1,0 +1,14 @@
+-- 0030_availability_template_overnight.sql
+--
+-- Standard-availability template blocks couldn't represent a window that crosses
+-- midnight (e.g. Friday 18:00 -> Saturday 02:00 for a night race) - the UI rejected any
+-- entry where the end time was earlier than the start time, and the schema had no way to
+-- say "this block's end time is on the next day" at all. Reported directly: a coordinator
+-- entering a real overnight stint window got "Enter a valid start time before the end
+-- time." with no way past it.
+--
+-- end_day_offset (0 = ends the same day as day_of_week, 1 = ends the following day) makes
+-- one block self-describing - a single row instead of the "split into two adjacent-day
+-- rows" workaround, which would have needed fragile pairing logic to redisplay as one
+-- block. Additive, defaults every existing row to 0 (same-day, unchanged behavior).
+ALTER TABLE driver_availability_template ADD COLUMN end_day_offset INTEGER NOT NULL DEFAULT 0;
