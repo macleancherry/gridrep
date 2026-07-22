@@ -2,7 +2,14 @@ import type { ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useRacePlannerViewer } from "./useRacePlannerViewer";
+import { installAuthGuard, onAuthRequired } from "./authGuard";
 import "./racePlanner.css";
+
+// Installed at module load, not inside a useEffect - a page's own data-fetching effect
+// (e.g. EventsHome.tsx's on-mount series fetch) can otherwise win the race and fire before
+// RacePlannerLayout's effects run (child effects commit before parent effects on the same
+// mount), which would let that first request's auth_required slip past unwrapped fetch.
+installAuthGuard();
 
 type Theme = "light" | "dark";
 const THEME_STORAGE_KEY = "rp-theme";
@@ -84,6 +91,7 @@ export default function RacePlannerLayout({
   skipOnboardingGate?: boolean;
 }) {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const [needsReauth, setNeedsReauth] = useState(false);
   const viewer = useRacePlannerViewer();
   const location = useLocation();
   const navigate = useNavigate();
@@ -92,6 +100,13 @@ export default function RacePlannerLayout({
   useEffect(() => {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
+
+  // A dead iRacing connection (token refresh failing server-side, e.g. iRacing rotated or
+  // revoked it) is a different situation from being signed out of gridrep entirely - the
+  // gridrep session (viewer.verified) stays perfectly valid, so the sign-in gate below never
+  // fires for this. installAuthGuard() catches it centrally across every API call instead of
+  // needing each page to check for it itself.
+  useEffect(() => onAuthRequired(() => setNeedsReauth(true)), []);
 
   // First thing after a fresh sign-in: send a driver who hasn't answered the preference
   // wizard yet straight there, before they see anything else - "tailored from the start"
@@ -136,6 +151,35 @@ export default function RacePlannerLayout({
           </p>
           <a className="rp-btn rp-primary" href={verifyHref}>
             Connect iRacing →
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // Your gridrep session is still fine (viewer.verified above) - it's specifically the
+  // iRacing connection behind it that's gone stale (iRacing periodically requires
+  // reconnecting, or can revoke/rotate a token outright). Re-running the same OAuth flow
+  // signs the same account back in and refreshes its stored tokens - it's not a fresh
+  // signup, just a reconnect - and returnTo brings them straight back to what they were
+  // doing.
+  if (needsReauth) {
+    return (
+      <div className="rp-shell" data-theme={theme}>
+        <div className="rp-gate">
+          <div className="rp-mark" style={{ margin: "0 auto 16px" }}>
+            RP
+          </div>
+          <h1 className="rp-welcome-title" style={{ marginBottom: 8 }}>
+            Reconnect iRacing
+          </h1>
+          <p className="rp-section-sub" style={{ maxWidth: 440, marginBottom: 24 }}>
+            Your iRacing connection needs to be renewed — iRacing periodically requires this,
+            or may have revoked the previous connection. You're still signed in to gridrep;
+            reconnecting will take you right back to where you were.
+          </p>
+          <a className="rp-btn rp-primary" href={verifyHref}>
+            Reconnect iRacing →
           </a>
         </div>
       </div>
