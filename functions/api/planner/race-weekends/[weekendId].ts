@@ -32,7 +32,8 @@ export async function onRequestGet(context: any) {
   // car's own race/track status independently, not one weekend-wide value.
   const carsRows = await DB.prepare(
     `SELECT p.id as carId, p.name, p.car_name as carName, p.event_id as eventId,
-            e.name as eventName, e.track_name as trackName, e.scheduled_start_time as scheduledStartTime,
+            e.name as eventName, e.series_name as seriesName, e.track_name as trackName,
+            e.scheduled_start_time as scheduledStartTime,
             (SELECT COUNT(*) FROM race_plan_lineup l WHERE l.race_plan_id = p.id) as driverCount
      FROM race_plans p LEFT JOIN iracing_events e ON e.id = p.event_id
      WHERE p.race_weekend_id = ? ORDER BY p.created_at`

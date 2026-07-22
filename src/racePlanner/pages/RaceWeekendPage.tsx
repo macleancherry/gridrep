@@ -8,6 +8,7 @@ type Car = {
   carName: string | null;
   eventId: string | null;
   eventName: string | null;
+  seriesName: string | null;
   trackName: string | null;
   scheduledStartTime: string | null;
   driverCount: number;
@@ -253,11 +254,12 @@ export default function RaceWeekendPage() {
 
       <div className="rp-event-grid" style={{ marginBottom: 20 }}>
         {cars.map((car) => {
-          // Track name is always a clean, structured iRacing field; the event/series
-          // name is free text (often lowercase/informally punctuated, e.g. "lemans
-          // endurance - race 7 gmt") - lead with the track, title-case the free text as
-          // a secondary line rather than surfacing it unformatted as the headline.
-          const raceLabel = titleCaseRaceName(car.eventName) || car.trackName || "Selected";
+          // seriesName is the real series name from iRacing's series-level data (e.g.
+          // "Global Endurance Tour") - the correct label. eventName is iRacing's raw
+          // schedule_name, really a per-session/slot descriptor ("race 7 gmt"), not the
+          // event's name - only used as a last-resort fallback for events selected
+          // before series_name was captured (title-cased since it's informal free text).
+          const raceLabel = car.seriesName || titleCaseRaceName(car.eventName) || car.trackName || "Selected";
           const trackLabel = car.trackName && car.trackName !== raceLabel ? car.trackName : null;
 
           // One clear "next step" per car, highlighted - everything else is a secondary

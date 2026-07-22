@@ -9,6 +9,7 @@ type PlanSummary = {
   weekendName: string | null;
   teamName: string | null;
   eventName: string | null;
+  seriesName: string | null;
   trackName: string | null;
   scheduledStartTime: string | null;
 };
@@ -55,7 +56,7 @@ export default function LiveListPage() {
                 <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }}>
                   {p.teamName ?? "Solo"}
                   {" · "}
-                  {titleCaseRaceName(p.weekendName ?? p.eventName)}
+                  {titleCaseRaceName(p.weekendName) || p.seriesName || titleCaseRaceName(p.eventName)}
                   {p.trackName ? ` · ${p.trackName}` : ""}
                 </div>
               </div>

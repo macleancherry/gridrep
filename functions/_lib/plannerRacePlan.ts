@@ -144,7 +144,8 @@ export async function listVisiblePlansForViewer(
   const rows = await DB.prepare(
     `SELECT DISTINCT p.id as planId, p.name, p.car_name as carName, p.live_subsession_id as liveSubsessionId,
             p.race_weekend_id as weekendId, w.name as weekendName, w.team_id as teamId, t.name as teamName,
-            p.event_id as eventId, e.name as eventName, e.track_name as trackName, e.scheduled_start_time as scheduledStartTime
+            p.event_id as eventId, e.name as eventName, e.series_name as seriesName, e.track_name as trackName,
+            e.scheduled_start_time as scheduledStartTime
      FROM race_plans p
      LEFT JOIN race_weekends w ON w.id = p.race_weekend_id
      LEFT JOIN teams t ON t.id = w.team_id

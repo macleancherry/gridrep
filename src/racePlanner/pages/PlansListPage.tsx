@@ -12,6 +12,7 @@ type PlanSummary = {
   teamName: string | null;
   eventId: string | null;
   eventName: string | null;
+  seriesName: string | null;
   trackName: string | null;
   scheduledStartTime: string | null;
 };
@@ -67,7 +68,7 @@ export default function PlansListPage() {
                   <div>
                     <div className="rp-profile-label">{p.carName ?? p.name ?? "Car"}</div>
                     <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }}>
-                      {titleCaseRaceName(p.weekendName ?? p.eventName) || "No race selected yet"}
+                      {titleCaseRaceName(p.weekendName) || p.seriesName || titleCaseRaceName(p.eventName) || "No race selected yet"}
                       {p.trackName ? ` · ${p.trackName}` : ""}
                       {p.scheduledStartTime ? ` · ${new Date(p.scheduledStartTime).toLocaleString()}` : ""}
                     </div>

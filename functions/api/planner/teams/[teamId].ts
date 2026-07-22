@@ -56,7 +56,7 @@ export async function onRequestGet(context: any) {
   // coordinator can get back into it and start adding cars/races.
   const weekendRows = await DB.prepare(
     `SELECT rw.id as weekendId, rw.name as weekendName, rw.event_id as eventId,
-            e.name as eventName, e.track_name as trackName, e.scheduled_start_time as scheduledStartTime,
+            e.name as eventName, e.series_name as seriesName, e.track_name as trackName, e.scheduled_start_time as scheduledStartTime,
             (SELECT p.id FROM race_plans p WHERE p.race_weekend_id = rw.id ORDER BY p.created_at ASC LIMIT 1) as planId,
             (SELECT COUNT(*) FROM race_plans p WHERE p.race_weekend_id = rw.id) as carCount
      FROM race_weekends rw
@@ -85,7 +85,7 @@ export async function onRequestGet(context: any) {
 
   const weekends = (weekendRows.results ?? []).map((r: any) => ({
     weekendId: r.weekendId,
-    name: r.weekendName ?? r.eventName ?? "New race weekend",
+    name: r.weekendName ?? r.seriesName ?? r.eventName ?? "New race weekend",
     eventId: r.eventId,
     trackName: r.trackName,
     scheduledStartTime: r.scheduledStartTime,

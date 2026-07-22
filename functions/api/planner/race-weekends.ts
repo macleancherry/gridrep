@@ -23,7 +23,8 @@ export async function onRequestGet(context: any) {
 
   const rows = await DB.prepare(
     `SELECT DISTINCT w.id as weekendId, w.name as weekendName, w.team_id as teamId, t.name as teamName,
-            w.event_id as eventId, e.name as eventName, e.track_name as trackName, e.scheduled_start_time as scheduledStartTime,
+            w.event_id as eventId, e.name as eventName, e.series_name as seriesName, e.track_name as trackName,
+            e.scheduled_start_time as scheduledStartTime,
             (SELECT COUNT(*) FROM race_plans p WHERE p.race_weekend_id = w.id) as carCount
      FROM race_weekends w
      LEFT JOIN teams t ON t.id = w.team_id
@@ -38,7 +39,7 @@ export async function onRequestGet(context: any) {
 
   const weekends = (rows.results ?? []).map((r: any) => ({
     weekendId: r.weekendId,
-    name: r.weekendName ?? r.eventName ?? "New race weekend",
+    name: r.weekendName ?? r.seriesName ?? r.eventName ?? "New race weekend",
     teamId: r.teamId,
     teamName: r.teamName,
     eventId: r.eventId,
