@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useLocation, useNavigate, Link } from "react-router-dom";
+import { titleCaseRaceName } from "../format";
 
 type ScheduleSession = {
   seasonId: string;
@@ -323,7 +324,7 @@ export default function SeriesSessionsPage() {
             const cardKey = `${s.seasonId}:${s.raceWeekNum}`;
             return (
               <div className="rp-event-card" key={cardKey}>
-                <h3 className="rp-event-track">{s.scheduleName ?? seriesName}</h3>
+                <h3 className="rp-event-track">{titleCaseRaceName(s.scheduleName) || seriesName}</h3>
                 {(s.trackName || s.trackConfig) && (
                   <div className="rp-event-meta">
                     <span>Track</span>

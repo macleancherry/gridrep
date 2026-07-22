@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { titleCaseRaceName } from "../format";
 
 type PlanSummary = {
   planId: string;
@@ -54,7 +55,7 @@ export default function LiveListPage() {
                 <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }}>
                   {p.teamName ?? "Solo"}
                   {" · "}
-                  {p.weekendName ?? p.eventName ?? ""}
+                  {titleCaseRaceName(p.weekendName ?? p.eventName)}
                   {p.trackName ? ` · ${p.trackName}` : ""}
                 </div>
               </div>

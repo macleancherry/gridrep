@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { titleCaseRaceName } from "../format";
 
 type PlanSummary = {
   planId: string;
@@ -66,7 +67,7 @@ export default function PlansListPage() {
                   <div>
                     <div className="rp-profile-label">{p.carName ?? p.name ?? "Car"}</div>
                     <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }}>
-                      {p.weekendName ?? p.eventName ?? "No race selected yet"}
+                      {titleCaseRaceName(p.weekendName ?? p.eventName) || "No race selected yet"}
                       {p.trackName ? ` · ${p.trackName}` : ""}
                       {p.scheduledStartTime ? ` · ${new Date(p.scheduledStartTime).toLocaleString()}` : ""}
                     </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { titleCaseRaceName } from "../format";
 
 type WeekendSummary = {
   weekendId: string;
@@ -56,7 +57,7 @@ export default function WeekendListPage() {
           {weekends.map((w) => (
             <div className="rp-row" key={w.weekendId} style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
               <div>
-                <div className="rp-profile-label">{w.name}</div>
+                <div className="rp-profile-label">{titleCaseRaceName(w.name) || w.name}</div>
                 <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }}>
                   {w.teamName ?? "Solo"}
                   {" · "}

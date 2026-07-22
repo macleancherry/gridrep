@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useDriverSearch } from "../useDriverSearch";
 import { useRacePlannerViewer } from "../useRacePlannerViewer";
+import { titleCaseRaceName } from "../format";
 
 type Garage61TeamSummary = { id: string; name: string };
 type Garage61Member = { custId: string | null; name: string };
@@ -292,7 +293,7 @@ export default function TeamPage() {
             {detail.weekends.map((w) => (
               <div className="rp-row" key={w.weekendId} style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                 <div>
-                  <div className="rp-profile-label">{w.name}</div>
+                  <div className="rp-profile-label">{titleCaseRaceName(w.name) || w.name}</div>
                   <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }}>
                     {w.trackName ?? "Track TBD"}
                     {w.scheduledStartTime ? ` · ${new Date(w.scheduledStartTime).toLocaleString()}` : ""}

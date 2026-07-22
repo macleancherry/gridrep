@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { titleCaseRaceName } from "../format";
 
 type Car = {
   carId: string;
@@ -251,59 +252,78 @@ export default function RaceWeekendPage() {
       {confirmedMessage && <p className="rp-badge rp-green" style={{ display: "inline-block", marginBottom: 12 }}>{confirmedMessage}</p>}
 
       <div className="rp-event-grid" style={{ marginBottom: 20 }}>
-        {cars.map((car) => (
-          <div className="rp-event-card" key={car.carId}>
-            <h3 className="rp-event-track">{car.name}</h3>
-            {car.eventId ? (
-              <>
-                <div className="rp-event-meta">
-                  <span>Race</span>
-                  <span className="rp-mono">{car.eventName ?? car.trackName ?? "Selected"}</span>
-                </div>
-                {car.scheduledStartTime && (
-                  <div className="rp-event-meta">
-                    <span>Start</span>
-                    <span className="rp-mono">{new Date(car.scheduledStartTime).toLocaleString()}</span>
-                  </div>
-                )}
-                <div className="rp-event-meta">
-                  <span>Drivers</span>
-                  <span className="rp-mono">{car.driverCount}</span>
-                </div>
-              </>
-            ) : (
-              <p className="rp-text-faint" style={{ fontSize: 12.5 }}>No race selected yet.</p>
-            )}
+        {cars.map((car) => {
+          // Track name is always a clean, structured iRacing field; the event/series
+          // name is free text (often lowercase/informally punctuated, e.g. "lemans
+          // endurance - race 7 gmt") - lead with the track, title-case the free text as
+          // a secondary line rather than surfacing it unformatted as the headline.
+          const raceLabel = titleCaseRaceName(car.eventName) || car.trackName || "Selected";
+          const trackLabel = car.trackName && car.trackName !== raceLabel ? car.trackName : null;
 
-            <div className="rp-row" style={{ flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-              {isCoordinator && (
-                <button className="rp-btn" onClick={() => selectRaceFor(car)}>
-                  {car.eventId ? "Change race →" : "Select race →"}
-                </button>
-              )}
-              {car.eventId && (
+          // One clear "next step" per car, highlighted - everything else is a secondary
+          // action, so the row never reads as a wall of equally-weighted buttons.
+          const nextStep = !car.eventId ? "race" : car.driverCount === 0 ? "drivers" : "stints";
+
+          return (
+            <div className="rp-event-card" key={car.carId}>
+              <h3 className="rp-event-track">{car.name}</h3>
+              {car.eventId ? (
                 <>
-                  <Link className="rp-btn" to={`/race-planner/lineup/${car.carId}`}>
-                    Add drivers →
-                  </Link>
-                  {car.driverCount > 0 && (
-                    <>
-                      <Link className="rp-btn" to={`/race-planner/stints/${car.carId}`}>
-                        Stints →
-                      </Link>
-                      <Link className="rp-btn" to={`/race-planner/plan/${car.carId}`}>
-                        Finalize →
-                      </Link>
-                      <Link className="rp-btn" to={`/race-planner/live/${car.carId}`}>
-                        Live →
-                      </Link>
-                    </>
+                  <div className="rp-event-meta">
+                    <span>Race</span>
+                    <span className="rp-mono">{raceLabel}</span>
+                  </div>
+                  {trackLabel && (
+                    <div className="rp-event-meta">
+                      <span>Track</span>
+                      <span className="rp-mono">{trackLabel}</span>
+                    </div>
                   )}
+                  {car.scheduledStartTime && (
+                    <div className="rp-event-meta">
+                      <span>Start</span>
+                      <span className="rp-mono">{new Date(car.scheduledStartTime).toLocaleString()}</span>
+                    </div>
+                  )}
+                  <div className="rp-event-meta">
+                    <span>Drivers</span>
+                    <span className="rp-mono">{car.driverCount}</span>
+                  </div>
                 </>
+              ) : (
+                <p className="rp-text-faint" style={{ fontSize: 12.5 }}>No race selected yet.</p>
               )}
+
+              <div className="rp-action-grid" style={{ marginTop: 10 }}>
+                {isCoordinator && (
+                  <button className={`rp-btn${nextStep === "race" ? " rp-primary" : ""}`} onClick={() => selectRaceFor(car)}>
+                    {car.eventId ? "Change race →" : "Select race →"}
+                  </button>
+                )}
+                {car.eventId && (
+                  <>
+                    <Link className={`rp-btn${nextStep === "drivers" ? " rp-primary" : ""}`} to={`/race-planner/lineup/${car.carId}`}>
+                      Add drivers →
+                    </Link>
+                    {car.driverCount > 0 && (
+                      <>
+                        <Link className={`rp-btn${nextStep === "stints" ? " rp-primary" : ""}`} to={`/race-planner/stints/${car.carId}`}>
+                          Stints →
+                        </Link>
+                        <Link className="rp-btn" to={`/race-planner/plan/${car.carId}`}>
+                          Finalize →
+                        </Link>
+                        <Link className="rp-btn" to={`/race-planner/live/${car.carId}`}>
+                          Live →
+                        </Link>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {isCoordinator && (

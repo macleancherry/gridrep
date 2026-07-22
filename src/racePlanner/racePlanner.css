@@ -409,6 +409,23 @@
   color: var(--rp-text);
 }
 
+/* Uniform grid for a row of action buttons (RaceWeekendPage.tsx's per-car checklist
+   actions, and anywhere else 2+ buttons of varying label length sit together) - a plain
+   flex-wrap row lets whichever buttons happen to fit per line wrap unevenly (e.g. 2 then
+   3, misaligned edges) especially on mobile; a grid keeps every button the same width and
+   wraps at consistent boundaries. Collapses to one full-width column per button under the
+   720px breakpoint below, matching .rp-profile-row's existing mobile stacking convention. */
+.rp-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.rp-action-grid .rp-btn {
+  justify-content: center;
+  width: 100%;
+}
+
 .rp-form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -884,6 +901,10 @@
   .rp-profile-row > a.rp-btn {
     width: 100%;
     justify-content: center;
+  }
+
+  .rp-action-grid {
+    grid-template-columns: 1fr;
   }
 }
 
