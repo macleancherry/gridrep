@@ -48,6 +48,7 @@ export default function TeamPage() {
   const [generatingInvite, setGeneratingInvite] = useState(false);
   const [copied, setCopied] = useState(false);
   const { results: searchResults, livePending } = useDriverSearch(query);
+  const [addTab, setAddTab] = useState<"invite" | "search" | "garage61">("invite");
 
   const [showG61Picker, setShowG61Picker] = useState(false);
   const [g61Teams, setG61Teams] = useState<Garage61TeamSummary[] | null>(null);
@@ -311,170 +312,189 @@ export default function TeamPage() {
 
       {detail.isCoordinator && (
         <div className="rp-card rp-card-narrow" style={{ marginBottom: 20 }}>
-          <h3 style={{ marginTop: 0 }}>Invite drivers</h3>
-          <p className="rp-section-sub">Share this link — anyone who clicks it can join {detail.team.name}.</p>
-          {inviteUrl ? (
-            <>
-              <div className="rp-invite-link-box">{inviteUrl}</div>
-              <div className="rp-share-actions">
-                <button className="rp-btn" onClick={copyInvite}>
-                  {copied ? "Copied!" : "Copy link"}
-                </button>
-                <a className="rp-btn" href={`mailto:?subject=${encodeURIComponent(`Join ${detail.team.name} on gridrep`)}&body=${encodeURIComponent(inviteUrl)}`}>
-                  Email →
-                </a>
-                <a
-                  className="rp-btn"
-                  href={`https://wa.me/?text=${encodeURIComponent(`Join ${detail.team.name} on gridrep: ${inviteUrl}`)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  WhatsApp →
-                </a>
-              </div>
-            </>
-          ) : (
-            <button className="rp-btn rp-primary" onClick={regenerateInvite} disabled={generatingInvite}>
-              {generatingInvite ? "Generating…" : "Generate invite link"}
-            </button>
-          )}
-          {inviteUrl && (
-            <button className="rp-btn" style={{ marginTop: 8 }} onClick={regenerateInvite} disabled={generatingInvite}>
-              {generatingInvite ? "Regenerating…" : "Regenerate link (deactivates the old one)"}
-            </button>
-          )}
-        </div>
-      )}
+          <h3 style={{ marginTop: 0 }}>Add drivers</h3>
 
-      {detail.isCoordinator && (
-        <div className="rp-card rp-card-narrow" style={{ marginBottom: 20 }}>
-          <h3 style={{ marginTop: 0 }}>Add a driver directly</h3>
-          <input
-            className="rp-input"
-            placeholder="Search by name…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            style={{ minWidth: 240 }}
-          />
-          {livePending && <p className="rp-text-faint" style={{ fontSize: 12, marginTop: 4 }}>🔎 Checking iRacing for more matches…</p>}
-          {query.trim() && searchResults.length > 0 && (
-            <ul style={{ listStyle: "none", padding: 0, marginTop: 8 }}>
-              {searchResults.map((d) => (
-                <li key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}>
-                  <span>{d.name}</span>
-                  <button
-                    className="rp-btn"
-                    disabled={adding || alreadyOnRoster.has(d.id)}
-                    onClick={() => addDriver(d.id, d.name)}
-                  >
-                    {alreadyOnRoster.has(d.id) ? "Already on roster" : "Add"}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      {detail.isCoordinator && viewer.verified && viewer.garage61Connected && (
-        <div className="rp-card rp-card-narrow" style={{ marginBottom: 20 }}>
-          <h3 style={{ marginTop: 0 }}>Import roster from Garage 61</h3>
-          <p className="rp-section-sub">
-            Pull in members from a Garage 61 team you belong to — only adds drivers not already on this roster, safe
-            to run again after their Garage 61 team changes.
-          </p>
-          {!showG61Picker ? (
-            <button className="rp-btn" onClick={openG61Picker}>
-              Choose a Garage 61 team
+          <div className="rp-row" style={{ marginBottom: 16, borderBottom: "1px solid var(--rp-border)" }}>
+            <button
+              className="rp-btn"
+              style={addTab === "invite" ? { borderColor: "var(--rp-amber)", color: "var(--rp-amber)" } : {}}
+              onClick={() => setAddTab("invite")}
+            >
+              Invite link
             </button>
-          ) : g61Teams === null ? (
-            <p className="rp-section-sub">Loading your Garage 61 teams…</p>
-          ) : g61Teams.length === 0 ? (
-            <p className="rp-section-sub">No Garage 61 teams found for your connected account.</p>
-          ) : (
+            <button
+              className="rp-btn"
+              style={addTab === "search" ? { borderColor: "var(--rp-amber)", color: "var(--rp-amber)" } : {}}
+              onClick={() => setAddTab("search")}
+            >
+              Search
+            </button>
+            {viewer.verified && viewer.garage61Connected && (
+              <button
+                className="rp-btn"
+                style={addTab === "garage61" ? { borderColor: "var(--rp-amber)", color: "var(--rp-amber)" } : {}}
+                onClick={() => setAddTab("garage61")}
+              >
+                Garage 61
+              </button>
+            )}
+          </div>
+
+          {addTab === "invite" && (
             <div>
-              <div className="rp-row" style={{ flexWrap: "wrap" }}>
-                <select className="rp-input" value={selectedG61TeamId} onChange={(e) => selectG61Team(e.target.value)}>
-                  <option value="">Choose a team…</option>
-                  {g61Teams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
+              <p className="rp-section-sub">Share this link — anyone who clicks it can join {detail.team.name}.</p>
+              {inviteUrl ? (
+                <>
+                  <div className="rp-invite-link-box">{inviteUrl}</div>
+                  <div className="rp-share-actions">
+                    <button className="rp-btn" onClick={copyInvite}>
+                      {copied ? "Copied!" : "Copy link"}
+                    </button>
+                    <a
+                      className="rp-btn"
+                      href={`mailto:?subject=${encodeURIComponent(`Join ${detail.team.name} on gridrep`)}&body=${encodeURIComponent(inviteUrl)}`}
+                    >
+                      Email →
+                    </a>
+                    <a
+                      className="rp-btn"
+                      href={`https://wa.me/?text=${encodeURIComponent(`Join ${detail.team.name} on gridrep: ${inviteUrl}`)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      WhatsApp →
+                    </a>
+                  </div>
+                  <button className="rp-btn" style={{ marginTop: 8 }} onClick={regenerateInvite} disabled={generatingInvite}>
+                    {generatingInvite ? "Regenerating…" : "Regenerate link (deactivates the old one)"}
+                  </button>
+                </>
+              ) : (
+                <button className="rp-btn rp-primary" onClick={regenerateInvite} disabled={generatingInvite}>
+                  {generatingInvite ? "Generating…" : "Generate invite link"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {addTab === "search" && (
+            <div>
+              <input
+                className="rp-input"
+                placeholder="Search by name…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                style={{ minWidth: 240, width: "100%" }}
+              />
+              {livePending && <p className="rp-text-faint" style={{ fontSize: 12, marginTop: 4 }}>🔎 Checking iRacing for more matches…</p>}
+              {query.trim() && searchResults.length > 0 && (
+                <ul style={{ listStyle: "none", padding: 0, marginTop: 8 }}>
+                  {searchResults.map((d) => (
+                    <li key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}>
+                      <span>{d.name}</span>
+                      <button className="rp-btn" disabled={adding || alreadyOnRoster.has(d.id)} onClick={() => addDriver(d.id, d.name)}>
+                        {alreadyOnRoster.has(d.id) ? "Already on roster" : "Add"}
+                      </button>
+                    </li>
                   ))}
-                </select>
-              </div>
+                </ul>
+              )}
+            </div>
+          )}
 
-              {loadingG61Members && <p className="rp-section-sub">Loading roster…</p>}
-
-              {g61Members !== null && (
-                <div style={{ marginTop: 12 }}>
-                  <p className="rp-section-sub" style={{ marginBottom: 4 }}>
-                    Drivers to import ({selectedCustIds.size} selected)
-                  </p>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
-                    {g61Members.map((m) => (
-                      <label
-                        key={m.custId ?? m.name}
-                        className="rp-row"
-                        style={{ gap: 8, opacity: m.custId ? 1 : 0.5 }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={m.custId ? selectedCustIds.has(m.custId) : false}
-                          disabled={!m.custId}
-                          onChange={() => m.custId && toggleG61Member(m.custId)}
-                        />
-                        {m.name}
-                        {!m.custId && " (no linked iRacing account)"}
-                      </label>
-                    ))}
+          {addTab === "garage61" && viewer.verified && viewer.garage61Connected && (
+            <div>
+              <p className="rp-section-sub">
+                Pull in members from a Garage 61 team you belong to — only adds drivers not already on this roster,
+                safe to run again after their Garage 61 team changes.
+              </p>
+              {!showG61Picker ? (
+                <button className="rp-btn" onClick={openG61Picker}>
+                  Choose a Garage 61 team
+                </button>
+              ) : g61Teams === null ? (
+                <p className="rp-section-sub">Loading your Garage 61 teams…</p>
+              ) : g61Teams.length === 0 ? (
+                <p className="rp-section-sub">No Garage 61 teams found for your connected account.</p>
+              ) : (
+                <div>
+                  <div className="rp-row" style={{ flexWrap: "wrap" }}>
+                    <select className="rp-input" value={selectedG61TeamId} onChange={(e) => selectG61Team(e.target.value)}>
+                      <option value="">Choose a team…</option>
+                      {g61Teams.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
-                  <button
-                    className="rp-btn rp-primary"
-                    style={{ marginTop: 12 }}
-                    onClick={importFromG61}
-                    disabled={importing}
-                  >
-                    {importing ? "Importing…" : `Import ${selectedCustIds.size} driver${selectedCustIds.size === 1 ? "" : "s"}`}
-                  </button>
+                  {loadingG61Members && <p className="rp-section-sub">Loading roster…</p>}
+
+                  {g61Members !== null && (
+                    <div style={{ marginTop: 12 }}>
+                      <p className="rp-section-sub" style={{ marginBottom: 4 }}>
+                        Drivers to import ({selectedCustIds.size} selected)
+                      </p>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
+                        {g61Members.map((m) => (
+                          <label key={m.custId ?? m.name} className="rp-row" style={{ gap: 8, opacity: m.custId ? 1 : 0.5 }}>
+                            <input
+                              type="checkbox"
+                              checked={m.custId ? selectedCustIds.has(m.custId) : false}
+                              disabled={!m.custId}
+                              onChange={() => m.custId && toggleG61Member(m.custId)}
+                            />
+                            {m.name}
+                            {!m.custId && " (no linked iRacing account)"}
+                          </label>
+                        ))}
+                      </div>
+
+                      <button className="rp-btn rp-primary" style={{ marginTop: 12 }} onClick={importFromG61} disabled={importing}>
+                        {importing ? "Importing…" : `Import ${selectedCustIds.size} driver${selectedCustIds.size === 1 ? "" : "s"}`}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
+              {importSummary && <p className="rp-section-sub" style={{ color: "var(--rp-green)" }}>{importSummary}</p>}
+              {importError && <p className="rp-error">{importError}</p>}
             </div>
           )}
-          {importSummary && <p className="rp-section-sub" style={{ color: "var(--rp-green)" }}>{importSummary}</p>}
-          {importError && <p className="rp-error">{importError}</p>}
         </div>
       )}
 
-      <h3>Roster</h3>
-      {removeError && <p className="rp-error">{removeError}</p>}
-      <div className="rp-event-grid">
-        {detail.roster.map((m) => {
-          const isCreator = m.userId !== null && m.userId === detail.team.createdBy;
-          return (
-            <div className="rp-event-card" key={m.custId}>
-              <h3 className="rp-event-track">{m.driverName ?? `Driver ${m.custId}`}</h3>
-              <div className="rp-row" style={{ gap: 6 }}>
-                {m.role === "coordinator" && <span className="rp-badge rp-dim">Coordinator</span>}
-                <span className={`rp-badge ${m.status === "active" ? "rp-green" : "rp-amber"}`}>
-                  {m.status === "active" ? "Active" : "Invited — not joined yet"}
-                </span>
+      <div className="rp-card" style={{ marginBottom: 20 }}>
+        <h3 style={{ marginTop: 0 }}>Roster</h3>
+        {removeError && <p className="rp-error">{removeError}</p>}
+        <div className="rp-event-grid">
+          {detail.roster.map((m) => {
+            const isCreator = m.userId !== null && m.userId === detail.team.createdBy;
+            return (
+              <div className="rp-event-card" key={m.custId}>
+                <h3 className="rp-event-track">{m.driverName ?? `Driver ${m.custId}`}</h3>
+                <div className="rp-row" style={{ gap: 6 }}>
+                  {m.role === "coordinator" && <span className="rp-badge rp-dim">Coordinator</span>}
+                  <span className={`rp-badge ${m.status === "active" ? "rp-green" : "rp-amber"}`}>
+                    {m.status === "active" ? "Active" : "Invited — not joined yet"}
+                  </span>
+                </div>
+                {detail.isCoordinator && !isCreator && (
+                  <button
+                    className="rp-btn"
+                    style={{ marginTop: 8, alignSelf: "flex-start" }}
+                    onClick={() => removeMember(m.custId, m.driverName ?? `Driver ${m.custId}`)}
+                    disabled={removingCustId === m.custId}
+                  >
+                    {removingCustId === m.custId ? "Removing…" : "Remove from team"}
+                  </button>
+                )}
               </div>
-              {detail.isCoordinator && !isCreator && (
-                <button
-                  className="rp-btn"
-                  style={{ marginTop: 8, alignSelf: "flex-start" }}
-                  onClick={() => removeMember(m.custId, m.driverName ?? `Driver ${m.custId}`)}
-                  disabled={removingCustId === m.custId}
-                >
-                  {removingCustId === m.custId ? "Removing…" : "Remove from team"}
-                </button>
-              )}
-            </div>
-          );
-        })}
-        {detail.roster.length === 0 && <p className="rp-section-sub">No one on this roster yet.</p>}
+            );
+          })}
+          {detail.roster.length === 0 && <p className="rp-section-sub">No one on this roster yet.</p>}
+        </div>
       </div>
 
       {detail.isCoordinator && (
