@@ -300,11 +300,46 @@ export default function StintsPage() {
       setTotals(data.totals ?? null);
       setWarnings(data.warnings ?? null);
       setGenerateNotes(data.notes ?? []);
+      setSpotting(data.spotting ?? []);
     } catch {
       setError("Network error. Please try again.");
     } finally {
       setGenerating(false);
     }
+  }
+
+  // A stint's spotter is just a spotting assignment whose window matches that stint's own
+  // [start, pit-target) exactly - Generate creates one per stint (see generate-stints.ts),
+  // and picking a name from a stint's own dropdown below keeps that same 1:1 alignment.
+  // The underlying data is still the freeform table duty-assignments.ts always was, so a
+  // hand-added custom window that overlaps a stint without matching it exactly still shows
+  // up (as a secondary note) rather than silently disappearing.
+  function exactSpotterForStint(stint: Stint): SpottingAssignment | undefined {
+    return spotting.find((sp) => sp.startOffsetMinutes === stint.startOffsetMinutes && sp.endOffsetMinutes === stint.pitTargetOffsetMinutes);
+  }
+
+  function otherOverlappingForStint(stint: Stint): SpottingAssignment[] {
+    return spotting.filter(
+      (sp) =>
+        !(sp.startOffsetMinutes === stint.startOffsetMinutes && sp.endOffsetMinutes === stint.pitTargetOffsetMinutes) &&
+        sp.startOffsetMinutes < stint.pitTargetOffsetMinutes &&
+        sp.endOffsetMinutes > stint.startOffsetMinutes
+    );
+  }
+
+  function changeStintSpotter(stint: Stint, custId: string) {
+    const matchesWindow = (sp: SpottingAssignment) => sp.startOffsetMinutes === stint.startOffsetMinutes && sp.endOffsetMinutes === stint.pitTargetOffsetMinutes;
+    if (!custId) {
+      setSpotting(spotting.filter((sp) => !matchesWindow(sp)));
+      return;
+    }
+    const driverName = lineup.find((d) => d.custId === custId)?.driverName ?? custId;
+    const hasExisting = spotting.some(matchesWindow);
+    setSpotting(
+      hasExisting
+        ? spotting.map((sp) => (matchesWindow(sp) ? { ...sp, custId, driverName } : sp))
+        : [...spotting, { custId, driverName, startOffsetMinutes: stint.startOffsetMinutes, endOffsetMinutes: stint.pitTargetOffsetMinutes }]
+    );
   }
 
   async function saveStints() {
@@ -325,9 +360,26 @@ export default function StintsPage() {
         setError(data.message ?? "Could not save stints.");
         return;
       }
+      // Spotter picks live in the same per-stint cards as the stints themselves, so a coordinator
+      // expects one "Save" to persist both - saving stints alone would silently drop whatever
+      // spotter assignments (generated or hand-picked) haven't been through the separate freeform
+      // Spotting section's own save yet.
+      const spottingR = await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/duty-assignments`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          assignments: spotting.map((s) => ({ custId: s.custId, startOffsetMinutes: s.startOffsetMinutes, endOffsetMinutes: s.endOffsetMinutes })),
+        }),
+      });
+      const spottingData = await spottingR.json().catch(() => ({}));
+      if (!spottingR.ok || !spottingData.ok) {
+        setError(spottingData.message ?? "Stints saved, but spotter assignments could not be saved.");
+        return;
+      }
       setStints(data.stints ?? []);
       setTotals(data.totals ?? null);
-      await loadPlan(planId); // refresh warnings against the newly saved stints
+      await loadPlan(planId); // refresh warnings against the newly saved stints + spotting
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -401,7 +453,7 @@ export default function StintsPage() {
           // as broken, not informative. One combined nudge says the same thing.
           <div className="rp-warn-banner">
             ⚠ No spotter scheduled for any of the {warnings.spotterGaps.length} stint
-            {warnings.spotterGaps.length === 1 ? "" : "s"} yet — add spotting below once you know who's available.
+            {warnings.spotterGaps.length === 1 ? "" : "s"} yet — pick a spotter on each stint above, or use Generate to fill them in automatically.
           </div>
         ) : (
           // Partial coverage already exists - each remaining gap is a specific, actionable
@@ -578,6 +630,31 @@ export default function StintsPage() {
                           {s.lapCount} laps · start {formatOffset(s.startOffsetMinutes)} · pit target {formatOffset(s.pitTargetOffsetMinutes)} ·{" "}
                           {s.fuelLoadLiters.toFixed(1)}L
                         </div>
+                        <div className="rp-mono rp-text-faint" style={{ marginTop: 6, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>Spotter:</span>
+                          {canEdit ? (
+                            <select
+                              className="rp-input"
+                              style={{ width: "auto", fontSize: 12, padding: "2px 6px" }}
+                              value={exactSpotterForStint(s)?.custId ?? ""}
+                              onChange={(e) => changeStintSpotter(s, e.target.value)}
+                            >
+                              <option value="">— none —</option>
+                              {lineup
+                                .filter((d) => d.custId !== s.custId)
+                                .map((d) => (
+                                  <option key={d.custId} value={d.custId}>
+                                    {d.driverName}
+                                  </option>
+                                ))}
+                            </select>
+                          ) : (
+                            <span>{exactSpotterForStint(s)?.driverName ?? exactSpotterForStint(s)?.custId ?? "— none —"}</span>
+                          )}
+                          {otherOverlappingForStint(s).length > 0 && (
+                            <span className="rp-text-faint">(+ {otherOverlappingForStint(s).map((o) => o.driverName ?? o.custId).join(", ")})</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                     {canEdit && (
@@ -609,9 +686,10 @@ export default function StintsPage() {
         </div>
 
         <div>
-          <h3 style={{ fontSize: 15 }}>Spotting</h3>
+          <h3 style={{ fontSize: 15 }}>Spotting — custom windows</h3>
           <p className="rp-section-sub" style={{ marginBottom: 12 }}>
-            Freeform windows, deliberately overlapping driver handoffs — they don't need to line up with stint boundaries.
+            Each stint's spotter is set right on the stint above. Use this section only for extra windows that don't line up
+            with a stint boundary — deliberately freeform, so they can overlap driver handoffs.
           </p>
           <div className="rp-card" style={{ marginBottom: 16 }}>
             {canEdit && (

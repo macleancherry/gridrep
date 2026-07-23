@@ -289,21 +289,45 @@ export async function onRequestPost(context: any) {
     tankCapacityLiters,
   });
 
-  const spottingRows = await DB.prepare(
-    `SELECT cust_id as custId, start_time_offset_minutes as startOffsetMinutes, end_time_offset_minutes as endOffsetMinutes
-     FROM race_plan_duty_assignments WHERE race_plan_id = ? AND role = 'spotting'`
-  )
-    .bind(planId)
-    .all<any>();
-  const spottingAssignments: SpottingAssignment[] = (spottingRows.results ?? []).map((r: any) => ({
-    custId: r.custId,
-    startOffsetMinutes: r.startOffsetMinutes,
-    endOffsetMinutes: r.endOffsetMinutes,
-  }));
+  // One spotter assignment per generated stint, its window matching that stint's own
+  // [start, pit-target) exactly - the freeform/overlapping model duty-assignments.ts
+  // stores is still what's saved (a coordinator can still hand-edit windows that don't
+  // line up with stints afterward), but starting from a 1:1 match is what makes the
+  // "driver + spotter together" view on the Stints page possible without the coordinator
+  // building spotting entirely by hand first. Anyone on the roster can spot regardless of
+  // whether they have a computed pace/fuel profile - it doesn't take driving data - so the
+  // pool here is the full lineup, not just `candidates`.
+  const spotterPool = lineup.map((d) => ({ custId: d.custId, driverName: d.driverName ?? `Driver ${d.custId}` }));
+  const generatedSpotting: SpottingAssignment[] = [];
+  if (spotterPool.length > 1) {
+    const spotCountByCustId: Record<string, number> = {};
+    let lastSpotterCustId: string | null = null;
+    for (const stint of stints) {
+      let pool = spotterPool.filter((s) => s.custId !== stint.custId);
+      const notLastSpotter = pool.filter((s) => s.custId !== lastSpotterCustId);
+      if (notLastSpotter.length > 0) pool = notLastSpotter;
 
-  const warnings = computeDutyWarnings(stints, spottingAssignments, fatigueThresholdMinutes);
+      let best = pool[0];
+      let bestCount = Infinity;
+      for (const s of pool) {
+        const count = spotCountByCustId[s.custId] ?? 0;
+        if (count < bestCount) {
+          bestCount = count;
+          best = s;
+        }
+      }
 
-  const driverNameByCustId = new Map(candidates.map((c) => [c.custId, c.driverName]));
+      generatedSpotting.push({ custId: best.custId, startOffsetMinutes: stint.startOffsetMinutes, endOffsetMinutes: stint.pitTargetOffsetMinutes });
+      spotCountByCustId[best.custId] = (spotCountByCustId[best.custId] ?? 0) + 1;
+      lastSpotterCustId = best.custId;
+    }
+  } else if (stints.length > 0) {
+    notes.push("Only one driver in the lineup - no one else available to spot, so no spotter assignments were generated.");
+  }
+
+  const warnings = computeDutyWarnings(stints, generatedSpotting, fatigueThresholdMinutes);
+
+  const driverNameByCustId = new Map(lineup.map((d) => [d.custId, d.driverName ?? `Driver ${d.custId}`]));
 
   return json({
     ok: true,
@@ -312,5 +336,6 @@ export async function onRequestPost(context: any) {
     totals,
     warnings,
     notes,
+    spotting: generatedSpotting.map((s) => ({ ...s, driverName: driverNameByCustId.get(s.custId) ?? `Driver ${s.custId}` })),
   });
 }
