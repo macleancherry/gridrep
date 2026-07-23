@@ -63,6 +63,9 @@ export default function TeamPage() {
   const [removingCustId, setRemovingCustId] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
+  const [changingRoleFor, setChangingRoleFor] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
+
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deletingTeam, setDeletingTeam] = useState(false);
   const [deleteTeamError, setDeleteTeamError] = useState<string | null>(null);
@@ -231,6 +234,40 @@ export default function TeamPage() {
       setRemoveError("Network error. Please try again.");
     } finally {
       setRemovingCustId(null);
+    }
+  }
+
+  async function changeRole(custId: string, name: string, nextRole: "coordinator" | "driver") {
+    if (!teamId) return;
+    const verb = nextRole === "coordinator" ? "Promote" : "Demote";
+    if (
+      !window.confirm(
+        nextRole === "coordinator"
+          ? `Make ${name} a coordinator? They'll be able to manage the roster, plan race weekends, and edit lineups/stints for this team.`
+          : `Demote ${name} to driver? They'll lose coordinator access but stay on the roster.`
+      )
+    ) {
+      return;
+    }
+    setChangingRoleFor(custId);
+    setRoleError(null);
+    try {
+      const r = await fetch(`/api/planner/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(custId)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ role: nextRole }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setRoleError(data.message ?? `Could not ${verb.toLowerCase()} that driver.`);
+        return;
+      }
+      load();
+    } catch {
+      setRoleError("Network error. Please try again.");
+    } finally {
+      setChangingRoleFor(null);
     }
   }
 
@@ -501,12 +538,14 @@ export default function TeamPage() {
       <div className="rp-card" style={{ marginBottom: 20 }}>
         <h3 style={{ marginTop: 0 }}>Roster</h3>
         {removeError && <p className="rp-error">{removeError}</p>}
+        {roleError && <p className="rp-error">{roleError}</p>}
         <div className="rp-event-grid">
           {detail.roster.map((m) => {
             const isCreator = m.userId !== null && m.userId === detail.team.createdBy;
+            const name = m.driverName ?? `Driver ${m.custId}`;
             return (
               <div className="rp-event-card" key={m.custId}>
-                <h3 className="rp-event-track">{m.driverName ?? `Driver ${m.custId}`}</h3>
+                <h3 className="rp-event-track">{name}</h3>
                 <div className="rp-row" style={{ gap: 6 }}>
                   {m.role === "coordinator" && <span className="rp-badge rp-dim">Coordinator</span>}
                   <span className={`rp-badge ${m.status === "active" ? "rp-green" : "rp-amber"}`}>
@@ -514,14 +553,24 @@ export default function TeamPage() {
                   </span>
                 </div>
                 {detail.isCoordinator && !isCreator && (
-                  <button
-                    className="rp-btn"
-                    style={{ marginTop: 8, alignSelf: "flex-start" }}
-                    onClick={() => removeMember(m.custId, m.driverName ?? `Driver ${m.custId}`)}
-                    disabled={removingCustId === m.custId}
-                  >
-                    {removingCustId === m.custId ? "Removing…" : "Remove from team"}
-                  </button>
+                  <div className="rp-row" style={{ gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                    <button
+                      className="rp-btn"
+                      style={{ alignSelf: "flex-start" }}
+                      onClick={() => changeRole(m.custId, name, m.role === "coordinator" ? "driver" : "coordinator")}
+                      disabled={changingRoleFor === m.custId}
+                    >
+                      {changingRoleFor === m.custId ? "Saving…" : m.role === "coordinator" ? "Demote to driver" : "Promote to coordinator"}
+                    </button>
+                    <button
+                      className="rp-btn"
+                      style={{ alignSelf: "flex-start" }}
+                      onClick={() => removeMember(m.custId, name)}
+                      disabled={removingCustId === m.custId}
+                    >
+                      {removingCustId === m.custId ? "Removing…" : "Remove from team"}
+                    </button>
+                  </div>
                 )}
               </div>
             );
