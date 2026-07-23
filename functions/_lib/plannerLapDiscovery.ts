@@ -316,11 +316,21 @@ async function tryCandidates(
 
     if (!header.track_name || !tracksMatch(header.track_name, trackName)) continue;
 
-    const summary = await ingestPlannerSubsession(
-      { env: { DB } },
-      subsessionId,
-      { viewerUserId, accessToken, priorityCustId: custId }
-    );
+    let summary: Awaited<ReturnType<typeof ingestPlannerSubsession>>;
+    try {
+      summary = await ingestPlannerSubsession(
+        { env: { DB } },
+        subsessionId,
+        { viewerUserId, accessToken, priorityCustId: custId }
+      );
+    } catch {
+      // Right track, but this specific subsession isn't ingestable at all (e.g. a pure
+      // Open Practice room with no qualifying/race block - common once the fallback
+      // search below widens past official races into every session type at a track).
+      // One bad candidate shouldn't abort the search when other real sessions at this
+      // same track are still further down the list - keep checking them.
+      continue;
+    }
 
     // A large team session's own job queue can span far more than one batch - without
     // prioritizing this driver's own job (priorityCustId above), a session with hundreds
@@ -403,7 +413,7 @@ export async function discoverAndSyncRecentSessionAtTrack(
       trackName,
       "not_found",
       null,
-      `No recent session found at this track, including a wider year-long search of official, non-championship, and hosted races. [debug v3: recent=${recentIds.length} fallback=${fallbackIds.length}]`
+      "No recent session found at this track, including a wider year-long search of official, non-championship, and hosted races."
     );
     // Still worth a compute pass even with no synced laps - stores a definitive
     // "no_laps_at_track" profile row (fuel may still resolve from Garage 61 alone) instead
