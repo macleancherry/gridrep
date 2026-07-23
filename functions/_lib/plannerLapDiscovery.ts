@@ -19,6 +19,15 @@ import { computeAndStoreOneDriverProfile } from "./plannerDriverProfile";
  */
 
 const MAX_CANDIDATES_TO_CHECK = 15;
+const MAX_FALLBACK_CANDIDATES = 25;
+// iRacing's own hard cap on search_series/search_hosted date ranges (confirmed live:
+// a wider range 400s with "Time ranges are limited to 90 days.").
+const SEARCH_WINDOW_DAYS = 90;
+// How far back to walk in 90-day windows when member_recent_races (capped at the
+// member's last 10 official races - confirmed live) doesn't cover this track. 4 windows
+// is a year of history - generous enough to catch "raced here a few months ago, then
+// did a bunch of other races since" without the background job running indefinitely.
+const FALLBACK_WINDOWS = 4;
 
 type RecentRaceRow = Record<string, unknown>;
 
@@ -107,6 +116,129 @@ async function discoverRecentSubsessionIds(custId: string, accessToken: string, 
   return [];
 }
 
+function encodePath(path: string, params: Record<string, string | number | boolean | undefined>): string {
+  const url = new URL(`https://members-ng.iracing.com${path}`);
+  for (const [key, raw] of Object.entries(params)) {
+    if (raw === undefined || raw === null || raw === "") continue;
+    url.searchParams.set(key, String(raw));
+  }
+  return `${url.pathname}?${url.searchParams.toString()}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** search_series/search_hosted return their actual rows as pre-signed S3 chunk files
+ * (confirmed live - {type, data: {chunk_info: {base_download_url, chunk_file_names}}}),
+ * not inline like member_recent_races - the rows aren't visible until these are fetched
+ * too. Same shape recent.ts's own getChunkInfo/fetchChunkRows already handle for the
+ * site's bulk importer. */
+function getChunkInfo(payload: any): { baseDownloadUrl: string; chunkFileNames: string[] } | null {
+  const candidates = [payload?.data?.chunk_info, payload?.chunk_info, payload?.chunkInfo].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const baseDownloadUrl =
+      (typeof candidate?.base_download_url === "string" && candidate.base_download_url) ||
+      (typeof candidate?.baseDownloadUrl === "string" && candidate.baseDownloadUrl) ||
+      null;
+
+    const chunkFileNamesRaw = candidate?.chunk_file_names ?? candidate?.chunkFileNames;
+    const chunkFileNames = Array.isArray(chunkFileNamesRaw)
+      ? chunkFileNamesRaw.filter((item: unknown): item is string => typeof item === "string" && item.length > 0)
+      : [];
+
+    if (baseDownloadUrl && chunkFileNames.length > 0) {
+      return { baseDownloadUrl, chunkFileNames };
+    }
+  }
+
+  return null;
+}
+
+async function fetchChunkRows(payload: unknown, maxChunkFiles: number): Promise<RecentRaceRow[]> {
+  const chunkInfo = getChunkInfo(payload);
+  if (!chunkInfo) return [];
+
+  const rows: RecentRaceRow[] = [];
+  for (const fileName of chunkInfo.chunkFileNames.slice(0, maxChunkFiles)) {
+    try {
+      const res = await fetch(`${chunkInfo.baseDownloadUrl}${fileName}`);
+      if (!res.ok) continue;
+      const parsed = await res.json();
+      if (Array.isArray(parsed)) rows.push(...(parsed as RecentRaceRow[]));
+      else if (parsed && typeof parsed === "object") rows.push(...extractRaceRows(parsed));
+    } catch {
+      // Best-effort - a bad chunk fetch just means fewer candidates this round.
+    }
+  }
+  return rows;
+}
+
+/**
+ * member_recent_races only ever covers a member's last 10 *official* races (confirmed
+ * live - a driver who's raced 10+ times anywhere since their last visit to this specific
+ * track, or who only ever ran it in a hosted/league session, comes back with zero
+ * candidates from discoverRecentSubsessionIds even though real relevant laps exist).
+ * This is exactly the gap the site's own bulk importer (recent.ts) already solves with a
+ * date-windowed search_series + search_hosted fallback - mirrored here, just scoped down
+ * to only run when the fast path above found nothing, since it costs several extra
+ * iRacing API calls per driver.
+ */
+async function discoverFallbackSubsessionIds(custId: string, accessToken: string, exclude: Set<string>, limit: number): Promise<string[]> {
+  const found: string[] = [];
+  const seen = new Set(exclude);
+  const nowMs = Date.now();
+
+  for (let window = 0; window < FALLBACK_WINDOWS && found.length < limit; window++) {
+    const rangeEndMs = nowMs - window * SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const rangeBeginMs = rangeEndMs - SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+    const paths = [
+      encodePath("/data/results/search_series", {
+        cust_id: custId,
+        finish_range_begin: new Date(rangeBeginMs).toISOString(),
+        finish_range_end: new Date(rangeEndMs).toISOString(),
+        official_only: false,
+      }),
+      // Hosted/league sessions never show up in member_recent_races or search_series -
+      // only worth checking the most recent window, since a coordinator's own hosted
+      // practice/race is far more likely to be recent than a year-old one.
+      ...(window === 0
+        ? [
+            encodePath("/data/results/search_hosted", {
+              cust_id: custId,
+              finish_range_begin: new Date(rangeBeginMs).toISOString(),
+              finish_range_end: new Date(rangeEndMs).toISOString(),
+            }),
+          ]
+        : []),
+    ];
+
+    for (const path of paths) {
+      try {
+        const payload = await iracingDataGet<any>(path, accessToken);
+        const rows = await fetchChunkRows(payload, 5);
+        const ids = collectSubsessionIds(rows, custId, limit - found.length);
+        for (const id of ids) {
+          if (!seen.has(id)) {
+            seen.add(id);
+            found.push(id);
+          }
+        }
+      } catch {
+        // Best-effort only - a failed fallback window shouldn't turn an honest
+        // "not found" into a misleading "search error" when the fast path already
+        // succeeded (just came up empty).
+      }
+      if (found.length >= limit) break;
+      await sleep(200);
+    }
+  }
+
+  return found;
+}
+
 /** Loose match, tolerant of minor config-string differences ("Circuit de Spa-
  * Francorchamps" vs "Spa-Francorchamps - Grand Prix") - a false negative just means the
  * organiser falls back to the manual paste-ID box, never a wrong sync. */
@@ -135,6 +267,83 @@ async function setStatus(
     .run();
 }
 
+/** Checks one batch of candidate subsessions against the target track, syncing and
+ * setting a terminal status on the first real match. Returns true if it handled the
+ * search (found laps, or found the track but couldn't fetch laps) - false means none of
+ * these candidates matched, and the caller should either try a wider batch or give up. */
+async function tryCandidates(
+  context: any,
+  DB: any,
+  custId: string,
+  trackName: string,
+  trackConfig: string | null,
+  carId: number | null,
+  carClassCarIds: number[] | null,
+  viewerUserId: string,
+  accessToken: string,
+  garage61TeamSlug: string | null,
+  candidateIds: string[]
+): Promise<boolean> {
+  for (const subsessionId of candidateIds) {
+    let header: { track_name?: string };
+    try {
+      const payload = await fetchSubsessionResult(subsessionId, accessToken);
+      header = extractSessionHeader(payload);
+    } catch {
+      continue; // this candidate errored - try the next one rather than failing the whole search
+    }
+
+    if (!header.track_name || !tracksMatch(header.track_name, trackName)) continue;
+
+    const summary = await ingestPlannerSubsession(
+      { env: { DB } },
+      subsessionId,
+      { viewerUserId, accessToken, priorityCustId: custId }
+    );
+
+    // A large team session's own job queue can span far more than one batch - without
+    // prioritizing this driver's own job (priorityCustId above), a session with hundreds
+    // of participants could report an aggregate "N laps synced" success while never
+    // actually reaching this specific driver's job at all. Confirm their own laps really
+    // landed before calling this "found" rather than trusting the aggregate count.
+    const targetLaps = await DB.prepare(`SELECT COUNT(*) as n FROM planner_iracing_laps WHERE subsession_id = ? AND cust_id = ?`)
+      .bind(subsessionId, custId)
+      .first<{ n: number }>();
+
+    if ((targetLaps?.n ?? 0) > 0) {
+      await setStatus(
+        DB,
+        custId,
+        trackName,
+        "found",
+        subsessionId,
+        `Synced ${targetLaps!.n} of this driver's own laps from a session at ${header.track_name}.`
+      );
+      await computeProfileQuietly(context, DB, custId, trackName, trackConfig, carId, carClassCarIds, garage61TeamSlug);
+      return true;
+    }
+
+    const targetFailure = summary.driverFailures.find((f) => f.custId === custId);
+    if (targetFailure) {
+      await setStatus(
+        DB,
+        custId,
+        trackName,
+        "error",
+        subsessionId,
+        `Found a session at this track but could not fetch this driver's own laps: ${targetFailure.message}`
+      );
+      return true;
+    }
+
+    // Right track, but this driver has no usable laps in it (e.g. they didn't complete
+    // any laps before a DNF) - keep checking older candidates rather than reporting a
+    // false "found".
+  }
+
+  return false;
+}
+
 export async function discoverAndSyncRecentSessionAtTrack(
   context: any,
   DB: any,
@@ -148,66 +357,33 @@ export async function discoverAndSyncRecentSessionAtTrack(
   garage61TeamSlug: string | null
 ): Promise<void> {
   try {
-    const candidateIds = await discoverRecentSubsessionIds(custId, accessToken, MAX_CANDIDATES_TO_CHECK);
-
-    for (const subsessionId of candidateIds) {
-      let header: { track_name?: string };
-      try {
-        const payload = await fetchSubsessionResult(subsessionId, accessToken);
-        header = extractSessionHeader(payload);
-      } catch {
-        continue; // this candidate errored - try the next one rather than failing the whole search
-      }
-
-      if (!header.track_name || !tracksMatch(header.track_name, trackName)) continue;
-
-      const summary = await ingestPlannerSubsession(
-        { env: { DB } },
-        subsessionId,
-        { viewerUserId, accessToken, priorityCustId: custId }
-      );
-
-      // A large team session's own job queue can span far more than one batch - without
-      // prioritizing this driver's own job (priorityCustId above), a session with hundreds
-      // of participants could report an aggregate "N laps synced" success while never
-      // actually reaching this specific driver's job at all. Confirm their own laps really
-      // landed before calling this "found" rather than trusting the aggregate count.
-      const targetLaps = await DB.prepare(`SELECT COUNT(*) as n FROM planner_iracing_laps WHERE subsession_id = ? AND cust_id = ?`)
-        .bind(subsessionId, custId)
-        .first<{ n: number }>();
-
-      if ((targetLaps?.n ?? 0) > 0) {
-        await setStatus(
-          DB,
-          custId,
-          trackName,
-          "found",
-          subsessionId,
-          `Synced ${targetLaps!.n} of this driver's own laps from a session at ${header.track_name}.`
-        );
-        await computeProfileQuietly(context, DB, custId, trackName, trackConfig, carId, carClassCarIds, garage61TeamSlug);
-        return;
-      }
-
-      const targetFailure = summary.driverFailures.find((f) => f.custId === custId);
-      if (targetFailure) {
-        await setStatus(
-          DB,
-          custId,
-          trackName,
-          "error",
-          subsessionId,
-          `Found a session at this track but could not fetch this driver's own laps: ${targetFailure.message}`
-        );
-        return;
-      }
-
-      // Right track, but this driver has no usable laps in it (e.g. they didn't complete
-      // any laps before a DNF) - keep checking older candidates rather than reporting a
-      // false "found".
+    const recentIds = await discoverRecentSubsessionIds(custId, accessToken, MAX_CANDIDATES_TO_CHECK);
+    if (
+      await tryCandidates(context, DB, custId, trackName, trackConfig, carId, carClassCarIds, viewerUserId, accessToken, garage61TeamSlug, recentIds)
+    ) {
+      return;
     }
 
-    await setStatus(DB, custId, trackName, "not_found", null, "No recent session found at this track in the driver's last races.");
+    // member_recent_races only covers the last 10 official races (confirmed live) - a
+    // driver who's raced elsewhere since their last visit to this track, or who only ever
+    // ran it in a non-championship/hosted session, needs the wider date-windowed search
+    // below rather than being reported as having no relevant experience at all.
+    const fallbackIds = await discoverFallbackSubsessionIds(custId, accessToken, new Set(recentIds), MAX_FALLBACK_CANDIDATES);
+    if (
+      fallbackIds.length > 0 &&
+      (await tryCandidates(context, DB, custId, trackName, trackConfig, carId, carClassCarIds, viewerUserId, accessToken, garage61TeamSlug, fallbackIds))
+    ) {
+      return;
+    }
+
+    await setStatus(
+      DB,
+      custId,
+      trackName,
+      "not_found",
+      null,
+      "No recent session found at this track, including a wider year-long search of official, non-championship, and hosted races."
+    );
     // Still worth a compute pass even with no synced laps - stores a definitive
     // "no_laps_at_track" profile row (fuel may still resolve from Garage 61 alone) instead
     // of leaving the Lineup/Stints pages with nothing to show but the search status.
