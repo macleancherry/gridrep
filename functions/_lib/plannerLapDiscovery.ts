@@ -185,7 +185,13 @@ async function fetchChunkRows(payload: unknown, maxChunkFiles: number): Promise<
  * to only run when the fast path above found nothing, since it costs several extra
  * iRacing API calls per driver.
  */
-async function discoverFallbackSubsessionIds(custId: string, accessToken: string, exclude: Set<string>, limit: number): Promise<string[]> {
+async function discoverFallbackSubsessionIds(
+  custId: string,
+  accessToken: string,
+  trackName: string,
+  exclude: Set<string>,
+  limit: number
+): Promise<string[]> {
   const found: string[] = [];
   const seen = new Set(exclude);
   const nowMs = Date.now();
@@ -219,9 +225,24 @@ async function discoverFallbackSubsessionIds(custId: string, accessToken: string
       try {
         const payload = await iracingDataGet<any>(path, accessToken);
         const rows = await fetchChunkRows(payload, 5);
-        const ids = collectSubsessionIds(rows, custId, limit - found.length);
-        for (const id of ids) {
-          if (!seen.has(id)) {
+
+        // Filter to this track BEFORE extracting ids - each window can return 50-200+
+        // rows across every track the driver's touched, and the most recent window is
+        // always the biggest. Collecting ids in row order and capping globally would let
+        // that one crowded recent window exhaust the whole candidate budget before the
+        // search ever reached the older window this track's actual sessions are in - the
+        // track name is already right there on each row (row.track.track_name), so
+        // matching against it directly avoids ever needing to look at an unrelated track.
+        for (const row of rows) {
+          const r = row as Record<string, unknown>;
+          const rowMember = r.cust_id ?? r.customer_id ?? r.customerId ?? r.iracing_member_id ?? r.member_id ?? r.memberId;
+          if (rowMember != null && String(rowMember) !== custId) continue;
+
+          const rowTrack = (r.track as any)?.track_name;
+          if (typeof rowTrack !== "string" || !tracksMatch(rowTrack, trackName)) continue;
+
+          const id = extractSubsessionId(r);
+          if (id && !seen.has(id)) {
             seen.add(id);
             found.push(id);
           }
@@ -368,7 +389,7 @@ export async function discoverAndSyncRecentSessionAtTrack(
     // driver who's raced elsewhere since their last visit to this track, or who only ever
     // ran it in a non-championship/hosted session, needs the wider date-windowed search
     // below rather than being reported as having no relevant experience at all.
-    const fallbackIds = await discoverFallbackSubsessionIds(custId, accessToken, new Set(recentIds), MAX_FALLBACK_CANDIDATES);
+    const fallbackIds = await discoverFallbackSubsessionIds(custId, accessToken, trackName, new Set(recentIds), MAX_FALLBACK_CANDIDATES);
     if (
       fallbackIds.length > 0 &&
       (await tryCandidates(context, DB, custId, trackName, trackConfig, carId, carClassCarIds, viewerUserId, accessToken, garage61TeamSlug, fallbackIds))
