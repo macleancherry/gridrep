@@ -413,7 +413,7 @@ export async function discoverAndSyncRecentSessionAtTrack(
       trackName,
       "not_found",
       null,
-      "No recent session found at this track, including a wider year-long search of official, non-championship, and hosted races."
+      `No recent session found at this track, including a wider year-long search of official, non-championship, and hosted races. [diag: recent=${recentIds.length} fallback=${fallbackIds.length}]`
     );
     // Still worth a compute pass even with no synced laps - stores a definitive
     // "no_laps_at_track" profile row (fuel may still resolve from Garage 61 alone) instead
