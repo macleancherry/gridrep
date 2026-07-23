@@ -291,21 +291,54 @@ export default function TeamPage() {
           </p>
         ) : (
           <div className="rp-profile-list">
-            {detail.weekends.map((w) => (
-              <div className="rp-row" key={w.weekendId} style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                <div>
-                  <div className="rp-profile-label">{titleCaseRaceName(w.name) || w.name}</div>
-                  <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }}>
-                    {w.trackName ?? "Track TBD"}
-                    {w.scheduledStartTime ? ` · ${new Date(w.scheduledStartTime).toLocaleString()}` : ""}
-                    {w.carCount > 1 ? ` · ${w.carCount} cars` : ""}
+            {detail.weekends.map((w) => {
+              const availabilityHref = w.planId ? `/race-planner/availability/${w.planId}` : null;
+              const manageHref = `/race-planner/weekend/${w.weekendId}`;
+              const manageLabel = w.carCount === 0 ? "Add cars →" : "Manage this weekend →";
+              // A driver's whole reason for following an invite link is "tell the team
+              // when I'm free" - that's the primary action on their own row. A
+              // coordinator still needs the full car checklist, but gets the
+              // availability action too when they're also on a car's own lineup.
+              return (
+                <div className="rp-row" key={w.weekendId} style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                  <div>
+                    <div className="rp-profile-label">{titleCaseRaceName(w.name) || w.name}</div>
+                    <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }}>
+                      {w.trackName ?? "Track TBD"}
+                      {w.scheduledStartTime ? ` · ${new Date(w.scheduledStartTime).toLocaleString()}` : ""}
+                      {w.carCount > 1 ? ` · ${w.carCount} cars` : ""}
+                    </div>
+                  </div>
+                  <div className="rp-row" style={{ gap: 8, flexWrap: "wrap" }}>
+                    {availabilityHref &&
+                      (w.viewerHasSubmittedAvailability ? (
+                        <Link
+                          className="rp-btn"
+                          style={{ borderColor: "var(--rp-green)", color: "var(--rp-green)" }}
+                          to={availabilityHref}
+                        >
+                          ✓ Availability set
+                        </Link>
+                      ) : (
+                        <Link className="rp-btn rp-primary" to={availabilityHref}>
+                          Set your availability →
+                        </Link>
+                      ))}
+                    {detail.isCoordinator ? (
+                      <Link className={`rp-btn${availabilityHref ? "" : " rp-primary"}`} to={manageHref}>
+                        {manageLabel}
+                      </Link>
+                    ) : (
+                      w.carCount > 0 && (
+                        <Link className="rp-btn" to={manageHref}>
+                          View weekend →
+                        </Link>
+                      )
+                    )}
                   </div>
                 </div>
-                <Link className="rp-btn rp-primary" to={`/race-planner/weekend/${w.weekendId}`}>
-                  {w.carCount === 0 ? "Add cars →" : "Manage this weekend →"}
-                </Link>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

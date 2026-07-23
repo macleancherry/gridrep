@@ -143,6 +143,10 @@ export default function LineupPage() {
   const [paceDrafts, setPaceDrafts] = useState<Record<string, string>>({});
   const [savingPaceFor, setSavingPaceFor] = useState<string | null>(null);
   const [searchStatus, setSearchStatus] = useState<Record<string, SearchStatus>>({});
+  // Creator-or-team-coordinator only (same canDelete flag the plan GET response already
+  // computes for PlanSummaryPage's delete button) - a rostered driver can see this page to
+  // check who else is on the car, but editing the roster/car/pace/fuel is a coordinator job.
+  const [canEdit, setCanEdit] = useState(false);
 
   // Race car (PRD: pick the car before pulling pace/fuel, so both are scoped to it) and
   // the coordinator's race-wide default pace/fuel fallback - both live on the plan itself.
@@ -182,6 +186,7 @@ export default function LineupPage() {
         setCarName(data.plan?.car_name ?? "");
         setDefaultPaceDraft(typeof data.plan?.default_pace_ms === "number" ? formatPace(data.plan.default_pace_ms) : "");
         setDefaultFuelDraft(typeof data.plan?.default_fuel_per_lap === "number" ? String(data.plan.default_fuel_per_lap) : "");
+        setCanEdit(Boolean(data.canDelete));
       })
       .catch(() => setError("Network error. Please try again."))
       .finally(() => setLoading(false));
@@ -563,79 +568,85 @@ export default function LineupPage() {
         <div className="rp-form-field" style={{ marginBottom: 8 }}>
           <label>Race car</label>
         </div>
-        {eligibleCars === null ? (
-          <p className="rp-section-sub">Loading eligible cars…</p>
-        ) : eligibleCars.length > 0 ? (
-          <select className="rp-input" value={carId ?? ""} onChange={(e) => onCarDropdownChange(e.target.value)} disabled={savingCar}>
-            <option value="">Choose your car…</option>
-            {eligibleCars.map((c) => (
-              <option key={c.carId} value={c.carId}>
-                {c.carName}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <div className="rp-row">
-            <input
-              className="rp-input"
-              placeholder="Car name (e.g. Ferrari 296 GT3)"
-              value={carName}
-              onChange={(e) => setCarName(e.target.value)}
-              onBlur={() => saveCarSelection(null, carName, null)}
-              style={{ minWidth: 240 }}
-              disabled={savingCar}
-            />
-            <p className="rp-text-faint" style={{ fontSize: 11, margin: 0, alignSelf: "center" }}>
-              No car-eligibility data for this event - name it yourself.
+        {canEdit ? (
+          <>
+            {eligibleCars === null ? (
+              <p className="rp-section-sub">Loading eligible cars…</p>
+            ) : eligibleCars.length > 0 ? (
+              <select className="rp-input" value={carId ?? ""} onChange={(e) => onCarDropdownChange(e.target.value)} disabled={savingCar}>
+                <option value="">Choose your car…</option>
+                {eligibleCars.map((c) => (
+                  <option key={c.carId} value={c.carId}>
+                    {c.carName}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="rp-row">
+                <input
+                  className="rp-input"
+                  placeholder="Car name (e.g. Ferrari 296 GT3)"
+                  value={carName}
+                  onChange={(e) => setCarName(e.target.value)}
+                  onBlur={() => saveCarSelection(null, carName, null)}
+                  style={{ minWidth: 240 }}
+                  disabled={savingCar}
+                />
+                <p className="rp-text-faint" style={{ fontSize: 11, margin: 0, alignSelf: "center" }}>
+                  No car-eligibility data for this event - name it yourself.
+                </p>
+              </div>
+            )}
+            <p className="rp-section-sub" style={{ marginTop: 8, marginBottom: 0 }}>
+              Set this before adding drivers - pace and fuel are found for this specific car, falling back to a similar
+              car in the same class for pace only if this one has no synced laps yet.
             </p>
-          </div>
-        )}
-        <p className="rp-section-sub" style={{ marginTop: 8, marginBottom: 0 }}>
-          Set this before adding drivers - pace and fuel are found for this specific car, falling back to a similar
-          car in the same class for pace only if this one has no synced laps yet.
-        </p>
 
-        <div className="rp-row" style={{ marginTop: 14, alignItems: "flex-end" }}>
-          <div className="rp-form-field">
-            <label>Default pace (lap time)</label>
-            <input
-              className="rp-input"
-              style={{ width: 100 }}
-              type="text"
-              placeholder="m:ss.sss"
-              value={defaultPaceDraft}
-              onChange={(e) => setDefaultPaceDraft(e.target.value)}
-              onBlur={saveDefaults}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-              }}
-              disabled={savingDefaults}
-            />
-          </div>
-          <div className="rp-form-field">
-            <label>Default fuel / lap (L)</label>
-            <input
-              className="rp-input"
-              style={{ width: 90 }}
-              type="number"
-              step="0.01"
-              value={defaultFuelDraft}
-              onChange={(e) => setDefaultFuelDraft(e.target.value)}
-              onBlur={saveDefaults}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-              }}
-              disabled={savingDefaults}
-            />
-          </div>
-        </div>
-        <p className="rp-text-faint" style={{ fontSize: 11, marginTop: 6, marginBottom: 0 }}>
-          Used for any driver without their own pace/fuel yet - once they've practiced (or you lock in a number
-          for them below), their own data takes over automatically.
-        </p>
+            <div className="rp-row" style={{ marginTop: 14, alignItems: "flex-end" }}>
+              <div className="rp-form-field">
+                <label>Default pace (lap time)</label>
+                <input
+                  className="rp-input"
+                  style={{ width: 100 }}
+                  type="text"
+                  placeholder="m:ss.sss"
+                  value={defaultPaceDraft}
+                  onChange={(e) => setDefaultPaceDraft(e.target.value)}
+                  onBlur={saveDefaults}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                  disabled={savingDefaults}
+                />
+              </div>
+              <div className="rp-form-field">
+                <label>Default fuel / lap (L)</label>
+                <input
+                  className="rp-input"
+                  style={{ width: 90 }}
+                  type="number"
+                  step="0.01"
+                  value={defaultFuelDraft}
+                  onChange={(e) => setDefaultFuelDraft(e.target.value)}
+                  onBlur={saveDefaults}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                  disabled={savingDefaults}
+                />
+              </div>
+            </div>
+            <p className="rp-text-faint" style={{ fontSize: 11, marginTop: 6, marginBottom: 0 }}>
+              Used for any driver without their own pace/fuel yet - once they've practiced (or you lock in a number
+              for them below), their own data takes over automatically.
+            </p>
+          </>
+        ) : (
+          <p className="rp-section-sub">{carName || "Not set yet"}</p>
+        )}
       </div>
 
-      {teamRoster.length > 0 && (
+      {canEdit && teamRoster.length > 0 && (
         <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
           <div className="rp-form-field" style={{ marginBottom: 8 }}>
             <label>Add from team roster</label>
@@ -662,7 +673,7 @@ export default function LineupPage() {
         </div>
       )}
 
-      {teamRoster.length === 0 && weekendId && myTeams && myTeams.length > 0 && (
+      {canEdit && teamRoster.length === 0 && weekendId && myTeams && myTeams.length > 0 && (
         <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
           <div className="rp-form-field" style={{ marginBottom: 8 }}>
             <label>This weekend isn't linked to a team yet</label>
@@ -690,35 +701,39 @@ export default function LineupPage() {
 
       <div className="rp-card rp-card-narrow" style={{ marginBottom: 16, position: "relative" }}>
         <div className="rp-form-field" style={{ marginBottom: 8 }}>
-          <label>{teamRoster.length > 0 ? "Or search for a guest driver" : "Search for a driver"}</label>
+          <label>{canEdit ? (teamRoster.length > 0 ? "Or search for a guest driver" : "Search for a driver") : "Drivers"}</label>
         </div>
-        <div className="rp-row" style={{ marginBottom: 10 }}>
-          <input
-            className="rp-input"
-            placeholder="Search by driver name or cust_id"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            style={{ minWidth: 260 }}
-          />
-        </div>
-        {(searchResults.length > 0 || liveSearchPending) && (
-          <div className="rp-profile-list" style={{ marginBottom: 10 }}>
-            {searchResults.map((d) => (
-              <div className="rp-row" key={d.id} style={{ justifyContent: "space-between" }}>
-                <span>
-                  {d.name} <span className="rp-text-faint rp-mono">#{d.id}</span>
-                </span>
-                <button className="rp-btn" onClick={() => addDriver(d.id, d.name)}>
-                  + Add
-                </button>
+        {canEdit && (
+          <>
+            <div className="rp-row" style={{ marginBottom: 10 }}>
+              <input
+                className="rp-input"
+                placeholder="Search by driver name or cust_id"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                style={{ minWidth: 260 }}
+              />
+            </div>
+            {(searchResults.length > 0 || liveSearchPending) && (
+              <div className="rp-profile-list" style={{ marginBottom: 10 }}>
+                {searchResults.map((d) => (
+                  <div className="rp-row" key={d.id} style={{ justifyContent: "space-between" }}>
+                    <span>
+                      {d.name} <span className="rp-text-faint rp-mono">#{d.id}</span>
+                    </span>
+                    <button className="rp-btn" onClick={() => addDriver(d.id, d.name)}>
+                      + Add
+                    </button>
+                  </div>
+                ))}
+                {liveSearchPending && (
+                  <span className="rp-text-faint" style={{ fontSize: 11 }}>
+                    🔎 Checking iRacing for more matches…
+                  </span>
+                )}
               </div>
-            ))}
-            {liveSearchPending && (
-              <span className="rp-text-faint" style={{ fontSize: 11 }}>
-                🔎 Checking iRacing for more matches…
-              </span>
             )}
-          </div>
+          </>
         )}
 
         <div className="rp-row" style={{ flexWrap: "wrap" }}>
@@ -727,13 +742,15 @@ export default function LineupPage() {
             <span className="rp-badge rp-dim" key={d.custId}>
               {d.name}
               <StatusBadge s={searchStatus[d.custId]} />
-              <button
-                onClick={() => removeDriver(d.custId)}
-                style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", marginLeft: 4, padding: 0 }}
-                aria-label={`Remove ${d.name}`}
-              >
-                ×
-              </button>
+              {canEdit && (
+                <button
+                  onClick={() => removeDriver(d.custId)}
+                  style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", marginLeft: 4, padding: 0 }}
+                  aria-label={`Remove ${d.name}`}
+                >
+                  ×
+                </button>
+              )}
             </span>
           ))}
         </div>
@@ -810,74 +827,83 @@ export default function LineupPage() {
                     )}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div className="rp-form-field">
-                        <label>Pace (lap time)</label>
-                        <input
-                          className="rp-input"
-                          style={{ width: 100 }}
-                          type="text"
-                          placeholder={p.paceMs !== null ? formatPace(p.paceMs) : "m:ss.sss"}
-                          value={paceDrafts[p.custId] ?? ""}
-                          onChange={(e) => setPaceDrafts({ ...paceDrafts, [p.custId]: e.target.value })}
-                          onBlur={() => savePaceOverride(p.custId)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                          }}
-                          disabled={savingPaceFor === p.custId || p.locked}
-                          title="No recent laps synced at this track? Type a lap time here (e.g. 1:32.456) to unblock stint planning."
-                        />
+                    {canEdit ? (
+                      <>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div className="rp-form-field">
+                            <label>Pace (lap time)</label>
+                            <input
+                              className="rp-input"
+                              style={{ width: 100 }}
+                              type="text"
+                              placeholder={p.paceMs !== null ? formatPace(p.paceMs) : "m:ss.sss"}
+                              value={paceDrafts[p.custId] ?? ""}
+                              onChange={(e) => setPaceDrafts({ ...paceDrafts, [p.custId]: e.target.value })}
+                              onBlur={() => savePaceOverride(p.custId)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                              }}
+                              disabled={savingPaceFor === p.custId || p.locked}
+                              title="No recent laps synced at this track? Type a lap time here (e.g. 1:32.456) to unblock stint planning."
+                            />
+                          </div>
+                          {p.paceSource &&
+                            (() => {
+                              const badge = paceSourceBadge(p.paceSource);
+                              return badge ? (
+                                <span className={`rp-badge ${badge.className}`} title={badge.title}>
+                                  {badge.label}
+                                </span>
+                              ) : null;
+                            })()}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div className="rp-form-field">
+                            <label>Fuel / lap (L)</label>
+                            <input
+                              className="rp-input"
+                              style={{ width: 90 }}
+                              type="number"
+                              step="0.01"
+                              placeholder={p.fuelPerLap !== null ? String(p.fuelPerLap) : "manual"}
+                              value={fuelDrafts[p.custId] ?? ""}
+                              onChange={(e) => setFuelDrafts({ ...fuelDrafts, [p.custId]: e.target.value })}
+                              onBlur={() => saveFuelOverride(p.custId)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                              }}
+                              disabled={savingFuelFor === p.custId || p.locked}
+                            />
+                          </div>
+                          {p.fuelSource &&
+                            (() => {
+                              const badge = fuelSourceBadge(p.fuelSource);
+                              return (
+                                <span className={`rp-badge ${badge.className}`} title={badge.title}>
+                                  {badge.label}
+                                </span>
+                              );
+                            })()}
+                        </div>
+                        <button
+                          className="rp-btn"
+                          onClick={() => toggleLock(p)}
+                          disabled={lockingFor === p.custId || (!p.locked && p.paceMs === null && p.fuelPerLap === null)}
+                          title={
+                            p.locked
+                              ? "Locked for this race - click to unlock and resume auto-syncing"
+                              : "Lock in this driver's current pace/fuel for this race only - stops auto-syncing for them here"
+                          }
+                        >
+                          {p.locked ? "🔒" : "🔓"}
+                        </button>
+                      </>
+                    ) : (
+                      <div className="rp-text-faint" style={{ fontSize: 12 }}>
+                        Fuel: {p.fuelPerLap !== null ? `${p.fuelPerLap} L/lap` : "—"}
+                        {p.locked && " · locked"}
                       </div>
-                      {p.paceSource &&
-                        (() => {
-                          const badge = paceSourceBadge(p.paceSource);
-                          return badge ? (
-                            <span className={`rp-badge ${badge.className}`} title={badge.title}>
-                              {badge.label}
-                            </span>
-                          ) : null;
-                        })()}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div className="rp-form-field">
-                        <label>Fuel / lap (L)</label>
-                        <input
-                          className="rp-input"
-                          style={{ width: 90 }}
-                          type="number"
-                          step="0.01"
-                          placeholder={p.fuelPerLap !== null ? String(p.fuelPerLap) : "manual"}
-                          value={fuelDrafts[p.custId] ?? ""}
-                          onChange={(e) => setFuelDrafts({ ...fuelDrafts, [p.custId]: e.target.value })}
-                          onBlur={() => saveFuelOverride(p.custId)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                          }}
-                          disabled={savingFuelFor === p.custId || p.locked}
-                        />
-                      </div>
-                      {p.fuelSource &&
-                        (() => {
-                          const badge = fuelSourceBadge(p.fuelSource);
-                          return (
-                            <span className={`rp-badge ${badge.className}`} title={badge.title}>
-                              {badge.label}
-                            </span>
-                          );
-                        })()}
-                    </div>
-                    <button
-                      className="rp-btn"
-                      onClick={() => toggleLock(p)}
-                      disabled={lockingFor === p.custId || (!p.locked && p.paceMs === null && p.fuelPerLap === null)}
-                      title={
-                        p.locked
-                          ? "Locked for this race - click to unlock and resume auto-syncing"
-                          : "Lock in this driver's current pace/fuel for this race only - stops auto-syncing for them here"
-                      }
-                    >
-                      {p.locked ? "🔒" : "🔓"}
-                    </button>
+                    )}
                   </div>
                 </div>
               </div>

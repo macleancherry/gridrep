@@ -79,6 +79,10 @@ export default function StintsPage() {
   const [savingSpotting, setSavingSpotting] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generateNotes, setGenerateNotes] = useState<string[]>([]);
+  // Creator-or-team-coordinator only (same canDelete flag PlanSummaryPage/LineupPage
+  // already use) - a rostered driver can see the stint plan (useful to check their own
+  // assignment) but generating/editing/reordering it is a coordinator job.
+  const [canEdit, setCanEdit] = useState(false);
 
   async function loadDriverProfiles(custIds: string[], conditionProfileId: string, forEventId?: string) {
     const targetEventId = forEventId ?? eventId;
@@ -110,6 +114,7 @@ export default function StintsPage() {
     setTotals(data.totals ?? null);
     setSpotting(data.spotting ?? []);
     setWarnings(data.warnings ?? null);
+    setCanEdit(Boolean(data.canDelete));
     await loadDriverProfiles((data.lineup ?? []).map((d: LineupDriver) => d.custId), selectedProfileId, data.eventId);
     return data.eventId as string;
   }
@@ -422,13 +427,17 @@ export default function StintsPage() {
         <div>
           <div className="rp-row" style={{ marginBottom: 16, justifyContent: "space-between", alignItems: "center" }}>
             <p className="rp-section-sub" style={{ margin: 0 }}>
-              Auto-fill a starting stint order from driver pace/fuel, fatigue rules, and availability — then edit freely below.
+              {canEdit
+                ? "Auto-fill a starting stint order from driver pace/fuel, fatigue rules, and availability — then edit freely below."
+                : "Your team's stint plan for this race."}
             </p>
-            <button className="rp-btn rp-primary" onClick={generateStints} disabled={generating || !allProfilesReady} title={!allProfilesReady ? "Waiting for pace/fuel data - see below" : undefined}>
-              {generating ? "Generating…" : "✨ Generate stint plan"}
-            </button>
+            {canEdit && (
+              <button className="rp-btn rp-primary" onClick={generateStints} disabled={generating || !allProfilesReady} title={!allProfilesReady ? "Waiting for pace/fuel data - see below" : undefined}>
+                {generating ? "Generating…" : "✨ Generate stint plan"}
+              </button>
+            )}
           </div>
-          {lineup.length > 0 && !allProfilesReady && (
+          {canEdit && lineup.length > 0 && !allProfilesReady && (
             <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
               <p className="rp-section-sub" style={{ margin: 0 }}>
                 Still finding pace and fuel for{" "}
@@ -441,7 +450,7 @@ export default function StintsPage() {
               </p>
             </div>
           )}
-          {generateNotes.length > 0 && (
+          {canEdit && generateNotes.length > 0 && (
             <div className="rp-card rp-card-narrow" style={{ marginBottom: 16 }}>
               {generateNotes.map((n, i) => (
                 <p className="rp-section-sub" key={i} style={{ margin: i === 0 ? 0 : "6px 0 0" }}>
@@ -451,56 +460,58 @@ export default function StintsPage() {
             </div>
           )}
 
-          <div className="rp-card" style={{ marginBottom: 16 }}>
-            <div className="rp-row" style={{ marginBottom: 10 }}>
-              <select className="rp-input" value={selectedProfileId} onChange={(e) => onProfileFilterChange(e.target.value)}>
-                <option value="">All conditions (unfiltered)</option>
-                {conditionProfiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-              <select className="rp-input" value={newDriverId} onChange={(e) => setNewDriverId(e.target.value)}>
-                <option value="">Select driver…</option>
-                {lineup.map((d) => {
-                  const p = driverProfiles.find((x) => x.custId === d.custId);
-                  const ready = Boolean(p?.paceMs && p?.fuelPerLap);
-                  return (
-                    <option key={d.custId} value={d.custId} disabled={!ready}>
-                      {d.driverName}
-                      {!ready ? " (finding pace/fuel…)" : ""}
+          {canEdit && (
+            <div className="rp-card" style={{ marginBottom: 16 }}>
+              <div className="rp-row" style={{ marginBottom: 10 }}>
+                <select className="rp-input" value={selectedProfileId} onChange={(e) => onProfileFilterChange(e.target.value)}>
+                  <option value="">All conditions (unfiltered)</option>
+                  {conditionProfiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
                     </option>
-                  );
-                })}
-              </select>
-              <input
-                className="rp-input"
-                style={{ width: 90 }}
-                type="number"
-                placeholder="Laps"
-                value={newLapCount}
-                onChange={(e) => setNewLapCount(e.target.value)}
-              />
-              <button
-                className="rp-btn rp-primary"
-                onClick={addStint}
-                disabled={!newDriverId || !driverProfiles.find((p) => p.custId === newDriverId)?.paceMs || !driverProfiles.find((p) => p.custId === newDriverId)?.fuelPerLap}
-              >
-                + Add stint
-              </button>
+                  ))}
+                </select>
+                <select className="rp-input" value={newDriverId} onChange={(e) => setNewDriverId(e.target.value)}>
+                  <option value="">Select driver…</option>
+                  {lineup.map((d) => {
+                    const p = driverProfiles.find((x) => x.custId === d.custId);
+                    const ready = Boolean(p?.paceMs && p?.fuelPerLap);
+                    return (
+                      <option key={d.custId} value={d.custId} disabled={!ready}>
+                        {d.driverName}
+                        {!ready ? " (finding pace/fuel…)" : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+                <input
+                  className="rp-input"
+                  style={{ width: 90 }}
+                  type="number"
+                  placeholder="Laps"
+                  value={newLapCount}
+                  onChange={(e) => setNewLapCount(e.target.value)}
+                />
+                <button
+                  className="rp-btn rp-primary"
+                  onClick={addStint}
+                  disabled={!newDriverId || !driverProfiles.find((p) => p.custId === newDriverId)?.paceMs || !driverProfiles.find((p) => p.custId === newDriverId)?.fuelPerLap}
+                >
+                  + Add stint
+                </button>
+              </div>
+              <p className="rp-section-sub">
+                Pace and fuel come from the Lineup page's automatic background search — a driver shows "finding
+                pace/fuel…" until that's ready.
+              </p>
             </div>
-            <p className="rp-section-sub">
-              Pace and fuel come from the Lineup page's automatic background search — a driver shows "finding
-              pace/fuel…" until that's ready.
-            </p>
-          </div>
+          )}
 
           {stints.length === 0 ? (
             <div className="rp-card rp-card-narrow">No stints yet. Add one above, or generate a starting order.</div>
           ) : (
             <div className="rp-profile-list">
-              {stints.length > 1 && (
+              {canEdit && stints.length > 1 && (
                 <p className="rp-section-sub" style={{ marginBottom: 4 }}>
                   Drag the handle (⠿) to reorder, or use the arrows — order updates once you save.
                 </p>
@@ -509,10 +520,11 @@ export default function StintsPage() {
                 <div
                   className="rp-card"
                   key={i}
-                  draggable
-                  onDragStart={() => setDragIndex(i)}
-                  onDragOver={(e) => e.preventDefault()}
+                  draggable={canEdit}
+                  onDragStart={() => canEdit && setDragIndex(i)}
+                  onDragOver={(e) => canEdit && e.preventDefault()}
                   onDrop={(e) => {
+                    if (!canEdit) return;
                     e.preventDefault();
                     if (dragIndex !== null) moveStint(dragIndex, i);
                     setDragIndex(null);
@@ -522,35 +534,41 @@ export default function StintsPage() {
                 >
                   <div className="rp-profile-row">
                     <div className="rp-row" style={{ alignItems: "flex-start", gap: 10 }}>
-                      <span
-                        className="rp-mono rp-text-faint"
-                        style={{ cursor: "grab", fontSize: 18, lineHeight: "20px", userSelect: "none" }}
-                        title="Drag to reorder"
-                      >
-                        ⠿
-                      </span>
+                      {canEdit && (
+                        <span
+                          className="rp-mono rp-text-faint"
+                          style={{ cursor: "grab", fontSize: 18, lineHeight: "20px", userSelect: "none" }}
+                          title="Drag to reorder"
+                        >
+                          ⠿
+                        </span>
+                      )}
                       <div>
                         <span className="rp-badge rp-dim rp-mono" style={{ marginRight: 8 }}>
                           #{String(i + 1).padStart(2, "0")}
                         </span>
-                        <select
-                          className="rp-input"
-                          style={{ display: "inline-block", width: "auto", fontWeight: 600 }}
-                          value={s.custId}
-                          onChange={(e) => changeStintDriver(i, e.target.value)}
-                          title="Change who drives this stint - lap count stays the same, everything else recalculates"
-                        >
-                          {lineup.map((d) => {
-                            const p = driverProfiles.find((x) => x.custId === d.custId);
-                            const ready = Boolean(p?.paceMs && p?.fuelPerLap);
-                            return (
-                              <option key={d.custId} value={d.custId} disabled={!ready}>
-                                {d.driverName}
-                                {!ready ? " (finding pace/fuel…)" : ""}
-                              </option>
-                            );
-                          })}
-                        </select>
+                        {canEdit ? (
+                          <select
+                            className="rp-input"
+                            style={{ display: "inline-block", width: "auto", fontWeight: 600 }}
+                            value={s.custId}
+                            onChange={(e) => changeStintDriver(i, e.target.value)}
+                            title="Change who drives this stint - lap count stays the same, everything else recalculates"
+                          >
+                            {lineup.map((d) => {
+                              const p = driverProfiles.find((x) => x.custId === d.custId);
+                              const ready = Boolean(p?.paceMs && p?.fuelPerLap);
+                              return (
+                                <option key={d.custId} value={d.custId} disabled={!ready}>
+                                  {d.driverName}
+                                  {!ready ? " (finding pace/fuel…)" : ""}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        ) : (
+                          <span style={{ fontWeight: 600 }}>{s.driverName}</span>
+                        )}
                         {s.fuelWarning && (
                           <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
                             Over fuel capacity
@@ -562,28 +580,32 @@ export default function StintsPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="rp-row" style={{ gap: 6 }}>
-                      <button className="rp-btn" onClick={() => moveStint(i, i - 1)} disabled={i === 0} title="Move up">
-                        ↑
-                      </button>
-                      <button className="rp-btn" onClick={() => moveStint(i, i + 1)} disabled={i === stints.length - 1} title="Move down">
-                        ↓
-                      </button>
-                      <button className="rp-btn" onClick={() => removeStint(i)}>
-                        Remove
-                      </button>
-                    </div>
+                    {canEdit && (
+                      <div className="rp-row" style={{ gap: 6 }}>
+                        <button className="rp-btn" onClick={() => moveStint(i, i - 1)} disabled={i === 0} title="Move up">
+                          ↑
+                        </button>
+                        <button className="rp-btn" onClick={() => moveStint(i, i + 1)} disabled={i === stints.length - 1} title="Move down">
+                          ↓
+                        </button>
+                        <button className="rp-btn" onClick={() => removeStint(i)}>
+                          Remove
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
           )}
 
-          <div className="rp-row" style={{ marginTop: 16 }}>
-            <button className="rp-btn rp-primary" onClick={saveStints} disabled={saving || stints.length === 0}>
-              {saving ? "Saving…" : "Save stint plan"}
-            </button>
-          </div>
+          {canEdit && (
+            <div className="rp-row" style={{ marginTop: 16 }}>
+              <button className="rp-btn rp-primary" onClick={saveStints} disabled={saving || stints.length === 0}>
+                {saving ? "Saving…" : "Save stint plan"}
+              </button>
+            </div>
+          )}
         </div>
 
         <div>
@@ -592,21 +614,23 @@ export default function StintsPage() {
             Freeform windows, deliberately overlapping driver handoffs — they don't need to line up with stint boundaries.
           </p>
           <div className="rp-card" style={{ marginBottom: 16 }}>
-            <div className="rp-row" style={{ marginBottom: 10 }}>
-              <select className="rp-input" value={newSpotterId} onChange={(e) => setNewSpotterId(e.target.value)}>
-                <option value="">Select spotter…</option>
-                {lineup.map((d) => (
-                  <option key={d.custId} value={d.custId}>
-                    {d.driverName}
-                  </option>
-                ))}
-              </select>
-              <input className="rp-input" style={{ width: 90 }} type="number" placeholder="Start (min)" value={newSpotStart} onChange={(e) => setNewSpotStart(e.target.value)} />
-              <input className="rp-input" style={{ width: 90 }} type="number" placeholder="End (min)" value={newSpotEnd} onChange={(e) => setNewSpotEnd(e.target.value)} />
-              <button className="rp-btn rp-primary" onClick={addSpotting} disabled={!newSpotterId}>
-                + Add
-              </button>
-            </div>
+            {canEdit && (
+              <div className="rp-row" style={{ marginBottom: 10 }}>
+                <select className="rp-input" value={newSpotterId} onChange={(e) => setNewSpotterId(e.target.value)}>
+                  <option value="">Select spotter…</option>
+                  {lineup.map((d) => (
+                    <option key={d.custId} value={d.custId}>
+                      {d.driverName}
+                    </option>
+                  ))}
+                </select>
+                <input className="rp-input" style={{ width: 90 }} type="number" placeholder="Start (min)" value={newSpotStart} onChange={(e) => setNewSpotStart(e.target.value)} />
+                <input className="rp-input" style={{ width: 90 }} type="number" placeholder="End (min)" value={newSpotEnd} onChange={(e) => setNewSpotEnd(e.target.value)} />
+                <button className="rp-btn rp-primary" onClick={addSpotting} disabled={!newSpotterId}>
+                  + Add
+                </button>
+              </div>
+            )}
             {spotting.length === 0 ? (
               <span className="rp-text-faint">No spotter windows yet.</span>
             ) : (
@@ -616,18 +640,22 @@ export default function StintsPage() {
                     <span className="rp-mono">
                       {s.driverName ?? s.custId}: {formatOffset(s.startOffsetMinutes)}–{formatOffset(s.endOffsetMinutes)}
                     </span>
-                    <button className="rp-btn" onClick={() => removeSpotting(i)}>
-                      Remove
-                    </button>
+                    {canEdit && (
+                      <button className="rp-btn" onClick={() => removeSpotting(i)}>
+                        Remove
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
             )}
-            <div className="rp-row" style={{ marginTop: 10 }}>
-              <button className="rp-btn rp-primary" onClick={saveSpotting} disabled={savingSpotting}>
-                {savingSpotting ? "Saving…" : "Save spotting"}
-              </button>
-            </div>
+            {canEdit && (
+              <div className="rp-row" style={{ marginTop: 10 }}>
+                <button className="rp-btn rp-primary" onClick={saveSpotting} disabled={savingSpotting}>
+                  {savingSpotting ? "Saving…" : "Save spotting"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

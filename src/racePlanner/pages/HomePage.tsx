@@ -28,6 +28,13 @@ export default function HomePage() {
   }, []);
 
   const allTeams = teams ?? [];
+  // A driver who joined via an invite link has exactly one job here: find their team and
+  // set their availability - the "create/manage" cards below are a coordinator's tools,
+  // not theirs. Only show those cards to someone who actually coordinates at least one
+  // team; a viewer with zero teams at all still sees them, since there's nothing yet to
+  // gate against and they might be either persona.
+  const coordinatesAny = allTeams.some((t) => t.isCreator);
+  const pureDriver = allTeams.length > 0 && !coordinatesAny;
 
   useEffect(() => {
     if (allTeams.length === 1) {
@@ -42,16 +49,18 @@ export default function HomePage() {
 
   return (
     <div>
-      <h1 className="rp-welcome-title">What are you here to do?</h1>
+      <h1 className="rp-welcome-title">{pureDriver ? "Your teams" : "What are you here to do?"}</h1>
       <p className="rp-section-sub" style={{ marginBottom: 28 }}>
-        {allTeams.length > 1
-          ? "You're on more than one team - pick one below, or start planning a race."
-          : "Pick whichever fits - you can always come back and do the other."}
+        {pureDriver
+          ? "Pick a team below to set your availability for its upcoming race weekends."
+          : allTeams.length > 1
+            ? "You're on more than one team - pick one below, or start planning a race."
+            : "Pick whichever fits - you can always come back and do the other."}
       </p>
 
       {allTeams.length > 1 && (
         <div className="rp-welcome-section">
-          <h2 className="rp-welcome-section-title">Your teams</h2>
+          {!pureDriver && <h2 className="rp-welcome-section-title">Your teams</h2>}
           <div className="rp-event-grid" style={{ marginBottom: 20 }}>
             {allTeams.map((t) => (
               <div className="rp-event-card" key={t.id}>
@@ -66,34 +75,35 @@ export default function HomePage() {
         </div>
       )}
 
-      <div className="rp-welcome-grid">
-        <button type="button" className="rp-welcome-card" onClick={() => navigate("/race-planner/team")}>
-          <span className="rp-welcome-card-icon">
-            <svg {...ICON_PROPS}>
-              <circle cx="8.5" cy="8" r="3" />
-              <path d="M2.5 20c0-3.8 2.7-6 6-6s6 2.2 6 6" />
-              <circle cx="17" cy="9" r="2.4" />
-              <path d="M14.5 15.5c2.7.3 4.5 2 4.5 5.5" />
-            </svg>
-          </span>
-          <span className="rp-welcome-card-title">Create or manage a team</span>
-          <span className="rp-welcome-card-desc">Build your roster, invite drivers, plan race weekends together.</span>
-        </button>
+      {!pureDriver && (
+        <div className="rp-welcome-grid">
+          <button type="button" className="rp-welcome-card" onClick={() => navigate("/race-planner/team")}>
+            <span className="rp-welcome-card-icon">
+              <svg {...ICON_PROPS}>
+                <circle cx="8.5" cy="8" r="3" />
+                <path d="M2.5 20c0-3.8 2.7-6 6-6s6 2.2 6 6" />
+                <circle cx="17" cy="9" r="2.4" />
+                <path d="M14.5 15.5c2.7.3 4.5 2 4.5 5.5" />
+              </svg>
+            </span>
+            <span className="rp-welcome-card-title">Create or manage a team</span>
+            <span className="rp-welcome-card-desc">Build your roster, invite drivers, plan race weekends together.</span>
+          </button>
 
-        <button type="button" className="rp-welcome-card" onClick={() => navigate("/race-planner/weekend")}>
-          <span className="rp-welcome-card-icon">
-            <svg {...ICON_PROPS}>
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 7v5l3.5 2" />
-            </svg>
-          </span>
-          <span className="rp-welcome-card-title">Create or manage race weekends</span>
-          <span className="rp-welcome-card-desc">
-            Add cars, pick each one's race, bring in drivers, and run stints through to the checkered flag.
-          </span>
-        </button>
-      </div>
-
+          <button type="button" className="rp-welcome-card" onClick={() => navigate("/race-planner/weekend")}>
+            <span className="rp-welcome-card-icon">
+              <svg {...ICON_PROPS}>
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3.5 2" />
+              </svg>
+            </span>
+            <span className="rp-welcome-card-title">Create or manage race weekends</span>
+            <span className="rp-welcome-card-desc">
+              Add cars, pick each one's race, bring in drivers, and run stints through to the checkered flag.
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

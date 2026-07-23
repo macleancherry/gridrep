@@ -304,8 +304,11 @@ export default function RaceWeekendPage() {
                 )}
                 {car.eventId && (
                   <>
-                    <Link className={`rp-btn${nextStep === "drivers" ? " rp-primary" : ""}`} to={`/race-planner/lineup/${car.carId}`}>
-                      Add drivers →
+                    <Link
+                      className={`rp-btn${isCoordinator && nextStep === "drivers" ? " rp-primary" : ""}`}
+                      to={`/race-planner/lineup/${car.carId}`}
+                    >
+                      {isCoordinator ? "Add drivers →" : "View drivers →"}
                     </Link>
                     {car.driverCount > 0 && (
                       <>
