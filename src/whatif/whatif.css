@@ -1,23 +1,23 @@
-/* Restart: standalone "restart the race from lap N" standings product.
+/* What If: standalone "restart the race from lap N" standings product.
    Deliberately distinct from GridRep's dark/glassy theme - flat, light,
-   minimal, same look-and-feel family as Pace. Scoped under .restart-shell
+   minimal, same look-and-feel family as Pace. Scoped under .whatif-shell
    so it never leaks into (or is affected by) the rest of the GridRep SPA. */
 
-.restart-shell {
-  --restart-bg: #ffffff;
-  --restart-text: #14161a;
-  --restart-muted: #6b7280;
-  --restart-border: #e5e7eb;
-  --restart-accent: #1d4ed8;
-  --restart-danger: #b3261e;
+.whatif-shell {
+  --whatif-bg: #ffffff;
+  --whatif-text: #14161a;
+  --whatif-muted: #6b7280;
+  --whatif-border: #e5e7eb;
+  --whatif-accent: #1d4ed8;
+  --whatif-danger: #b3261e;
 
-  --restart-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  --restart-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  --whatif-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --whatif-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
 
-  background: var(--restart-bg);
-  color: var(--restart-text);
+  background: var(--whatif-bg);
+  color: var(--whatif-text);
   min-height: 100vh;
-  font-family: var(--restart-sans);
+  font-family: var(--whatif-sans);
   line-height: 1.6;
   /* Belt-and-braces: nothing inside should be able to push the page wider
      than the viewport - real fixes below (box-sizing, wrap, scrollable
@@ -25,84 +25,89 @@
   overflow-x: hidden;
 }
 
-.restart-shell * { box-sizing: border-box; }
+.whatif-shell * { box-sizing: border-box; }
 
-.restart-shell a { color: var(--restart-accent); }
+.whatif-shell a { color: var(--whatif-accent); }
 
-.restart-header {
+.whatif-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px 16px;
   padding: 18px 20px;
-  border-bottom: 1px solid var(--restart-border);
+  border-bottom: 1px solid var(--whatif-border);
 }
 
-.restart-header .restart-brand {
+.whatif-header .whatif-brand {
   font-size: 1.15rem;
   font-weight: 600;
   letter-spacing: -0.01em;
   text-decoration: none;
-  color: var(--restart-text);
+  color: var(--whatif-text);
 }
 
-.restart-header .restart-back {
+.whatif-header .whatif-back {
   font-size: 0.85rem;
-  color: var(--restart-muted);
+  color: var(--whatif-muted);
   text-decoration: none;
 }
 
-.restart-header .restart-status {
+.whatif-header .whatif-status {
   font-size: 0.85rem;
-  color: var(--restart-muted);
+  color: var(--whatif-muted);
 }
 
-.restart-main {
+.whatif-main {
   max-width: 880px;
   margin: 0 auto;
   padding: 36px 28px 64px;
   width: 100%;
 }
 
-.restart-section {
+.whatif-section {
   margin-bottom: 40px;
 }
 
-.restart-section h2 {
+.whatif-section h2 {
   font-size: 1rem;
   font-weight: 600;
   margin: 0 0 12px;
-  color: var(--restart-text);
+  color: var(--whatif-text);
+  /* main.tsx always loads GridRep's global styles.css, which sets a bare
+     `h2` selector to uppercase with wide letter-spacing - override both
+     explicitly here so it can't leak in and override this scoped rule. */
+  text-transform: none;
+  letter-spacing: normal;
 }
 
-.restart-hint {
-  color: var(--restart-muted);
+.whatif-hint {
+  color: var(--whatif-muted);
   font-size: 0.9rem;
   margin: 0 0 16px;
 }
 
-.restart-row {
+.whatif-row {
   display: flex;
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
 }
 
-.restart-checkbox-label {
+.whatif-checkbox-label {
   display: flex;
   align-items: center;
   gap: 6px;
   cursor: pointer;
 }
 
-.restart-input {
+.whatif-input {
   font: inherit;
   padding: 9px 12px;
-  border: 1px solid var(--restart-border);
+  border: 1px solid var(--whatif-border);
   border-radius: 6px;
   background: #fff;
-  color: var(--restart-text);
+  color: var(--whatif-text);
   /* Grow to share space on wide screens, but can shrink below its own
      content width (min-width:0) so it wraps to full-width on narrow ones
      instead of forcing the row wider than the viewport. */
@@ -113,115 +118,115 @@
 
 /* For short numeric fields (e.g. "best-N" laps) that should stay compact
    instead of growing to fill the row. */
-.restart-input-sm {
+.whatif-input-sm {
   flex: 0 0 72px;
   width: 72px;
 }
 
-.restart-btn {
+.whatif-btn {
   font: inherit;
   font-weight: 500;
   padding: 9px 16px;
   border-radius: 6px;
-  border: 1px solid var(--restart-text);
-  background: var(--restart-text);
+  border: 1px solid var(--whatif-text);
+  background: var(--whatif-text);
   color: #fff;
   cursor: pointer;
 }
 
-.restart-btn:hover { opacity: 0.85; }
-.restart-btn:disabled { opacity: 0.4; cursor: default; }
+.whatif-btn:hover { opacity: 0.85; }
+.whatif-btn:disabled { opacity: 0.4; cursor: default; }
 
-.restart-btn-ghost {
+.whatif-btn-ghost {
   background: transparent;
-  color: var(--restart-text);
-  border: 1px solid var(--restart-border);
+  color: var(--whatif-text);
+  border: 1px solid var(--whatif-border);
 }
 
-.restart-list {
-  border: 1px solid var(--restart-border);
+.whatif-list {
+  border: 1px solid var(--whatif-border);
   border-radius: 8px;
   overflow: hidden;
 }
 
-.restart-list-item {
+.whatif-list-item {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px 12px;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--restart-border);
+  border-bottom: 1px solid var(--whatif-border);
   font-size: 0.92rem;
 }
 
-.restart-list-item > * {
+.whatif-list-item > * {
   min-width: 0;
 }
 
-.restart-list-item:last-child { border-bottom: none; }
+.whatif-list-item:last-child { border-bottom: none; }
 
-.restart-list-empty {
+.whatif-list-empty {
   padding: 20px 14px;
-  color: var(--restart-muted);
+  color: var(--whatif-muted);
   font-size: 0.9rem;
 }
 
-.restart-table-wrap {
+.whatif-table-wrap {
   /* A 5-column data table will often be wider than a phone screen - let it
      scroll horizontally within its own box rather than pushing the whole
      page (and the fixed background) wider than the viewport. */
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  border: 1px solid var(--restart-border);
+  border: 1px solid var(--whatif-border);
   border-radius: 8px;
 }
 
-.restart-table {
+.whatif-table {
   width: 100%;
   min-width: 560px;
   border-collapse: collapse;
   font-size: 0.92rem;
 }
 
-.restart-table-wrap .restart-table {
+.whatif-table-wrap .whatif-table {
   border: none;
 }
 
-.restart-table th,
-.restart-table td {
+.whatif-table th,
+.whatif-table td {
   text-align: left;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--restart-border);
+  border-bottom: 1px solid var(--whatif-border);
 }
 
-.restart-table th {
-  color: var(--restart-muted);
+.whatif-table th {
+  color: var(--whatif-muted);
   font-weight: 500;
   font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
 
-.restart-mono { font-family: var(--restart-mono); }
+.whatif-mono { font-family: var(--whatif-mono); }
 
-.restart-error {
-  color: var(--restart-danger);
+.whatif-error {
+  color: var(--whatif-danger);
   font-size: 0.88rem;
 }
 
-.restart-muted { color: var(--restart-muted); }
+.whatif-muted { color: var(--whatif-muted); }
 
 @media (max-width: 560px) {
-  .restart-header {
+  .whatif-header {
     padding: 14px 16px;
   }
 
-  .restart-main {
+  .whatif-main {
     padding: 24px 16px 48px;
   }
 
-  .restart-section {
+  .whatif-section {
     margin-bottom: 32px;
   }
 }

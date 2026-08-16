@@ -13,7 +13,7 @@ type IngestResponse = {
   driverFailures?: Array<{ custId: string; simsessionNumber: number; message: string }>;
 };
 
-export default function RestartHome() {
+export default function WhatIfHome() {
   const navigate = useNavigate();
 
   const [subsessionInput, setSubsessionInput] = useState("");
@@ -33,7 +33,7 @@ export default function RestartHome() {
     setPullError(null);
     setPullProgress(null);
 
-    // Restart standings are computed from the same synced lap data Pace
+    // What If standings are computed from the same synced lap data Pace
     // uses (pace_laps), so pulling a subsession here reuses Pace's own
     // resumable sync endpoint - no separate ingestion pipeline needed.
     const MAX_BATCHES = 30;
@@ -77,7 +77,7 @@ export default function RestartHome() {
       }
 
       if (allDriverFailures.length > 0) {
-        console.warn("restart pull: some driver lap fetches failed", allDriverFailures);
+        console.warn("what-if pull: some driver lap fetches failed", allDriverFailures);
       }
 
       if (issues.length > 0) {
@@ -88,7 +88,7 @@ export default function RestartHome() {
       const fromLap = Math.max(1, Math.trunc(fromLapInput) || 1);
       const params = new URLSearchParams({ fromLap: String(fromLap), excludePitLaps: String(excludePitLaps) });
       if (driverInput.trim()) params.set("driver", driverInput.trim());
-      navigate(`/restart/s/${encodeURIComponent(id)}?${params.toString()}`);
+      navigate(`/what-if/s/${encodeURIComponent(id)}?${params.toString()}`);
     } catch {
       setPullError("Network error. Please try again.");
     } finally {
@@ -99,32 +99,32 @@ export default function RestartHome() {
 
   return (
     <>
-      <p className="restart-hint">
+      <p className="whatif-hint">
         Enter a subsession, and recompute finishing positions counting only the laps from a given lap number
         onward — as if the race had restarted there.
       </p>
 
-      <section className="restart-section">
-        <h2>Restart the classification</h2>
-        <div className="restart-row" style={{ marginBottom: 10 }}>
+      <section className="whatif-section">
+        <h2>What if the race restarted here?</h2>
+        <div className="whatif-row" style={{ marginBottom: 10 }}>
           <input
-            className="restart-input"
+            className="whatif-input"
             placeholder="Subsession ID"
             value={subsessionInput}
             onChange={(e) => setSubsessionInput(e.target.value)}
           />
           <input
-            className="restart-input"
+            className="whatif-input"
             placeholder="Driver name (optional, to highlight)"
             value={driverInput}
             onChange={(e) => setDriverInput(e.target.value)}
           />
-          <label className="restart-hint" htmlFor="from-lap-input" style={{ margin: 0 }}>
+          <label className="whatif-hint" htmlFor="from-lap-input" style={{ margin: 0 }}>
             From lap
           </label>
           <input
             id="from-lap-input"
-            className="restart-input restart-input-sm"
+            className="whatif-input whatif-input-sm"
             type="number"
             min={1}
             max={999}
@@ -132,8 +132,8 @@ export default function RestartHome() {
             onChange={(e) => setFromLapInput(Math.max(1, Number(e.target.value) || 1))}
           />
         </div>
-        <div className="restart-row" style={{ marginBottom: 10 }}>
-          <label className="restart-hint restart-checkbox-label" style={{ margin: 0 }}>
+        <div className="whatif-row" style={{ marginBottom: 10 }}>
+          <label className="whatif-hint whatif-checkbox-label" style={{ margin: 0 }}>
             <input
               type="checkbox"
               checked={excludePitLaps}
@@ -142,19 +142,19 @@ export default function RestartHome() {
             Ignore pit-stop laps
           </label>
         </div>
-        <p className="restart-hint" style={{ marginTop: -4 }}>
+        <p className="whatif-hint" style={{ marginTop: -4 }}>
           Drivers don't all pit on the same lap, so counting from a fixed lap can catch one driver's pit stop and
           not another's, making that driver look artificially slower. Check this to replace each caught pit lap's
           time with that driver's own average pace instead — the stop no longer skews the total, but everyone's
           total still covers the same number of laps.
         </p>
-        <div className="restart-row">
-          <button className="restart-btn" onClick={compute} disabled={pulling || !subsessionInput.trim()}>
+        <div className="whatif-row">
+          <button className="whatif-btn" onClick={compute} disabled={pulling || !subsessionInput.trim()}>
             {pulling ? "Pulling…" : "Compute standings"}
           </button>
         </div>
-        {pullProgress && <p className="restart-hint">{pullProgress}</p>}
-        {pullError && <p className="restart-error">{pullError}</p>}
+        {pullProgress && <p className="whatif-hint">{pullProgress}</p>}
+        {pullError && <p className="whatif-error">{pullError}</p>}
       </section>
     </>
   );
