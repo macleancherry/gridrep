@@ -1,0 +1,220 @@
+/* Restart: standalone "restart the race from lap N" standings product.
+   Deliberately distinct from GridRep's dark/glassy theme - flat, light,
+   minimal, same look-and-feel family as Pace. Scoped under .restart-shell
+   so it never leaks into (or is affected by) the rest of the GridRep SPA. */
+
+.restart-shell {
+  --restart-bg: #ffffff;
+  --restart-text: #14161a;
+  --restart-muted: #6b7280;
+  --restart-border: #e5e7eb;
+  --restart-accent: #1d4ed8;
+  --restart-danger: #b3261e;
+
+  --restart-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --restart-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+
+  background: var(--restart-bg);
+  color: var(--restart-text);
+  min-height: 100vh;
+  font-family: var(--restart-sans);
+  line-height: 1.6;
+  /* Belt-and-braces: nothing inside should be able to push the page wider
+     than the viewport - real fixes below (box-sizing, wrap, scrollable
+     table) handle the causes, this just guards against anything missed. */
+  overflow-x: hidden;
+}
+
+.restart-shell * { box-sizing: border-box; }
+
+.restart-shell a { color: var(--restart-accent); }
+
+.restart-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: srestart-between;
+  gap: 12px 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--restart-border);
+}
+
+.restart-header .restart-brand {
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  color: var(--restart-text);
+}
+
+.restart-header .restart-back {
+  font-size: 0.85rem;
+  color: var(--restart-muted);
+  text-decoration: none;
+}
+
+.restart-header .restart-status {
+  font-size: 0.85rem;
+  color: var(--restart-muted);
+}
+
+.restart-main {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 36px 28px 64px;
+  width: 100%;
+}
+
+.restart-section {
+  margin-bottom: 40px;
+}
+
+.restart-section h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: var(--restart-text);
+}
+
+.restart-hint {
+  color: var(--restart-muted);
+  font-size: 0.9rem;
+  margin: 0 0 16px;
+}
+
+.restart-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.restart-input {
+  font: inherit;
+  padding: 9px 12px;
+  border: 1px solid var(--restart-border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--restart-text);
+  /* Grow to share space on wide screens, but can shrink below its own
+     content width (min-width:0) so it wraps to full-width on narrow ones
+     instead of forcing the row wider than the viewport. */
+  flex: 1 1 180px;
+  min-width: 0;
+  width: 100%;
+}
+
+/* For short numeric fields (e.g. "best-N" laps) that should stay compact
+   instead of growing to fill the row. */
+.restart-input-sm {
+  flex: 0 0 72px;
+  width: 72px;
+}
+
+.restart-btn {
+  font: inherit;
+  font-weight: 500;
+  padding: 9px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--restart-text);
+  background: var(--restart-text);
+  color: #fff;
+  cursor: pointer;
+}
+
+.restart-btn:hover { opacity: 0.85; }
+.restart-btn:disabled { opacity: 0.4; cursor: default; }
+
+.restart-btn-ghost {
+  background: transparent;
+  color: var(--restart-text);
+  border: 1px solid var(--restart-border);
+}
+
+.restart-list {
+  border: 1px solid var(--restart-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.restart-list-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: srestart-between;
+  gap: 8px 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--restart-border);
+  font-size: 0.92rem;
+}
+
+.restart-list-item > * {
+  min-width: 0;
+}
+
+.restart-list-item:last-child { border-bottom: none; }
+
+.restart-list-empty {
+  padding: 20px 14px;
+  color: var(--restart-muted);
+  font-size: 0.9rem;
+}
+
+.restart-table-wrap {
+  /* A 5-column data table will often be wider than a phone screen - let it
+     scroll horizontally within its own box rather than pushing the whole
+     page (and the fixed background) wider than the viewport. */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--restart-border);
+  border-radius: 8px;
+}
+
+.restart-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.restart-table-wrap .restart-table {
+  border: none;
+}
+
+.restart-table th,
+.restart-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--restart-border);
+}
+
+.restart-table th {
+  color: var(--restart-muted);
+  font-weight: 500;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.restart-mono { font-family: var(--restart-mono); }
+
+.restart-error {
+  color: var(--restart-danger);
+  font-size: 0.88rem;
+}
+
+.restart-muted { color: var(--restart-muted); }
+
+@media (max-width: 560px) {
+  .restart-header {
+    padding: 14px 16px;
+  }
+
+  .restart-main {
+    padding: 24px 16px 48px;
+  }
+
+  .restart-section {
+    margin-bottom: 32px;
+  }
+}

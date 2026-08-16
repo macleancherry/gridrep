@@ -9,6 +9,9 @@ import Privacy from "./pages/Privacy";
 import PaceLayout from "./pace/PaceLayout";
 import PaceHome from "./pace/pages/PaceHome";
 import PaceSubsession from "./pace/pages/PaceSubsession";
+import RestartLayout from "./restart/RestartLayout";
+import RestartHome from "./restart/pages/RestartHome";
+import RestartSubsession from "./restart/pages/RestartSubsession";
 import RacePlannerLayout from "./racePlanner/RacePlannerLayout";
 import { PlanContextProvider } from "./racePlanner/PlanContext";
 import WelcomePage from "./racePlanner/pages/WelcomePage";
@@ -124,6 +127,7 @@ function Topbar() {
           <Link to="/about">About</Link>
           <Link to="/privacy">Privacy</Link>
           <Link to="/pace">Pace</Link>
+          <Link to="/restart">Restart</Link>
 
           <span className="badge" style={{ marginLeft: 10 }}>
             <span className="badge-dot" />
@@ -186,6 +190,9 @@ function Topbar() {
           <Link to="/pace" className="mobile-link">
             Pace
           </Link>
+          <Link to="/restart" className="mobile-link">
+            Restart
+          </Link>
 
           <div className="mobile-divider" />
 
@@ -221,6 +228,29 @@ function PaceApp() {
           <PaceLayout>
             <PaceSubsession />
           </PaceLayout>
+        }
+      />
+    </Routes>
+  );
+}
+
+function RestartApp() {
+  return (
+    <Routes>
+      <Route
+        path="/restart"
+        element={
+          <RestartLayout>
+            <RestartHome />
+          </RestartLayout>
+        }
+      />
+      <Route
+        path="/restart/s/:subsessionId"
+        element={
+          <RestartLayout>
+            <RestartSubsession />
+          </RestartLayout>
         }
       />
     </Routes>
@@ -433,6 +463,10 @@ export default function App() {
 
   if (location.pathname === "/pace" || location.pathname.startsWith("/pace/")) {
     return <PaceApp />;
+  }
+
+  if (location.pathname === "/restart" || location.pathname.startsWith("/restart/")) {
+    return <RestartApp />;
   }
 
   if (location.pathname === "/race-planner" || location.pathname.startsWith("/race-planner/")) {
