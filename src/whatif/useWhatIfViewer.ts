@@ -16,7 +16,7 @@ async function fetchViewer(): Promise<ViewerState> {
   }
 }
 
-export function useRestartViewer(): ViewerState {
+export function useWhatIfViewer(): ViewerState {
   const [viewer, setViewer] = useState<ViewerState>({ loading: true, verified: false });
 
   useEffect(() => {

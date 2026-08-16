@@ -1,6 +1,6 @@
 /**
- * "Restart" standings: pure function over already-stored race laps
- * (Restart reuses Pace's pace_laps table - same subsession ingestion,
+ * "What If" standings: pure function over already-stored race laps
+ * (What If reuses Pace's pace_laps table - same subsession ingestion,
  * a different computed view of it).
  *
  * Recomputes finishing order as if the race had started at a given lap
@@ -19,35 +19,48 @@
  * instead, a caught pit lap's time is replaced with that driver's own
  * average clean-lap pace for the window: the anomalous pit-lane time drops
  * out, but everyone's total still spans the same number of laps.
+ *
+ * Laps completed vs. time: a driver who fell out of the race (or is simply
+ * slower over a lot of laps) covers fewer laps in the window than someone
+ * who ran the whole thing - and fewer laps almost always means a *smaller*
+ * summed total time, which would wrongly rank them ahead of drivers who
+ * actually went further. A raw total-time comparison is only valid between
+ * drivers who covered the exact same distance (even a 1-lap difference
+ * makes it invalid - that missing lap's worth of time, ~equal to a real
+ * gap, is enough to flip the order). So classified drivers are ranked the
+ * way real race results are: primarily by laps completed since the cutoff
+ * (most laps first), and only use total time to break ties between drivers
+ * on the same number of laps.
  */
 
-export type RestartLap = {
+export type WhatIfLap = {
   lapNumber: number;
   lapTimeMs: number | null;
   isPitLap: boolean;
 };
 
-export type RestartDriverInput = {
+export type WhatIfDriverInput = {
   custId: string;
   driverName: string;
-  laps: RestartLap[];
+  laps: WhatIfLap[];
 };
 
-export type RestartStandingRow = {
+export type WhatIfStandingRow = {
   custId: string;
   driverName: string;
   position: number | null; // null = not classified (see status)
   status: "classified" | "no_timed_laps" | "dnf_before_cutoff";
   totalTimeMs: number | null;
-  gapMs: number | null; // to the leader; null for the leader and for unclassified drivers
+  gapMs: number | null; // to the leader; only set when this driver covered the exact same distance as the leader (see lapsDown)
+  lapsDown: number; // 0 = same distance as whoever went furthest; 1+ = that many laps behind
   lapsUsed: number; // laps counted from fromLap onward, timed or pit-substituted
-  lapsInRange: number; // laps present from fromLap onward, whether counted or not
+  lapsInRange: number; // laps present from fromLap onward, whether counted or not - also the distance metric behind lapsDown
   lastLapNumber: number | null; // last lap number this driver has any record of, at all
   partial: boolean; // some laps from fromLap onward couldn't be counted or estimated
   pitLapsEstimated: number; // pit laps whose time was replaced by estimated pace (0 unless excludePitLaps)
 };
 
-function hasTime(l: RestartLap): l is RestartLap & { lapTimeMs: number } {
+function hasTime(l: WhatIfLap): l is WhatIfLap & { lapTimeMs: number } {
   return typeof l.lapTimeMs === "number" && l.lapTimeMs > 0;
 }
 
@@ -56,14 +69,14 @@ function average(nums: number[]): number | undefined {
   return nums.reduce((sum, n) => sum + n, 0) / nums.length;
 }
 
-export function computeRestartStandings(
-  drivers: RestartDriverInput[],
+export function computeWhatIfStandings(
+  drivers: WhatIfDriverInput[],
   fromLap: number,
   options: { excludePitLaps?: boolean } = {}
-): RestartStandingRow[] {
+): WhatIfStandingRow[] {
   const excludePitLaps = options.excludePitLaps ?? false;
-  const classified: RestartStandingRow[] = [];
-  const unclassified: RestartStandingRow[] = [];
+  const classified: Array<WhatIfStandingRow & { distance: number }> = [];
+  const unclassified: WhatIfStandingRow[] = [];
 
   for (const d of drivers) {
     const sorted = [...d.laps].sort((a, b) => a.lapNumber - b.lapNumber);
@@ -118,6 +131,7 @@ export function computeRestartStandings(
       lastLapNumber,
       partial,
       pitLapsEstimated,
+      lapsDown: 0,
     };
 
     if (!reachedCutoff) {
@@ -125,15 +139,36 @@ export function computeRestartStandings(
     } else if (lapsUsed === 0) {
       unclassified.push({ ...base, position: null, status: "no_timed_laps", totalTimeMs: null, gapMs: null });
     } else {
-      classified.push({ ...base, position: null, status: "classified", totalTimeMs, gapMs: null });
+      classified.push({
+        ...base,
+        position: null,
+        status: "classified",
+        totalTimeMs,
+        gapMs: null,
+        distance: lapsInRange.length,
+      });
     }
   }
 
-  classified.sort((a, b) => (a.totalTimeMs as number) - (b.totalTimeMs as number));
+  // Laps completed decides order first; total time only breaks ties between
+  // drivers on the same number of laps - see the header comment for why a
+  // raw time comparison across different lap counts is never valid, not
+  // even by a single lap.
+  classified.sort((a, b) => {
+    if (a.distance !== b.distance) return b.distance - a.distance;
+    return (a.totalTimeMs as number) - (b.totalTimeMs as number);
+  });
+
+  const maxDistance = classified[0]?.distance ?? 0;
   const leaderTimeMs = classified[0]?.totalTimeMs ?? null;
   classified.forEach((row, i) => {
     row.position = i + 1;
-    row.gapMs = leaderTimeMs === null || i === 0 ? null : (row.totalTimeMs as number) - leaderTimeMs;
+    row.lapsDown = Math.max(0, maxDistance - row.distance);
+    // A raw time gap only means something between drivers who covered the
+    // exact same distance - for anyone even a single lap down, their
+    // smaller total time is an artifact of less distance, not more pace, so
+    // the lap deficit (lapsDown) is the meaningful figure instead.
+    row.gapMs = i === 0 || leaderTimeMs === null || row.lapsDown > 0 ? null : (row.totalTimeMs as number) - leaderTimeMs;
   });
 
   // Drivers who never reached the cutoff, or went furthest before dropping
@@ -141,5 +176,5 @@ export function computeRestartStandings(
   // that order rather than arbitrarily.
   unclassified.sort((a, b) => (b.lastLapNumber ?? -1) - (a.lastLapNumber ?? -1));
 
-  return [...classified, ...unclassified];
+  return [...classified.map(({ distance, ...row }) => row), ...unclassified];
 }

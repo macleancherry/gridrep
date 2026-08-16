@@ -1,4 +1,4 @@
-import { computeRestartStandings, type RestartDriverInput } from "../../../../_lib/restartStandings";
+import { computeWhatIfStandings, type WhatIfDriverInput } from "../../../../_lib/whatIfStandings";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 function clampFromLap(raw: string | null): number {
@@ -22,7 +22,7 @@ export async function onRequestGet(context: any) {
     return jsonError(404, { error: "not_found", message: "Subsession has not been synced yet." });
   }
 
-  // Restart standings only make sense over the race stage - qualifying laps
+  // What If standings only make sense over the race stage - qualifying laps
   // don't count toward a finishing order. If a race has more than one
   // simsession_number tagged "race" (heat races), laps from all of them are
   // combined per driver, which is a reasonable default but worth knowing.
@@ -36,7 +36,7 @@ export async function onRequestGet(context: any) {
     .bind(subsessionId)
     .all<any>();
 
-  const byDriver = new Map<string, RestartDriverInput>();
+  const byDriver = new Map<string, WhatIfDriverInput>();
   for (const row of rows.results ?? []) {
     if (!byDriver.has(row.custId)) {
       byDriver.set(row.custId, {
@@ -59,7 +59,7 @@ export async function onRequestGet(context: any) {
     });
   }
 
-  const standings = computeRestartStandings(Array.from(byDriver.values()), fromLap, { excludePitLaps });
+  const standings = computeWhatIfStandings(Array.from(byDriver.values()), fromLap, { excludePitLaps });
 
   return json({ ok: true, subsessionId, fromLap, excludePitLaps, standings });
 }

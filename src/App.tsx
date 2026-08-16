@@ -9,9 +9,9 @@ import Privacy from "./pages/Privacy";
 import PaceLayout from "./pace/PaceLayout";
 import PaceHome from "./pace/pages/PaceHome";
 import PaceSubsession from "./pace/pages/PaceSubsession";
-import RestartLayout from "./restart/RestartLayout";
-import RestartHome from "./restart/pages/RestartHome";
-import RestartSubsession from "./restart/pages/RestartSubsession";
+import WhatIfLayout from "./whatif/WhatIfLayout";
+import WhatIfHome from "./whatif/pages/WhatIfHome";
+import WhatIfSubsession from "./whatif/pages/WhatIfSubsession";
 import RacePlannerLayout from "./racePlanner/RacePlannerLayout";
 import { PlanContextProvider } from "./racePlanner/PlanContext";
 import WelcomePage from "./racePlanner/pages/WelcomePage";
@@ -127,7 +127,7 @@ function Topbar() {
           <Link to="/about">About</Link>
           <Link to="/privacy">Privacy</Link>
           <Link to="/pace">Pace</Link>
-          <Link to="/restart">Restart</Link>
+          <Link to="/what-if">What If</Link>
 
           <span className="badge" style={{ marginLeft: 10 }}>
             <span className="badge-dot" />
@@ -190,8 +190,8 @@ function Topbar() {
           <Link to="/pace" className="mobile-link">
             Pace
           </Link>
-          <Link to="/restart" className="mobile-link">
-            Restart
+          <Link to="/what-if" className="mobile-link">
+            What If
           </Link>
 
           <div className="mobile-divider" />
@@ -234,23 +234,23 @@ function PaceApp() {
   );
 }
 
-function RestartApp() {
+function WhatIfApp() {
   return (
     <Routes>
       <Route
-        path="/restart"
+        path="/what-if"
         element={
-          <RestartLayout>
-            <RestartHome />
-          </RestartLayout>
+          <WhatIfLayout>
+            <WhatIfHome />
+          </WhatIfLayout>
         }
       />
       <Route
-        path="/restart/s/:subsessionId"
+        path="/what-if/s/:subsessionId"
         element={
-          <RestartLayout>
-            <RestartSubsession />
-          </RestartLayout>
+          <WhatIfLayout>
+            <WhatIfSubsession />
+          </WhatIfLayout>
         }
       />
     </Routes>
@@ -465,8 +465,8 @@ export default function App() {
     return <PaceApp />;
   }
 
-  if (location.pathname === "/restart" || location.pathname.startsWith("/restart/")) {
-    return <RestartApp />;
+  if (location.pathname === "/what-if" || location.pathname.startsWith("/what-if/")) {
+    return <WhatIfApp />;
   }
 
   if (location.pathname === "/race-planner" || location.pathname.startsWith("/race-planner/")) {
