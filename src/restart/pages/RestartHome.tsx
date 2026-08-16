@@ -19,6 +19,7 @@ export default function RestartHome() {
   const [subsessionInput, setSubsessionInput] = useState("");
   const [driverInput, setDriverInput] = useState("");
   const [fromLapInput, setFromLapInput] = useState(1);
+  const [excludePitLaps, setExcludePitLaps] = useState(false);
 
   const [pulling, setPulling] = useState(false);
   const [pullError, setPullError] = useState<string | null>(null);
@@ -85,7 +86,7 @@ export default function RestartHome() {
       }
 
       const fromLap = Math.max(1, Math.trunc(fromLapInput) || 1);
-      const params = new URLSearchParams({ fromLap: String(fromLap) });
+      const params = new URLSearchParams({ fromLap: String(fromLap), excludePitLaps: String(excludePitLaps) });
       if (driverInput.trim()) params.set("driver", driverInput.trim());
       navigate(`/restart/s/${encodeURIComponent(id)}?${params.toString()}`);
     } catch {
@@ -131,6 +132,22 @@ export default function RestartHome() {
             onChange={(e) => setFromLapInput(Math.max(1, Number(e.target.value) || 1))}
           />
         </div>
+        <div className="restart-row" style={{ marginBottom: 10 }}>
+          <label className="restart-hint restart-checkbox-label" style={{ margin: 0 }}>
+            <input
+              type="checkbox"
+              checked={excludePitLaps}
+              onChange={(e) => setExcludePitLaps(e.target.checked)}
+            />
+            Ignore pit-stop laps
+          </label>
+        </div>
+        <p className="restart-hint" style={{ marginTop: -4 }}>
+          Drivers don't all pit on the same lap, so counting from a fixed lap can catch one driver's pit stop and
+          not another's, making that driver look artificially slower. Check this to replace each caught pit lap's
+          time with that driver's own average pace instead — the stop no longer skews the total, but everyone's
+          total still covers the same number of laps.
+        </p>
         <div className="restart-row">
           <button className="restart-btn" onClick={compute} disabled={pulling || !subsessionInput.trim()}>
             {pulling ? "Pulling…" : "Compute standings"}

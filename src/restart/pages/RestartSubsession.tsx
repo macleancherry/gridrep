@@ -12,6 +12,7 @@ type StandingRow = {
   lapsInRange: number;
   lastLapNumber: number | null;
   partial: boolean;
+  pitLapsEstimated: number;
 };
 
 function formatMs(ms: number): string {
@@ -40,6 +41,7 @@ export default function RestartSubsession() {
 
   const fromLap = Math.max(1, Number(searchParams.get("fromLap")) || 1);
   const driverQuery = (searchParams.get("driver") ?? "").trim().toLowerCase();
+  const excludePitLaps = searchParams.get("excludePitLaps") === "true";
 
   useEffect(() => {
     let cancelled = false;
@@ -50,7 +52,7 @@ export default function RestartSubsession() {
 
       try {
         const r = await fetch(
-          `/api/restart/subsessions/${encodeURIComponent(subsessionId!)}/standings?fromLap=${fromLap}`
+          `/api/restart/subsessions/${encodeURIComponent(subsessionId!)}/standings?fromLap=${fromLap}&excludePitLaps=${excludePitLaps}`
         );
         const data = await r.json();
         if (cancelled) return;
@@ -72,13 +74,19 @@ export default function RestartSubsession() {
     return () => {
       cancelled = true;
     };
-  }, [subsessionId, fromLap]);
+  }, [subsessionId, fromLap, excludePitLaps]);
 
   function applyFilters() {
     const next = new URLSearchParams(searchParams);
     next.set("fromLap", String(Math.max(1, Math.trunc(fromLapInput) || 1)));
     if (driverInput.trim()) next.set("driver", driverInput.trim());
     else next.delete("driver");
+    setSearchParams(next);
+  }
+
+  function toggleExcludePitLaps(checked: boolean) {
+    const next = new URLSearchParams(searchParams);
+    next.set("excludePitLaps", String(checked));
     setSearchParams(next);
   }
 
@@ -116,6 +124,17 @@ export default function RestartSubsession() {
         <button className="restart-btn" onClick={applyFilters}>
           Recompute
         </button>
+      </div>
+
+      <div className="restart-row" style={{ marginTop: -14, marginBottom: 24 }}>
+        <label className="restart-hint restart-checkbox-label" style={{ margin: 0 }}>
+          <input
+            type="checkbox"
+            checked={excludePitLaps}
+            onChange={(e) => toggleExcludePitLaps(e.target.checked)}
+          />
+          Ignore pit-stop laps
+        </label>
       </div>
 
       {loading && <p className="restart-hint">Loading…</p>}
@@ -164,6 +183,15 @@ export default function RestartSubsession() {
                             style={{ marginLeft: 4, cursor: "help" }}
                           >
                             ⚠
+                          </span>
+                        )}
+                        {r.pitLapsEstimated > 0 && (
+                          <span
+                            className="restart-muted"
+                            title={`${r.pitLapsEstimated} pit lap(s) in this range had their time replaced with this driver's average pace, so the pit stop itself doesn't inflate or shrink the total.`}
+                            style={{ marginLeft: 4, cursor: "help" }}
+                          >
+                            ≈
                           </span>
                         )}
                       </td>

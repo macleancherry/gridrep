@@ -33,7 +33,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: srestart-between;
+  justify-content: space-between;
   gap: 12px 16px;
   padding: 18px 20px;
   border-bottom: 1px solid var(--restart-border);
@@ -89,6 +89,13 @@
   flex-wrap: wrap;
 }
 
+.restart-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
 .restart-input {
   font: inherit;
   padding: 9px 12px;
@@ -141,7 +148,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: srestart-between;
+  justify-content: space-between;
   gap: 8px 12px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--restart-border);
