@@ -12,6 +12,7 @@ export async function onRequestGet(context: any) {
   const { DB } = context.env;
   const url = new URL(context.request.url);
   const fromLap = clampFromLap(url.searchParams.get("fromLap"));
+  const excludePitLaps = url.searchParams.get("excludePitLaps") === "true";
 
   const subsession = await DB.prepare(`SELECT subsession_id FROM pace_subsessions WHERE subsession_id = ?`)
     .bind(subsessionId)
@@ -26,7 +27,8 @@ export async function onRequestGet(context: any) {
   // simsession_number tagged "race" (heat races), laps from all of them are
   // combined per driver, which is a reasonable default but worth knowing.
   const rows = await DB.prepare(
-    `SELECT l.cust_id as custId, d.display_name as driverName, l.lap_number as lapNumber, l.lap_time_ms as lapTimeMs
+    `SELECT l.cust_id as custId, d.display_name as driverName, l.lap_number as lapNumber,
+            l.lap_time_ms as lapTimeMs, l.is_pit_lap as isPitLap
      FROM pace_laps l
      LEFT JOIN drivers d ON d.iracing_member_id = l.cust_id
      WHERE l.subsession_id = ? AND l.simsession_type = 'race'`
@@ -43,7 +45,11 @@ export async function onRequestGet(context: any) {
         laps: [],
       });
     }
-    byDriver.get(row.custId)!.laps.push({ lapNumber: row.lapNumber, lapTimeMs: row.lapTimeMs });
+    byDriver.get(row.custId)!.laps.push({
+      lapNumber: row.lapNumber,
+      lapTimeMs: row.lapTimeMs,
+      isPitLap: Boolean(row.isPitLap),
+    });
   }
 
   if (byDriver.size === 0) {
@@ -53,7 +59,7 @@ export async function onRequestGet(context: any) {
     });
   }
 
-  const standings = computeRestartStandings(Array.from(byDriver.values()), fromLap);
+  const standings = computeRestartStandings(Array.from(byDriver.values()), fromLap, { excludePitLaps });
 
-  return json({ ok: true, subsessionId, fromLap, standings });
+  return json({ ok: true, subsessionId, fromLap, excludePitLaps, standings });
 }

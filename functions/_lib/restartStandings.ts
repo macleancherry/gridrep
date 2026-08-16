@@ -8,11 +8,23 @@
  * from that lap through the last lap they completed, ignoring everything
  * before it (early-race incidents, a first-lap pileup, etc. drop out of
  * the picture entirely).
+ *
+ * excludePitLaps: drivers don't pit on the same lap as each other, so a
+ * fixed lap window catches some drivers' pit stops and not others' - a stop
+ * that happens to fall inside the window makes that driver look artificially
+ * slower than one whose stop fell just before it (or hasn't happened yet).
+ * Simply dropping a caught pit lap outright would trade that bias for the
+ * opposite one - whoever gets a lap dropped is now covering less distance
+ * than everyone else, making their total look artificially *shorter*. So
+ * instead, a caught pit lap's time is replaced with that driver's own
+ * average clean-lap pace for the window: the anomalous pit-lane time drops
+ * out, but everyone's total still spans the same number of laps.
  */
 
 export type RestartLap = {
   lapNumber: number;
   lapTimeMs: number | null;
+  isPitLap: boolean;
 };
 
 export type RestartDriverInput = {
@@ -28,35 +40,89 @@ export type RestartStandingRow = {
   status: "classified" | "no_timed_laps" | "dnf_before_cutoff";
   totalTimeMs: number | null;
   gapMs: number | null; // to the leader; null for the leader and for unclassified drivers
-  lapsUsed: number; // timed laps counted from fromLap onward
-  lapsInRange: number; // laps present from fromLap onward, timed or not
+  lapsUsed: number; // laps counted from fromLap onward, timed or pit-substituted
+  lapsInRange: number; // laps present from fromLap onward, whether counted or not
   lastLapNumber: number | null; // last lap number this driver has any record of, at all
-  partial: boolean; // some laps from fromLap onward had no recorded time
+  partial: boolean; // some laps from fromLap onward couldn't be counted or estimated
+  pitLapsEstimated: number; // pit laps whose time was replaced by estimated pace (0 unless excludePitLaps)
 };
 
-export function computeRestartStandings(drivers: RestartDriverInput[], fromLap: number): RestartStandingRow[] {
+function hasTime(l: RestartLap): l is RestartLap & { lapTimeMs: number } {
+  return typeof l.lapTimeMs === "number" && l.lapTimeMs > 0;
+}
+
+function average(nums: number[]): number | undefined {
+  if (nums.length === 0) return undefined;
+  return nums.reduce((sum, n) => sum + n, 0) / nums.length;
+}
+
+export function computeRestartStandings(
+  drivers: RestartDriverInput[],
+  fromLap: number,
+  options: { excludePitLaps?: boolean } = {}
+): RestartStandingRow[] {
+  const excludePitLaps = options.excludePitLaps ?? false;
   const classified: RestartStandingRow[] = [];
   const unclassified: RestartStandingRow[] = [];
 
   for (const d of drivers) {
     const sorted = [...d.laps].sort((a, b) => a.lapNumber - b.lapNumber);
     const lastLapNumber = sorted.length > 0 ? sorted[sorted.length - 1].lapNumber : null;
+    // Whether they reached the cutoff at all is about race distance, not
+    // about which of those laps end up counted - always judged against every
+    // lap on record, regardless of the pit-lap option below.
+    const reachedCutoff = sorted.some((l) => l.lapNumber >= fromLap);
     const lapsInRange = sorted.filter((l) => l.lapNumber >= fromLap);
-    const timedLapsInRange = lapsInRange.filter((l) => typeof l.lapTimeMs === "number" && l.lapTimeMs! > 0);
-    const totalTimeMs = timedLapsInRange.reduce((sum, l) => sum + (l.lapTimeMs as number), 0);
+
+    let totalTimeMs = 0;
+    let lapsUsed = 0;
+    let pitLapsEstimated = 0;
+    let partial = false;
+
+    if (excludePitLaps) {
+      const cleanInRange = lapsInRange.filter((l) => !l.isPitLap && hasTime(l));
+      const pitInRange = lapsInRange.filter((l) => l.isPitLap);
+      const otherMissingInRange = lapsInRange.filter((l) => !l.isPitLap && !hasTime(l));
+
+      // Prefer the driver's own pace within this window; fall back to their
+      // pace over the whole synced race if the window itself has no clean
+      // lap to estimate from (e.g. every lap in range was a pit lap).
+      const substituteMs =
+        average(cleanInRange.map((l) => l.lapTimeMs)) ??
+        average(sorted.filter((l) => !l.isPitLap && hasTime(l)).map((l) => l.lapTimeMs));
+
+      totalTimeMs = cleanInRange.reduce((sum, l) => sum + l.lapTimeMs, 0);
+      lapsUsed = cleanInRange.length;
+
+      if (substituteMs !== undefined) {
+        totalTimeMs += pitInRange.length * substituteMs;
+        lapsUsed += pitInRange.length;
+        pitLapsEstimated = pitInRange.length;
+      } else if (pitInRange.length > 0) {
+        partial = true; // no pace data anywhere to estimate a substitute from
+      }
+
+      if (otherMissingInRange.length > 0) partial = true;
+    } else {
+      const timed = lapsInRange.filter(hasTime);
+      totalTimeMs = timed.reduce((sum, l) => sum + l.lapTimeMs, 0);
+      lapsUsed = timed.length;
+      partial = timed.length < lapsInRange.length;
+    }
 
     const base = {
       custId: d.custId,
       driverName: d.driverName,
-      lapsUsed: timedLapsInRange.length,
+      lapsUsed,
       lapsInRange: lapsInRange.length,
       lastLapNumber,
-      partial: timedLapsInRange.length < lapsInRange.length,
+      partial,
+      pitLapsEstimated,
     };
 
-    if (lapsInRange.length === 0) {
+    if (!reachedCutoff) {
       unclassified.push({ ...base, position: null, status: "dnf_before_cutoff", totalTimeMs: null, gapMs: null });
-    } else if (timedLapsInRange.length === 0) {
+    } else if (lapsUsed === 0) {
       unclassified.push({ ...base, position: null, status: "no_timed_laps", totalTimeMs: null, gapMs: null });
     } else {
       classified.push({ ...base, position: null, status: "classified", totalTimeMs, gapMs: null });
