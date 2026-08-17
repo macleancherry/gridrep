@@ -21,10 +21,22 @@ type StandingRow = {
   nearReference: boolean;
 };
 
-type DisplayRow = StandingRow & { avgLapGapMs: number | null };
+type DisplayRow = StandingRow & { metricGapMs: number | null };
 
 type ReferenceDriver = { custId: string; driverName: string };
-type OrderMode = "avgLap" | "laps";
+type OrderMode = "avgLap" | "bestAdjusted" | "cleanPace" | "laps";
+
+const PACE_MODES: Record<Exclude<OrderMode, "laps">, { label: string; field: keyof StandingRow; name: string }> = {
+  avgLap: { label: "Average lap time (recommended)", field: "avgLapMs", name: "average pace" },
+  bestAdjusted: { label: "Best adjusted (fastest ~90%)", field: "bestAdjustedLapMs", name: "best-adjusted pace" },
+  cleanPace: { label: "Clean pace (no incidents)", field: "cleanLapMs", name: "clean pace" },
+};
+
+function metricValue(mode: OrderMode, row: StandingRow): number | null {
+  if (mode === "laps") return null;
+  const value = row[PACE_MODES[mode].field];
+  return typeof value === "number" ? value : null;
+}
 
 function formatMs(ms: number): string {
   const totalMs = Math.round(ms);
@@ -54,7 +66,9 @@ export default function WhatIfSubsession() {
   const fromLap = Math.max(1, Number(searchParams.get("fromLap")) || 1);
   const driverQuery = (searchParams.get("driver") ?? "").trim();
   const excludePitLaps = searchParams.get("excludePitLaps") === "true";
-  const orderMode: OrderMode = searchParams.get("order") === "laps" ? "laps" : "avgLap";
+  const orderParam = searchParams.get("order");
+  const orderMode: OrderMode =
+    orderParam === "laps" || orderParam === "bestAdjusted" || orderParam === "cleanPace" ? orderParam : "avgLap";
 
   const loadingMessage = useLoadingMessage(loading);
 
@@ -122,39 +136,41 @@ export default function WhatIfSubsession() {
 
   // Positions are awarded from whichever ordering is active, not fixed to
   // one metric:
-  //  - "avgLap" (recommended): drivers within 2 laps of the reference
-  //    driver's own distance are ranked by average pace - immune to a whole
-  //    lap being banked or lost right at the cutoff boundary. Anyone further
-  //    off (a very different race in this window - a big incident, a long
-  //    pit stop, laps down) keeps its relative order at the end instead of
-  //    being folded into a pace comparison that wouldn't mean anything for
-  //    them.
+  //  - avgLap / bestAdjusted / cleanPace (recommended over "laps"): drivers
+  //    within 2 laps of the reference driver's own distance are ranked by
+  //    that pace figure - immune to a whole lap being banked or lost right
+  //    at the cutoff boundary. Anyone further off (a very different race in
+  //    this window - a big incident, a long pit stop, laps down) keeps its
+  //    relative order at the end instead of being folded into a pace
+  //    comparison that wouldn't mean anything for them.
   //  - "laps": the API's own laps-completed-then-time order, verbatim.
   const displayRows = useMemo((): DisplayRow[] | null => {
     if (!rows) return null;
     const classified = rows.filter((r) => r.status === "classified");
-    const unclassified: DisplayRow[] = rows.filter((r) => r.status !== "classified").map((r) => ({ ...r, avgLapGapMs: null }));
+    const unclassified: DisplayRow[] = rows.filter((r) => r.status !== "classified").map((r) => ({ ...r, metricGapMs: null }));
 
     if (orderMode === "laps") {
-      const withPositions = classified.map((r, i) => ({ ...r, position: i + 1, avgLapGapMs: null }));
+      const withPositions = classified.map((r, i) => ({ ...r, position: i + 1, metricGapMs: null }));
       return [...withPositions, ...unclassified];
     }
 
-    const near = classified.filter((r) => r.nearReference && r.avgLapMs !== null);
-    const far = classified.filter((r) => !(r.nearReference && r.avgLapMs !== null));
-    near.sort((a, b) => (a.avgLapMs as number) - (b.avgLapMs as number));
-    const leadAvgLapMs = near[0]?.avgLapMs ?? null;
+    const near = classified.filter((r) => r.nearReference && metricValue(orderMode, r) !== null);
+    const far = classified.filter((r) => !(r.nearReference && metricValue(orderMode, r) !== null));
+    near.sort((a, b) => (metricValue(orderMode, a) as number) - (metricValue(orderMode, b) as number));
+    const leadMetric = near[0] ? metricValue(orderMode, near[0]) : null;
 
     // The server's gapMs/lapsDown are relative to the laps-completed leader,
-    // not whoever's on top by pace here - recompute a pace-based gap (this
-    // driver's average lap vs. the fastest average in the near group)
-    // instead, so the Gap column stays meaningful under this ordering too.
-    const orderedClassified = [...near, ...far].map((r, i) => ({
-      ...r,
-      position: i + 1,
-      avgLapGapMs:
-        r.nearReference && r.avgLapMs !== null && leadAvgLapMs !== null ? r.avgLapMs - leadAvgLapMs : null,
-    }));
+    // not whoever's on top by this pace metric - recompute a pace-based gap
+    // (this driver's figure vs. the fastest in the near group) instead, so
+    // the Gap column stays meaningful under this ordering too.
+    const orderedClassified = [...near, ...far].map((r, i) => {
+      const value = metricValue(orderMode, r);
+      return {
+        ...r,
+        position: i + 1,
+        metricGapMs: r.nearReference && value !== null && leadMetric !== null ? value - leadMetric : null,
+      };
+    });
     return [...orderedClassified, ...unclassified];
   }, [rows, orderMode]);
 
@@ -209,7 +225,9 @@ export default function WhatIfSubsession() {
           value={orderMode}
           onChange={(e) => setOrderMode(e.target.value as OrderMode)}
         >
-          <option value="avgLap">Average lap time (recommended)</option>
+          <option value="avgLap">{PACE_MODES.avgLap.label}</option>
+          <option value="bestAdjusted">{PACE_MODES.bestAdjusted.label}</option>
+          <option value="cleanPace">{PACE_MODES.cleanPace.label}</option>
           <option value="laps">Laps completed / total time</option>
         </select>
       </div>
@@ -218,7 +236,7 @@ export default function WhatIfSubsession() {
         <p className="whatif-error" style={{ marginBottom: 24 }}>
           ⚠ Not recommended: a big incident or a long pit stop in this stretch changes how many laps someone
           completed without saying anything about their pace, so this ordering can be skewed by bad luck as much as
-          by speed. Average lap time is usually the fairer comparison.
+          by speed. A pace-based ordering above is usually the fairer comparison.
         </p>
       )}
 
@@ -243,8 +261,8 @@ export default function WhatIfSubsession() {
               <p className="whatif-hint">
                 Anchored to the exact moment <strong>{referenceDriver.driverName}</strong> reached lap {fromLap} -
                 every driver below is compared from that same real moment, not from their own lap {fromLap}.{" "}
-                {orderMode === "avgLap"
-                  ? `Positions are ranked by average pace among drivers within 2 laps of ${referenceDriver.driverName}'s own distance; anyone further off keeps its normal order at the end, since their race in this window isn't really comparable.`
+                {orderMode !== "laps"
+                  ? `Positions are ranked by ${PACE_MODES[orderMode].name} among drivers within 2 laps of ${referenceDriver.driverName}'s own distance; anyone further off keeps its normal order at the end, since their race in this window isn't really comparable.`
                   : "Positions are ranked by laps completed first, then total time - not by raw total time alone, which would otherwise favor whoever simply drove fewer laps (e.g. a driver who retired early)."}
               </p>
               <div className="whatif-table-wrap">
@@ -255,10 +273,12 @@ export default function WhatIfSubsession() {
                       <th>Driver</th>
                       <th>Time since the cutoff</th>
                       <th>Avg lap</th>
-                      <th title="Average of the fastest ~90% of counted laps, dropping the slowest outliers.">
-                        Best adj.
+                      <th title="Average of the fastest ~90% of counted laps, dropping the slowest outliers. Sortable via the Order by dropdown above.">
+                        Best adj. <span className="whatif-muted" style={{ cursor: "help" }}>ⓘ</span>
                       </th>
-                      <th title="Average of laps with no recorded incident, off-track, or pit stop.">Clean pace</th>
+                      <th title="Average of laps with no recorded incident, off-track, or pit stop - always excludes pit laps, regardless of the Ignore pit-stop laps checkbox. Sortable via the Order by dropdown above.">
+                        Clean pace <span className="whatif-muted" style={{ cursor: "help" }}>ⓘ</span>
+                      </th>
                       <th>Gap</th>
                       <th>Laps used</th>
                     </tr>
@@ -328,12 +348,12 @@ export default function WhatIfSubsession() {
                           )}
                         </td>
                         <td>
-                          {orderMode === "avgLap" ? (
-                            r.avgLapGapMs !== null ? (
-                              r.avgLapGapMs === 0 ? (
+                          {orderMode !== "laps" ? (
+                            r.metricGapMs !== null ? (
+                              r.metricGapMs === 0 ? (
                                 <span className="whatif-muted">Leader</span>
                               ) : (
-                                <span className="whatif-mono">+{formatMs(r.avgLapGapMs)}/lap</span>
+                                <span className="whatif-mono">+{formatMs(r.metricGapMs)}/lap</span>
                               )
                             ) : r.status === "classified" && r.lapsDown > 0 ? (
                               <span
