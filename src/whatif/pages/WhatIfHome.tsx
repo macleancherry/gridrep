@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useLoadingMessage } from "../loadingMessages";
 
 type IngestResponse = {
   ok: boolean;
@@ -13,6 +14,8 @@ type IngestResponse = {
   driverFailures?: Array<{ custId: string; simsessionNumber: number; message: string }>;
 };
 
+type PullStats = { totalJobs: number; remainingJobs: number; lapsIngested: number };
+
 export default function WhatIfHome() {
   const navigate = useNavigate();
 
@@ -23,7 +26,9 @@ export default function WhatIfHome() {
 
   const [pulling, setPulling] = useState(false);
   const [pullError, setPullError] = useState<string | null>(null);
-  const [pullProgress, setPullProgress] = useState<string | null>(null);
+  const [pullStats, setPullStats] = useState<PullStats | null>(null);
+
+  const loadingMessage = useLoadingMessage(pulling);
 
   async function compute() {
     const id = subsessionInput.trim();
@@ -31,7 +36,7 @@ export default function WhatIfHome() {
 
     setPulling(true);
     setPullError(null);
-    setPullProgress(null);
+    setPullStats(null);
 
     // What If standings are computed from the same synced lap data Pace
     // uses (pace_laps), so pulling a subsession here reuses Pace's own
@@ -55,14 +60,9 @@ export default function WhatIfHome() {
         allDriverFailures.push(...(data.driverFailures ?? []));
 
         const remaining = data.remainingJobs ?? 0;
+        setPullStats({ totalJobs: data.totalJobs ?? 0, remainingJobs: remaining, lapsIngested: totalLapsIngested });
         if (remaining === 0) break;
-
-        setPullProgress(
-          `Pulling laps… ${totalLapsIngested} lap(s) so far, ${remaining} of ${data.totalJobs} driver/sim-session pull(s) left.`
-        );
       }
-
-      setPullProgress(null);
 
       const issues: string[] = [];
       if (totalLapsIngested === 0) {
@@ -96,9 +96,14 @@ export default function WhatIfHome() {
       setPullError("Network error. Please try again.");
     } finally {
       setPulling(false);
-      setPullProgress(null);
+      setPullStats(null);
     }
   }
+
+  const progressPct =
+    pullStats && pullStats.totalJobs > 0
+      ? Math.round(((pullStats.totalJobs - pullStats.remainingJobs) / pullStats.totalJobs) * 100)
+      : null;
 
   return (
     <>
@@ -166,7 +171,24 @@ export default function WhatIfHome() {
             {pulling ? "Pulling…" : "Compute standings"}
           </button>
         </div>
-        {pullProgress && <p className="whatif-hint">{pullProgress}</p>}
+        {pulling && (
+          <div className="whatif-progress-wrap">
+            <div className="whatif-progress-track">
+              <div
+                className={`whatif-progress-fill${progressPct === null ? " whatif-progress-indeterminate" : ""}`}
+                style={progressPct === null ? undefined : { width: `${progressPct}%` }}
+              />
+            </div>
+            <p className="whatif-hint" style={{ margin: "6px 0 0" }}>
+              {pullStats
+                ? `${pullStats.lapsIngested} lap(s) so far${progressPct !== null ? ` — ${progressPct}%` : ""}${
+                    pullStats.remainingJobs > 0 ? `, ${pullStats.remainingJobs} of ${pullStats.totalJobs} pull(s) left` : ""
+                  }`
+                : "Starting…"}
+            </p>
+            <p className="whatif-loading-message">{loadingMessage}</p>
+          </div>
+        )}
         {pullError && <p className="whatif-error">{pullError}</p>}
       </section>
     </>

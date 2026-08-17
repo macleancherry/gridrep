@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
+import { useLoadingMessage } from "../loadingMessages";
 
 type StandingRow = {
   custId: string;
@@ -18,8 +19,10 @@ type StandingRow = {
   nearReference: boolean;
 };
 
+type DisplayRow = StandingRow & { avgLapGapMs: number | null };
+
 type ReferenceDriver = { custId: string; driverName: string };
-type SortColumn = "position" | "avgLap";
+type OrderMode = "avgLap" | "laps";
 
 function formatMs(ms: number): string {
   const totalMs = Math.round(ms);
@@ -45,12 +48,13 @@ export default function WhatIfSubsession() {
   const [referenceDriver, setReferenceDriver] = useState<ReferenceDriver | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [sortColumn, setSortColumn] = useState<SortColumn>("position");
-  const [sortAsc, setSortAsc] = useState(true);
 
   const fromLap = Math.max(1, Number(searchParams.get("fromLap")) || 1);
   const driverQuery = (searchParams.get("driver") ?? "").trim();
   const excludePitLaps = searchParams.get("excludePitLaps") === "true";
+  const orderMode: OrderMode = searchParams.get("order") === "laps" ? "laps" : "avgLap";
+
+  const loadingMessage = useLoadingMessage(loading);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,43 +112,49 @@ export default function WhatIfSubsession() {
     setSearchParams(next);
   }
 
-  function toggleSort(column: SortColumn) {
-    if (column === sortColumn) {
-      setSortAsc((v) => !v);
-    } else {
-      setSortColumn(column);
-      setSortAsc(true);
-    }
+  function setOrderMode(mode: OrderMode) {
+    const next = new URLSearchParams(searchParams);
+    next.set("order", mode);
+    setSearchParams(next);
   }
 
-  // "Position" order is exactly what the API already returned (laps
-  // completed first, time as tiebreaker). "Avg lap" reorders drivers within
-  // 2 laps of the reference driver's own distance by pace, since a whole-lap
-  // count is quantized (a lap boundary landing just before the cutoff can
-  // bank an extra lap) and can disagree with who was actually quicker -
-  // drivers further than 2 laps off aren't a meaningful pace comparison
-  // (very different races: an early spin, a long repair, lap traffic), so
-  // they're left in their normal order at the end instead of being sorted in.
-  const sortedRows = useMemo(() => {
+  // Positions are awarded from whichever ordering is active, not fixed to
+  // one metric:
+  //  - "avgLap" (recommended): drivers within 2 laps of the reference
+  //    driver's own distance are ranked by average pace - immune to a whole
+  //    lap being banked or lost right at the cutoff boundary. Anyone further
+  //    off (a very different race in this window - a big incident, a long
+  //    pit stop, laps down) keeps its relative order at the end instead of
+  //    being folded into a pace comparison that wouldn't mean anything for
+  //    them.
+  //  - "laps": the API's own laps-completed-then-time order, verbatim.
+  const displayRows = useMemo((): DisplayRow[] | null => {
     if (!rows) return null;
-    if (sortColumn === "position") {
-      return sortAsc ? rows : [...rows].reverse();
-    }
-    const near = rows.filter((r) => r.nearReference && r.avgLapMs !== null);
-    const rest = rows.filter((r) => !(r.nearReference && r.avgLapMs !== null));
-    near.sort((a, b) => (sortAsc ? 1 : -1) * ((a.avgLapMs as number) - (b.avgLapMs as number)));
-    return [...near, ...rest];
-  }, [rows, sortColumn, sortAsc]);
+    const classified = rows.filter((r) => r.status === "classified");
+    const unclassified: DisplayRow[] = rows.filter((r) => r.status !== "classified").map((r) => ({ ...r, avgLapGapMs: null }));
 
-  function SortHeader({ column, label }: { column: SortColumn; label: string }) {
-    const active = sortColumn === column;
-    return (
-      <th onClick={() => toggleSort(column)} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort">
-        {label}
-        {active ? (sortAsc ? " ▲" : " ▼") : ""}
-      </th>
-    );
-  }
+    if (orderMode === "laps") {
+      const withPositions = classified.map((r, i) => ({ ...r, position: i + 1, avgLapGapMs: null }));
+      return [...withPositions, ...unclassified];
+    }
+
+    const near = classified.filter((r) => r.nearReference && r.avgLapMs !== null);
+    const far = classified.filter((r) => !(r.nearReference && r.avgLapMs !== null));
+    near.sort((a, b) => (a.avgLapMs as number) - (b.avgLapMs as number));
+    const leadAvgLapMs = near[0]?.avgLapMs ?? null;
+
+    // The server's gapMs/lapsDown are relative to the laps-completed leader,
+    // not whoever's on top by pace here - recompute a pace-based gap (this
+    // driver's average lap vs. the fastest average in the near group)
+    // instead, so the Gap column stays meaningful under this ordering too.
+    const orderedClassified = [...near, ...far].map((r, i) => ({
+      ...r,
+      position: i + 1,
+      avgLapGapMs:
+        r.nearReference && r.avgLapMs !== null && leadAvgLapMs !== null ? r.avgLapMs - leadAvgLapMs : null,
+    }));
+    return [...orderedClassified, ...unclassified];
+  }, [rows, orderMode]);
 
   return (
     <>
@@ -176,7 +186,7 @@ export default function WhatIfSubsession() {
         </button>
       </div>
 
-      <div className="whatif-row" style={{ marginTop: -14, marginBottom: 24 }}>
+      <div className="whatif-row" style={{ marginTop: -14, marginBottom: 10 }}>
         <label className="whatif-hint whatif-checkbox-label" style={{ margin: 0 }}>
           <input
             type="checkbox"
@@ -187,37 +197,68 @@ export default function WhatIfSubsession() {
         </label>
       </div>
 
-      {loading && <p className="whatif-hint">Loading…</p>}
+      <div className="whatif-row" style={{ marginBottom: 10 }}>
+        <label className="whatif-hint" htmlFor="order-mode-select" style={{ margin: 0 }}>
+          Order by
+        </label>
+        <select
+          id="order-mode-select"
+          className="whatif-select"
+          value={orderMode}
+          onChange={(e) => setOrderMode(e.target.value as OrderMode)}
+        >
+          <option value="avgLap">Average lap time (recommended)</option>
+          <option value="laps">Laps completed / total time</option>
+        </select>
+      </div>
+
+      {orderMode === "laps" && (
+        <p className="whatif-error" style={{ marginBottom: 24 }}>
+          ⚠ Not recommended: a big incident or a long pit stop in this stretch changes how many laps someone
+          completed without saying anything about their pace, so this ordering can be skewed by bad luck as much as
+          by speed. Average lap time is usually the fairer comparison.
+        </p>
+      )}
+
+      {loading && (
+        <div className="whatif-progress-wrap">
+          <div className="whatif-progress-track">
+            <div className="whatif-progress-fill whatif-progress-indeterminate" />
+          </div>
+          <p className="whatif-loading-message" style={{ marginTop: 6 }}>
+            {loadingMessage}
+          </p>
+        </div>
+      )}
       {error && <p className="whatif-error">{error}</p>}
 
-      {sortedRows && referenceDriver && (
+      {displayRows && referenceDriver && (
         <div className="whatif-section">
-          {sortedRows.length === 0 ? (
+          {displayRows.length === 0 ? (
             <p className="whatif-hint">No drivers found for this subsession.</p>
           ) : (
             <>
               <p className="whatif-hint">
                 Anchored to the exact moment <strong>{referenceDriver.driverName}</strong> reached lap {fromLap} -
-                every driver below is compared from that same real moment, not from their own lap {fromLap}. Sort by
-                Pos for finishing order (laps completed first, then time), or by Avg lap for pace alone — a whole-lap
-                count can bank an extra lap right at the cutoff boundary, so the two don't always agree. Avg-lap
-                sorting only reorders drivers within 2 laps of {referenceDriver.driverName}'s own distance; anyone
-                further off stays at the end, since their race in this window isn't really comparable.
+                every driver below is compared from that same real moment, not from their own lap {fromLap}.{" "}
+                {orderMode === "avgLap"
+                  ? `Positions are ranked by average pace among drivers within 2 laps of ${referenceDriver.driverName}'s own distance; anyone further off keeps its normal order at the end, since their race in this window isn't really comparable.`
+                  : "Positions are ranked by laps completed first, then total time - not by raw total time alone, which would otherwise favor whoever simply drove fewer laps (e.g. a driver who retired early)."}
               </p>
               <div className="whatif-table-wrap">
                 <table className="whatif-table">
                   <thead>
                     <tr>
-                      <SortHeader column="position" label="Pos" />
+                      <th>Pos</th>
                       <th>Driver</th>
                       <th>Time since the cutoff</th>
-                      <SortHeader column="avgLap" label="Avg lap" />
+                      <th>Avg lap</th>
                       <th>Gap</th>
                       <th>Laps used</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedRows.map((r) => (
+                    {displayRows.map((r) => (
                       <tr
                         key={r.custId}
                         style={r.custId === referenceDriver.custId ? { background: "#eff6ff" } : undefined}
@@ -256,7 +297,10 @@ export default function WhatIfSubsession() {
                         </td>
                         <td className={r.nearReference ? undefined : "whatif-muted"}>
                           {r.avgLapMs !== null ? (
-                            <span className="whatif-mono" title={r.nearReference ? "" : "More than 2 laps off the reference driver's distance - not a close pace comparison."}>
+                            <span
+                              className="whatif-mono"
+                              title={r.nearReference ? "" : "More than 2 laps off the reference driver's distance - not a close pace comparison."}
+                            >
                               {formatMs(r.avgLapMs)}
                             </span>
                           ) : (
@@ -264,7 +308,24 @@ export default function WhatIfSubsession() {
                           )}
                         </td>
                         <td>
-                          {r.gapMs !== null ? (
+                          {orderMode === "avgLap" ? (
+                            r.avgLapGapMs !== null ? (
+                              r.avgLapGapMs === 0 ? (
+                                <span className="whatif-muted">Leader</span>
+                              ) : (
+                                <span className="whatif-mono">+{formatMs(r.avgLapGapMs)}/lap</span>
+                              )
+                            ) : r.status === "classified" && r.lapsDown > 0 ? (
+                              <span
+                                className="whatif-muted"
+                                title="More than 2 laps off the reference driver's distance - not a close pace comparison."
+                              >
+                                -{r.lapsDown} lap{r.lapsDown === 1 ? "" : "s"}
+                              </span>
+                            ) : (
+                              <span className="whatif-muted">—</span>
+                            )
+                          ) : r.gapMs !== null ? (
                             <span className="whatif-mono">+{formatMs(r.gapMs)}</span>
                           ) : r.status === "classified" && r.lapsDown > 0 ? (
                             <span
