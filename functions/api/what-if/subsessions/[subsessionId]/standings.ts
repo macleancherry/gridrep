@@ -1,4 +1,4 @@
-import { computeWhatIfStandings, type WhatIfDriverInput } from "../../../../_lib/whatIfStandings";
+import { computeWhatIfStandings, computeCutoffTimeMs, type WhatIfDriverInput } from "../../../../_lib/whatIfStandings";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 function clampFromLap(raw: string | null): number {
@@ -13,6 +13,15 @@ export async function onRequestGet(context: any) {
   const url = new URL(context.request.url);
   const fromLap = clampFromLap(url.searchParams.get("fromLap"));
   const excludePitLaps = url.searchParams.get("excludePitLaps") === "true";
+  const driverQuery = (url.searchParams.get("driver") ?? "").trim();
+
+  if (!driverQuery) {
+    return jsonError(400, {
+      error: "driver_required",
+      message:
+        "Enter a driver name - it anchors the cutoff to the exact real moment that driver reached the given lap, so everyone else is compared from that same moment.",
+    });
+  }
 
   const subsession = await DB.prepare(`SELECT subsession_id FROM pace_subsessions WHERE subsession_id = ?`)
     .bind(subsessionId)
@@ -59,7 +68,53 @@ export async function onRequestGet(context: any) {
     });
   }
 
-  const standings = computeWhatIfStandings(Array.from(byDriver.values()), fromLap, { excludePitLaps });
+  const driverQueryLower = driverQuery.toLowerCase();
+  const matches = Array.from(byDriver.values()).filter((d) => d.driverName.toLowerCase().includes(driverQueryLower));
 
-  return json({ ok: true, subsessionId, fromLap, excludePitLaps, standings });
+  if (matches.length === 0) {
+    return jsonError(404, {
+      error: "driver_not_found",
+      message: `No driver matching "${driverQuery}" found in this subsession.`,
+    });
+  }
+  if (matches.length > 1) {
+    return jsonError(400, {
+      error: "driver_ambiguous",
+      message: `"${driverQuery}" matches more than one driver - be more specific: ${matches.map((d) => d.driverName).join(", ")}.`,
+    });
+  }
+
+  const referenceDriver = matches[0];
+  const cutoffTimeMs = computeCutoffTimeMs(referenceDriver.laps, fromLap);
+
+  if (cutoffTimeMs === null) {
+    return jsonError(400, {
+      error: "reference_driver_dnf_before_cutoff",
+      message: `${referenceDriver.driverName} never reached lap ${fromLap} in this race - pick an earlier lap.`,
+    });
+  }
+
+  const standings = computeWhatIfStandings(Array.from(byDriver.values()), cutoffTimeMs, { excludePitLaps });
+
+  // "Near the reference driver" gates the average-pace comparison to drivers
+  // who covered roughly the same distance in the window - comparing pace
+  // between someone on-lead-lap and someone several laps down (who may have
+  // had a very different race: an early spin, a long repair, traffic) isn't
+  // meaningful the way it is between two drivers who ran a comparable stretch.
+  const referenceRow = standings.find((r) => r.custId === referenceDriver.custId);
+  const referenceDistance = referenceRow?.lapsInRange ?? 0;
+  const standingsWithProximity = standings.map((r) => ({
+    ...r,
+    nearReference: r.status === "classified" && Math.abs(r.lapsInRange - referenceDistance) <= 2,
+  }));
+
+  return json({
+    ok: true,
+    subsessionId,
+    fromLap,
+    excludePitLaps,
+    referenceDriver: { custId: referenceDriver.custId, driverName: referenceDriver.driverName },
+    cutoffTimeMs,
+    standings: standingsWithProximity,
+  });
 }

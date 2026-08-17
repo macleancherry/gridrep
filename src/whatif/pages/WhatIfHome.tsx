@@ -27,7 +27,7 @@ export default function WhatIfHome() {
 
   async function compute() {
     const id = subsessionInput.trim();
-    if (!id) return;
+    if (!id || !driverInput.trim()) return;
 
     setPulling(true);
     setPullError(null);
@@ -86,8 +86,11 @@ export default function WhatIfHome() {
       }
 
       const fromLap = Math.max(1, Math.trunc(fromLapInput) || 1);
-      const params = new URLSearchParams({ fromLap: String(fromLap), excludePitLaps: String(excludePitLaps) });
-      if (driverInput.trim()) params.set("driver", driverInput.trim());
+      const params = new URLSearchParams({
+        fromLap: String(fromLap),
+        excludePitLaps: String(excludePitLaps),
+        driver: driverInput.trim(),
+      });
       navigate(`/what-if/s/${encodeURIComponent(id)}?${params.toString()}`);
     } catch {
       setPullError("Network error. Please try again.");
@@ -100,8 +103,8 @@ export default function WhatIfHome() {
   return (
     <>
       <p className="whatif-hint">
-        Enter a subsession, and recompute finishing positions counting only the laps from a given lap number
-        onward — as if the race had restarted there.
+        Enter a subsession and your driver name, and recompute finishing positions from the exact real moment you
+        reached a given lap — as if the race had restarted right then.
       </p>
 
       <section className="whatif-section">
@@ -115,7 +118,7 @@ export default function WhatIfHome() {
           />
           <input
             className="whatif-input"
-            placeholder="Driver name (optional, to highlight)"
+            placeholder="Your driver name"
             value={driverInput}
             onChange={(e) => setDriverInput(e.target.value)}
           />
@@ -132,6 +135,12 @@ export default function WhatIfHome() {
             onChange={(e) => setFromLapInput(Math.max(1, Number(e.target.value) || 1))}
           />
         </div>
+        <p className="whatif-hint" style={{ marginTop: -4 }}>
+          Your driver name anchors the cutoff: everyone else is compared from the same real moment you started that
+          lap, not from their own lap {Math.max(1, Math.trunc(fromLapInput) || 1)} — a faster driver reaches any
+          given lap number sooner than a slower one, so comparing "everyone's own lap N" would unfairly credit
+          drivers with more real racing time in their window just for getting there first.
+        </p>
         <div className="whatif-row" style={{ marginBottom: 10 }}>
           <label className="whatif-hint whatif-checkbox-label" style={{ margin: 0 }}>
             <input
@@ -149,7 +158,11 @@ export default function WhatIfHome() {
           total still covers the same number of laps.
         </p>
         <div className="whatif-row">
-          <button className="whatif-btn" onClick={compute} disabled={pulling || !subsessionInput.trim()}>
+          <button
+            className="whatif-btn"
+            onClick={compute}
+            disabled={pulling || !subsessionInput.trim() || !driverInput.trim()}
+          >
             {pulling ? "Pulling…" : "Compute standings"}
           </button>
         </div>
