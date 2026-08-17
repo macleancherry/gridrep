@@ -9,8 +9,11 @@ type StandingRow = {
   status: "classified" | "no_timed_laps" | "dnf_before_cutoff";
   totalTimeMs: number | null;
   avgLapMs: number | null;
+  avgLapStdDevMs: number | null;
   bestAdjustedLapMs: number | null;
+  bestAdjustedStdDevMs: number | null;
   cleanLapMs: number | null;
+  cleanLapStdDevMs: number | null;
   gapMs: number | null;
   lapsDown: number;
   lapsUsed: number;
@@ -44,6 +47,10 @@ function formatMs(ms: number): string {
   const seconds = Math.floor((totalMs % 60000) / 1000);
   const millis = totalMs % 1000;
   return `${minutes}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
+}
+
+function formatStdDev(ms: number): string {
+  return `±${(ms / 1000).toFixed(3)}s`;
 }
 
 function statusLabel(row: StandingRow): string {
@@ -273,11 +280,20 @@ export default function WhatIfSubsession() {
                       <th>Driver</th>
                       <th>Time since the cutoff</th>
                       <th>Avg lap</th>
+                      <th title="Standard deviation of the laps behind Avg lap - how much lap time actually varied, in seconds. Lower means more consistent.">
+                        Var <span className="whatif-muted" style={{ cursor: "help" }}>ⓘ</span>
+                      </th>
                       <th title="Average of the fastest ~90% of counted laps, dropping the slowest outliers. Sortable via the Order by dropdown above.">
                         Best adj. <span className="whatif-muted" style={{ cursor: "help" }}>ⓘ</span>
                       </th>
+                      <th title="Standard deviation of the laps behind Best adj. (after the slowest outliers are already dropped).">
+                        Var <span className="whatif-muted" style={{ cursor: "help" }}>ⓘ</span>
+                      </th>
                       <th title="Average of laps with no recorded incident, off-track, or pit stop - always excludes pit laps, regardless of the Ignore pit-stop laps checkbox. Sortable via the Order by dropdown above.">
                         Clean pace <span className="whatif-muted" style={{ cursor: "help" }}>ⓘ</span>
+                      </th>
+                      <th title="Standard deviation of the laps behind Clean pace.">
+                        Var <span className="whatif-muted" style={{ cursor: "help" }}>ⓘ</span>
                       </th>
                       <th>Gap</th>
                       <th>Laps used</th>
@@ -333,9 +349,19 @@ export default function WhatIfSubsession() {
                             "—"
                           )}
                         </td>
+                        <td className="whatif-muted">
+                          {r.avgLapStdDevMs !== null ? <span className="whatif-mono">{formatStdDev(r.avgLapStdDevMs)}</span> : "—"}
+                        </td>
                         <td className={r.nearReference ? undefined : "whatif-muted"}>
                           {r.bestAdjustedLapMs !== null ? (
                             <span className="whatif-mono">{formatMs(r.bestAdjustedLapMs)}</span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="whatif-muted">
+                          {r.bestAdjustedStdDevMs !== null ? (
+                            <span className="whatif-mono">{formatStdDev(r.bestAdjustedStdDevMs)}</span>
                           ) : (
                             "—"
                           )}
@@ -346,6 +372,9 @@ export default function WhatIfSubsession() {
                           ) : (
                             <span title="No laps with no recorded incident/off-track (and no pit stop) in this window.">—</span>
                           )}
+                        </td>
+                        <td className="whatif-muted">
+                          {r.cleanLapStdDevMs !== null ? <span className="whatif-mono">{formatStdDev(r.cleanLapStdDevMs)}</span> : "—"}
                         </td>
                         <td>
                           {orderMode !== "laps" ? (
