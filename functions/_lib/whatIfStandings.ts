@@ -52,12 +52,25 @@
  * aren't always the same question. avgLapMs (total time / laps used) is a
  * continuous pace figure that isn't sensitive to that rounding, meant to be
  * read as a second, complementary view - not a replacement for position.
+ *
+ * bestAdjustedLapMs / cleanLapMs: avgLapMs still includes every counted
+ * lap, so a single incident, a spin, or a bit of lap traffic can drag it
+ * around even though it says little about true pace. Two different ways to
+ * strip that out:
+ *  - bestAdjustedLapMs drops the slowest ~10% of counted laps (whatever
+ *    they were - substituted pit laps included) and averages the rest, a
+ *    statistical trim that works even without reliable incident data.
+ *  - cleanLapMs averages only laps iRacing itself flagged as clean (no
+ *    pit stop, no off-track/contact/etc.) - a stricter, incident-aware cut
+ *    at the cost of being null if the driver has no clean laps at all in
+ *    the window.
  */
 
 export type WhatIfLap = {
   lapNumber: number;
   lapTimeMs: number | null;
   isPitLap: boolean;
+  isClean: boolean | null;
 };
 
 export type WhatIfDriverInput = {
@@ -73,6 +86,8 @@ export type WhatIfStandingRow = {
   status: "classified" | "no_timed_laps" | "dnf_before_cutoff";
   totalTimeMs: number | null;
   avgLapMs: number | null; // totalTimeMs / lapsUsed - a pace view that isn't affected by how many whole laps happened to fit in the window
+  bestAdjustedLapMs: number | null; // average of the fastest ~90% of counted laps, dropping the slowest outliers
+  cleanLapMs: number | null; // average of laps with no recorded incident/off-track (and no pit stop); null if none in range
   gapMs: number | null; // to the leader; only set when this driver covered the exact same distance as the leader (see lapsDown)
   lapsDown: number; // 0 = same distance as whoever went furthest; 1+ = that many laps behind
   lapsUsed: number; // laps counted from the cutoff onward, timed or pit-substituted
@@ -89,6 +104,18 @@ function hasTime(l: WhatIfLap): l is WhatIfLap & { lapTimeMs: number } {
 function average(nums: number[]): number | undefined {
   if (nums.length === 0) return undefined;
   return nums.reduce((sum, n) => sum + n, 0) / nums.length;
+}
+
+// Drop the slowest ~10% of counted laps before averaging - enough to blunt
+// one bad lap's effect on the pace figure without needing to know why it
+// was slow, but not so aggressive it starts hiding genuine race pace.
+const BEST_ADJUSTED_KEEP_FRACTION = 0.9;
+
+function trimmedAverage(times: number[], keepFraction: number): number | undefined {
+  if (times.length === 0) return undefined;
+  const keepCount = Math.max(1, Math.floor(times.length * keepFraction));
+  const sorted = [...times].sort((a, b) => a - b);
+  return average(sorted.slice(0, keepCount));
 }
 
 /**
@@ -142,8 +169,7 @@ export function computeWhatIfStandings(
       if (hasTime(lap)) cumulative += lap.lapTimeMs;
     }
 
-    let totalTimeMs = 0;
-    let lapsUsed = 0;
+    let countedTimesMs: number[] = [];
     let pitLapsEstimated = 0;
     let partial = false;
 
@@ -159,12 +185,10 @@ export function computeWhatIfStandings(
         average(cleanInRange.map((l) => l.lapTimeMs)) ??
         average(sorted.filter((l) => !l.isPitLap && hasTime(l)).map((l) => l.lapTimeMs));
 
-      totalTimeMs = cleanInRange.reduce((sum, l) => sum + l.lapTimeMs, 0);
-      lapsUsed = cleanInRange.length;
+      countedTimesMs = cleanInRange.map((l) => l.lapTimeMs);
 
       if (substituteMs !== undefined) {
-        totalTimeMs += pitInRange.length * substituteMs;
-        lapsUsed += pitInRange.length;
+        countedTimesMs.push(...new Array(pitInRange.length).fill(substituteMs));
         pitLapsEstimated = pitInRange.length;
       } else if (pitInRange.length > 0) {
         partial = true; // no pace data anywhere to estimate a substitute from
@@ -173,15 +197,27 @@ export function computeWhatIfStandings(
       if (otherMissingInRange.length > 0) partial = true;
     } else {
       const timed = lapsInRange.filter(hasTime);
-      totalTimeMs = timed.reduce((sum, l) => sum + l.lapTimeMs, 0);
-      lapsUsed = timed.length;
+      countedTimesMs = timed.map((l) => l.lapTimeMs);
       partial = timed.length < lapsInRange.length;
     }
+
+    const totalTimeMs = countedTimesMs.reduce((sum, t) => sum + t, 0);
+    const lapsUsed = countedTimesMs.length;
+
+    // Clean pace always excludes pit laps outright (not substituted) and
+    // only counts laps iRacing flagged with no incident/off-track, whether
+    // or not excludePitLaps is on - it's a different, stricter question
+    // ("how fast with nothing at all going wrong") than the rest of the row.
+    const cleanTimesMs = lapsInRange
+      .filter((l) => !l.isPitLap && l.isClean === true && hasTime(l))
+      .map((l) => l.lapTimeMs);
 
     const base = {
       custId: d.custId,
       driverName: d.driverName,
       avgLapMs: lapsUsed > 0 ? totalTimeMs / lapsUsed : null,
+      bestAdjustedLapMs: trimmedAverage(countedTimesMs, BEST_ADJUSTED_KEEP_FRACTION) ?? null,
+      cleanLapMs: average(cleanTimesMs) ?? null,
       lapsUsed,
       lapsInRange: lapsInRange.length,
       lastLapNumber,

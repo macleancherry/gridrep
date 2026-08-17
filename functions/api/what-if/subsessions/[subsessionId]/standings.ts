@@ -37,7 +37,7 @@ export async function onRequestGet(context: any) {
   // combined per driver, which is a reasonable default but worth knowing.
   const rows = await DB.prepare(
     `SELECT l.cust_id as custId, d.display_name as driverName, l.lap_number as lapNumber,
-            l.lap_time_ms as lapTimeMs, l.is_pit_lap as isPitLap
+            l.lap_time_ms as lapTimeMs, l.is_pit_lap as isPitLap, l.is_clean as isClean
      FROM pace_laps l
      LEFT JOIN drivers d ON d.iracing_member_id = l.cust_id
      WHERE l.subsession_id = ? AND l.simsession_type = 'race'`
@@ -58,6 +58,7 @@ export async function onRequestGet(context: any) {
       lapNumber: row.lapNumber,
       lapTimeMs: row.lapTimeMs,
       isPitLap: Boolean(row.isPitLap),
+      isClean: row.isClean === null ? null : Boolean(row.isClean),
     });
   }
 
