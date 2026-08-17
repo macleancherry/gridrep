@@ -210,6 +210,49 @@
 
 .whatif-mono { font-family: var(--whatif-mono); }
 
+.whatif-select {
+  font: inherit;
+  padding: 9px 12px;
+  border: 1px solid var(--whatif-border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--whatif-text);
+}
+
+.whatif-progress-wrap {
+  margin: 4px 0 16px;
+}
+
+.whatif-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--whatif-border);
+  overflow: hidden;
+}
+
+.whatif-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--whatif-accent);
+  transition: width 0.3s ease;
+}
+
+.whatif-progress-fill.whatif-progress-indeterminate {
+  width: 40% !important;
+  animation: whatif-progress-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes whatif-progress-slide {
+  0% { margin-left: -40%; }
+  100% { margin-left: 100%; }
+}
+
+.whatif-loading-message {
+  color: var(--whatif-muted);
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
 .whatif-error {
   color: var(--whatif-danger);
   font-size: 0.88rem;
