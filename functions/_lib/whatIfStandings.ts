@@ -64,6 +64,14 @@
  *    pit stop, no off-track/contact/etc.) - a stricter, incident-aware cut
  *    at the cost of being null if the driver has no clean laps at all in
  *    the window.
+ *
+ * *StdDevMs: how spread out the laps behind each of those three averages
+ * were - a low number means consistent pace, a high one means the average
+ * is hiding a lot of lap-to-lap swing even after outliers/incidents/pit
+ * laps were already handled per that column's own rule. Reported as a
+ * standard deviation (same units as a lap time, so it reads as "typically
+ * +/- this many seconds") rather than raw variance, which is in squared
+ * milliseconds and not meaningfully readable in a table.
  */
 
 export type WhatIfLap = {
@@ -86,8 +94,11 @@ export type WhatIfStandingRow = {
   status: "classified" | "no_timed_laps" | "dnf_before_cutoff";
   totalTimeMs: number | null;
   avgLapMs: number | null; // totalTimeMs / lapsUsed - a pace view that isn't affected by how many whole laps happened to fit in the window
+  avgLapStdDevMs: number | null; // standard deviation of the laps behind avgLapMs - how consistent that average really was
   bestAdjustedLapMs: number | null; // average of the fastest ~90% of counted laps, dropping the slowest outliers
+  bestAdjustedStdDevMs: number | null; // standard deviation of the laps behind bestAdjustedLapMs
   cleanLapMs: number | null; // average of laps with no recorded incident/off-track (and no pit stop); null if none in range
+  cleanLapStdDevMs: number | null; // standard deviation of the laps behind cleanLapMs
   gapMs: number | null; // to the leader; only set when this driver covered the exact same distance as the leader (see lapsDown)
   lapsDown: number; // 0 = same distance as whoever went furthest; 1+ = that many laps behind
   lapsUsed: number; // laps counted from the cutoff onward, timed or pit-substituted
@@ -106,16 +117,26 @@ function average(nums: number[]): number | undefined {
   return nums.reduce((sum, n) => sum + n, 0) / nums.length;
 }
 
+// Population standard deviation (divide by n, not n-1) so a single-lap
+// sample is well-defined (0) rather than undefined - there's no inference
+// being made about a wider population here, just describing the spread of
+// exactly the laps in hand.
+function stdDev(nums: number[]): number | undefined {
+  if (nums.length === 0) return undefined;
+  const mean = average(nums) as number;
+  const variance = nums.reduce((sum, n) => sum + (n - mean) ** 2, 0) / nums.length;
+  return Math.sqrt(variance);
+}
+
 // Drop the slowest ~10% of counted laps before averaging - enough to blunt
 // one bad lap's effect on the pace figure without needing to know why it
 // was slow, but not so aggressive it starts hiding genuine race pace.
 const BEST_ADJUSTED_KEEP_FRACTION = 0.9;
 
-function trimmedAverage(times: number[], keepFraction: number): number | undefined {
-  if (times.length === 0) return undefined;
+function trimSlowest(times: number[], keepFraction: number): number[] {
+  if (times.length === 0) return [];
   const keepCount = Math.max(1, Math.floor(times.length * keepFraction));
-  const sorted = [...times].sort((a, b) => a - b);
-  return average(sorted.slice(0, keepCount));
+  return [...times].sort((a, b) => a - b).slice(0, keepCount);
 }
 
 /**
@@ -212,12 +233,17 @@ export function computeWhatIfStandings(
       .filter((l) => !l.isPitLap && l.isClean === true && hasTime(l))
       .map((l) => l.lapTimeMs);
 
+    const bestAdjustedTimesMs = trimSlowest(countedTimesMs, BEST_ADJUSTED_KEEP_FRACTION);
+
     const base = {
       custId: d.custId,
       driverName: d.driverName,
       avgLapMs: lapsUsed > 0 ? totalTimeMs / lapsUsed : null,
-      bestAdjustedLapMs: trimmedAverage(countedTimesMs, BEST_ADJUSTED_KEEP_FRACTION) ?? null,
+      avgLapStdDevMs: stdDev(countedTimesMs) ?? null,
+      bestAdjustedLapMs: average(bestAdjustedTimesMs) ?? null,
+      bestAdjustedStdDevMs: stdDev(bestAdjustedTimesMs) ?? null,
       cleanLapMs: average(cleanTimesMs) ?? null,
+      cleanLapStdDevMs: stdDev(cleanTimesMs) ?? null,
       lapsUsed,
       lapsInRange: lapsInRange.length,
       lastLapNumber,
