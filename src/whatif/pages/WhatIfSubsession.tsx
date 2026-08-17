@@ -278,7 +278,6 @@ export default function WhatIfSubsession() {
                     <tr>
                       <th>Pos</th>
                       <th>Driver</th>
-                      <th>Time since the cutoff</th>
                       <th>Avg lap</th>
                       <th title="Standard deviation of the laps behind Avg lap - how much lap time actually varied, in seconds. Lower means more consistent.">
                         Var <span className="whatif-muted" style={{ cursor: "help" }}>ⓘ</span>
@@ -297,6 +296,7 @@ export default function WhatIfSubsession() {
                       </th>
                       <th>Gap</th>
                       <th>Laps used</th>
+                      <th>Time since the cutoff</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -309,33 +309,6 @@ export default function WhatIfSubsession() {
                         <td>
                           {r.driverName}
                           {r.custId === referenceDriver.custId && <span className="whatif-muted"> ★</span>}
-                        </td>
-                        <td>
-                          {r.status === "classified" && r.totalTimeMs !== null ? (
-                            <span className="whatif-mono">{formatMs(r.totalTimeMs)}</span>
-                          ) : (
-                            <span className="whatif-muted" title={statusLabel(r)}>
-                              {r.status === "dnf_before_cutoff" ? "DNF" : "No time"}
-                            </span>
-                          )}
-                          {r.partial && (
-                            <span
-                              className="whatif-error"
-                              title="Some laps in this range had no recorded time (invalidated/out laps) and were excluded from the total."
-                              style={{ marginLeft: 4, cursor: "help" }}
-                            >
-                              ⚠
-                            </span>
-                          )}
-                          {r.pitLapsEstimated > 0 && (
-                            <span
-                              className="whatif-muted"
-                              title={`${r.pitLapsEstimated} pit lap(s) in this range had their time replaced with this driver's average pace, so the pit stop itself doesn't inflate or shrink the total.`}
-                              style={{ marginLeft: 4, cursor: "help" }}
-                            >
-                              ≈
-                            </span>
-                          )}
                         </td>
                         <td className={r.nearReference ? undefined : "whatif-muted"}>
                           {r.avgLapMs !== null ? (
@@ -409,6 +382,33 @@ export default function WhatIfSubsession() {
                         </td>
                         <td className="whatif-muted">
                           {r.lapsUsed}/{r.lapsInRange}
+                        </td>
+                        <td>
+                          {r.status === "classified" && r.totalTimeMs !== null ? (
+                            <span className="whatif-mono">{formatMs(r.totalTimeMs)}</span>
+                          ) : (
+                            <span className="whatif-muted" title={statusLabel(r)}>
+                              {r.status === "dnf_before_cutoff" ? "DNF" : "No time"}
+                            </span>
+                          )}
+                          {r.partial && (
+                            <span
+                              className="whatif-error"
+                              title="Some laps in this range had no recorded time (invalidated/out laps) and were excluded from the total."
+                              style={{ marginLeft: 4, cursor: "help" }}
+                            >
+                              ⚠
+                            </span>
+                          )}
+                          {r.pitLapsEstimated > 0 && (
+                            <span
+                              className="whatif-muted"
+                              title={`${r.pitLapsEstimated} pit lap(s) in this range had their time replaced with this driver's average pace, so the pit stop itself doesn't inflate or shrink the total.`}
+                              style={{ marginLeft: 4, cursor: "help" }}
+                            >
+                              ≈
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))}
