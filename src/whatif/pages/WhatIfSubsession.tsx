@@ -9,6 +9,8 @@ type StandingRow = {
   status: "classified" | "no_timed_laps" | "dnf_before_cutoff";
   totalTimeMs: number | null;
   avgLapMs: number | null;
+  bestAdjustedLapMs: number | null;
+  cleanLapMs: number | null;
   gapMs: number | null;
   lapsDown: number;
   lapsUsed: number;
@@ -253,6 +255,10 @@ export default function WhatIfSubsession() {
                       <th>Driver</th>
                       <th>Time since the cutoff</th>
                       <th>Avg lap</th>
+                      <th title="Average of the fastest ~90% of counted laps, dropping the slowest outliers.">
+                        Best adj.
+                      </th>
+                      <th title="Average of laps with no recorded incident, off-track, or pit stop.">Clean pace</th>
                       <th>Gap</th>
                       <th>Laps used</th>
                     </tr>
@@ -305,6 +311,20 @@ export default function WhatIfSubsession() {
                             </span>
                           ) : (
                             "—"
+                          )}
+                        </td>
+                        <td className={r.nearReference ? undefined : "whatif-muted"}>
+                          {r.bestAdjustedLapMs !== null ? (
+                            <span className="whatif-mono">{formatMs(r.bestAdjustedLapMs)}</span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className={r.nearReference ? undefined : "whatif-muted"}>
+                          {r.cleanLapMs !== null ? (
+                            <span className="whatif-mono">{formatMs(r.cleanLapMs)}</span>
+                          ) : (
+                            <span title="No laps with no recorded incident/off-track (and no pit stop) in this window.">—</span>
                           )}
                         </td>
                         <td>
