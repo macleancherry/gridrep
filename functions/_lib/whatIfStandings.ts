@@ -3,34 +3,55 @@
  * (What If reuses Pace's pace_laps table - same subsession ingestion,
  * a different computed view of it).
  *
- * Recomputes finishing order as if the race had started at a given lap
- * number: each driver's classification time is the sum of their lap times
- * from that lap through the last lap they completed, ignoring everything
- * before it (early-race incidents, a first-lap pileup, etc. drop out of
- * the picture entirely).
+ * Recomputes finishing order as if the race had restarted at the exact
+ * real-world moment a chosen reference driver reached a given lap number -
+ * not at "everyone's own lap N". Those are not the same thing: a faster
+ * driver reaches lap N sooner in real time than a slower one does, so
+ * counting from "my own lap 36" for every driver compares windows of
+ * different real duration - the faster driver's window runs longer, so
+ * they rack up more laps in it for no reason other than getting there
+ * first, not for being faster *during* the window. (Confirmed against a
+ * real subsession: two drivers a couple seconds apart on pace reached
+ * "lap 36" over 4 minutes apart in real time, entirely because one pitted
+ * earlier - enough of a head start to fabricate a 2-lap "lead" that
+ * reversed once the cutoff was anchored to a single real moment instead.)
+ * So the cutoff is computed once, from the reference driver's own
+ * cumulative race time through the lap before the one entered, and every
+ * driver's window is "whichever of their own laps started at or after
+ * that same real moment" - not "lap number >= N".
  *
- * excludePitLaps: drivers don't pit on the same lap as each other, so a
- * fixed lap window catches some drivers' pit stops and not others' - a stop
- * that happens to fall inside the window makes that driver look artificially
- * slower than one whose stop fell just before it (or hasn't happened yet).
- * Simply dropping a caught pit lap outright would trade that bias for the
- * opposite one - whoever gets a lap dropped is now covering less distance
- * than everyone else, making their total look artificially *shorter*. So
- * instead, a caught pit lap's time is replaced with that driver's own
- * average clean-lap pace for the window: the anomalous pit-lane time drops
- * out, but everyone's total still spans the same number of laps.
+ * excludePitLaps: drivers don't pit at the same real moment as each other,
+ * so a shared time cutoff can still catch one driver's pit stop inside the
+ * window and not another's - a stop that happens to fall inside the window
+ * makes that driver look artificially slower than one whose stop fell just
+ * before it (or hasn't happened yet). Simply dropping a caught pit lap
+ * outright would trade that bias for the opposite one - whoever gets a lap
+ * dropped is now covering less distance than everyone else, making their
+ * total look artificially *shorter*. So instead, a caught pit lap's time is
+ * replaced with that driver's own average clean-lap pace for the window:
+ * the anomalous pit-lane time drops out, but everyone's total still spans
+ * the same number of laps.
  *
- * Laps completed vs. time: a driver who fell out of the race (or is simply
- * slower over a lot of laps) covers fewer laps in the window than someone
- * who ran the whole thing - and fewer laps almost always means a *smaller*
- * summed total time, which would wrongly rank them ahead of drivers who
- * actually went further. A raw total-time comparison is only valid between
- * drivers who covered the exact same distance (even a 1-lap difference
- * makes it invalid - that missing lap's worth of time, ~equal to a real
- * gap, is enough to flip the order). So classified drivers are ranked the
- * way real race results are: primarily by laps completed since the cutoff
- * (most laps first), and only use total time to break ties between drivers
- * on the same number of laps.
+ * Laps completed vs. time: even with a real-time-synchronized cutoff, a
+ * driver who fell out of the race still covers fewer laps in the window
+ * than someone who kept going - and fewer laps almost always means a
+ * *smaller* summed total time, which would wrongly rank them ahead of
+ * drivers who actually went further. A raw total-time comparison is only
+ * valid between drivers who covered the exact same distance (even a 1-lap
+ * difference makes it invalid - that missing lap's worth of time, ~equal to
+ * a real gap, is enough to flip the order). So classified drivers are
+ * ranked the way real race results are: primarily by laps completed since
+ * the cutoff (most laps first), and only use total time to break ties
+ * between drivers on the same number of laps.
+ *
+ * avgLapMs: "laps completed" is still a whole-number count of however many
+ * laps happened to fit in the window, so a driver whose own lap boundary
+ * landed just before the cutoff (banking an extra lap) can outrank someone
+ * genuinely just as fast, or faster, purely on that quantization - a
+ * position/laps-completed answer and a "who was actually quicker" answer
+ * aren't always the same question. avgLapMs (total time / laps used) is a
+ * continuous pace figure that isn't sensitive to that rounding, meant to be
+ * read as a second, complementary view - not a replacement for position.
  */
 
 export type WhatIfLap = {
@@ -51,12 +72,13 @@ export type WhatIfStandingRow = {
   position: number | null; // null = not classified (see status)
   status: "classified" | "no_timed_laps" | "dnf_before_cutoff";
   totalTimeMs: number | null;
+  avgLapMs: number | null; // totalTimeMs / lapsUsed - a pace view that isn't affected by how many whole laps happened to fit in the window
   gapMs: number | null; // to the leader; only set when this driver covered the exact same distance as the leader (see lapsDown)
   lapsDown: number; // 0 = same distance as whoever went furthest; 1+ = that many laps behind
-  lapsUsed: number; // laps counted from fromLap onward, timed or pit-substituted
-  lapsInRange: number; // laps present from fromLap onward, whether counted or not - also the distance metric behind lapsDown
+  lapsUsed: number; // laps counted from the cutoff onward, timed or pit-substituted
+  lapsInRange: number; // laps present from the cutoff onward, whether counted or not - also the distance metric behind lapsDown
   lastLapNumber: number | null; // last lap number this driver has any record of, at all
-  partial: boolean; // some laps from fromLap onward couldn't be counted or estimated
+  partial: boolean; // some laps from the cutoff onward couldn't be counted or estimated
   pitLapsEstimated: number; // pit laps whose time was replaced by estimated pace (0 unless excludePitLaps)
 };
 
@@ -69,9 +91,30 @@ function average(nums: number[]): number | undefined {
   return nums.reduce((sum, n) => sum + n, 0) / nums.length;
 }
 
+/**
+ * The reference driver's own cumulative race time through the end of the
+ * lap before `fromLap` - i.e. the real moment they started `fromLap`. Uses
+ * their actual recorded time (pit stops included) since this is meant to
+ * pin down a real historical instant in the race, not a hypothetical one.
+ * Returns null if they have no recorded lap at `fromLap` or later - the
+ * "what if" doesn't make sense anchored to a lap they themselves never
+ * reached.
+ */
+export function computeCutoffTimeMs(laps: WhatIfLap[], fromLap: number): number | null {
+  const sorted = [...laps].sort((a, b) => a.lapNumber - b.lapNumber);
+  if (!sorted.some((l) => l.lapNumber >= fromLap)) return null;
+
+  let cumulative = 0;
+  for (const lap of sorted) {
+    if (lap.lapNumber >= fromLap) break;
+    if (hasTime(lap)) cumulative += lap.lapTimeMs;
+  }
+  return cumulative;
+}
+
 export function computeWhatIfStandings(
   drivers: WhatIfDriverInput[],
-  fromLap: number,
+  cutoffTimeMs: number,
   options: { excludePitLaps?: boolean } = {}
 ): WhatIfStandingRow[] {
   const excludePitLaps = options.excludePitLaps ?? false;
@@ -81,11 +124,23 @@ export function computeWhatIfStandings(
   for (const d of drivers) {
     const sorted = [...d.laps].sort((a, b) => a.lapNumber - b.lapNumber);
     const lastLapNumber = sorted.length > 0 ? sorted[sorted.length - 1].lapNumber : null;
-    // Whether they reached the cutoff at all is about race distance, not
-    // about which of those laps end up counted - always judged against every
-    // lap on record, regardless of the pit-lap option below.
-    const reachedCutoff = sorted.some((l) => l.lapNumber >= fromLap);
-    const lapsInRange = sorted.filter((l) => l.lapNumber >= fromLap);
+
+    // Walk this driver's own laps in order, tracking their own cumulative
+    // elapsed time - a lap is "in range" once that running total (the real
+    // moment it started) has reached the shared cutoff. This is what makes
+    // every driver's window start at the same real moment in the race,
+    // regardless of how many laps each of them personally needed to get
+    // there.
+    let cumulative = 0;
+    let reachedCutoff = false;
+    const lapsInRange: WhatIfLap[] = [];
+    for (const lap of sorted) {
+      if (cumulative >= cutoffTimeMs) {
+        reachedCutoff = true;
+        lapsInRange.push(lap);
+      }
+      if (hasTime(lap)) cumulative += lap.lapTimeMs;
+    }
 
     let totalTimeMs = 0;
     let lapsUsed = 0;
@@ -126,6 +181,7 @@ export function computeWhatIfStandings(
     const base = {
       custId: d.custId,
       driverName: d.driverName,
+      avgLapMs: lapsUsed > 0 ? totalTimeMs / lapsUsed : null,
       lapsUsed,
       lapsInRange: lapsInRange.length,
       lastLapNumber,
