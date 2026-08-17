@@ -17,9 +17,9 @@ export default function WhatIfLayout({ children }: { children: ReactNode }) {
           <Link to="/what-if" className="whatif-brand">
             What If
           </Link>
-          <a href="/" className="whatif-back">
-            ← GridRep
-          </a>
+          <Link to="/what-if" className="whatif-back">
+            ← New search
+          </Link>
         </div>
 
         <div className="whatif-status">
