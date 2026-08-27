@@ -1,0 +1,26 @@
+name = "gridrep-discord-bot"
+main = "src/index.ts"
+compatibility_date = "2026-02-11"
+compatibility_flags = ["nodejs_compat"]
+
+# Same D1 database as the main GridRep app (../wrangler.toml) - the bot's
+# tables (bot_*, see migrations/0031_discord_bot.sql) live alongside the
+# web app's schema.
+[[d1_databases]]
+binding = "DB"
+database_name = "gridrep"
+database_id = "12061c47-4aa7-4e17-a6e5-6c02d9b26ff4"
+
+# Polls tracked drivers for new race results and posts announcements.
+[triggers]
+crons = ["*/2 * * * *"]
+
+# Secrets (set via `wrangler secret put <NAME>`, not committed here):
+#   DISCORD_PUBLIC_KEY      - from the Discord Developer Portal app page
+#   DISCORD_BOT_TOKEN       - bot token, used for posting announcements
+#   DISCORD_APPLICATION_ID  - used by registerCommands.ts
+#   IRACING_CLIENT_ID       - iRacing OAuth app client id (can reuse the
+#                             main app's, see ../wrangler.toml)
+#   IRACING_CLIENT_SECRET   - iRacing OAuth app client secret
+#   IRACING_REDIRECT_URI    - must match the redirect URI registered with
+#                             the iRacing OAuth app

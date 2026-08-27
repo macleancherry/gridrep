@@ -50,6 +50,8 @@ Sim racing already has “stick” mechanics (penalties, protests, bans). GridRe
 ├─ migrations/               # D1 migrations (schema)
 │  └─ 0001_init.sql … 0007_pace_subsession_complete.sql
 │
+├─ discord-bot/              # Self-hosted Discord bot (own Cloudflare Worker) - see discord-bot/README.md
+│
 ├─ wrangler.toml             # local dev + D1 config
 └─ package.json
 ```
@@ -307,6 +309,12 @@ If another service is going to talk to iRacing's `/data` API directly rather tha
 - **`lap_time` is in ten-thousandths of a second** (e.g. `1186863` → `118.6863s`), and `-1` is the sentinel for "no time" (out-laps, invalidated laps) — not a real negative time.
 - **A clean lap's `lap_events` array is *empty*, not absent.** It's a required field on every lap row; `[]` itself is the "nothing wrong with this lap" signal. Treating "no items in the array" as "no signal at all" (rather than "confirmed clean") silently drops every clean lap from any average.
 - **Cloudflare Workers cap subrequests per HTTP invocation** (~50 on this project's plan). A single lap-data pull, and each `/data/*` call within it, counts — a 60-driver field needs 120+ `lap_data` calls, which is why all bulk ingestion here is chunked into small resumable batches across multiple HTTP calls rather than done in one shot.
+
+---
+
+## Discord bot
+
+A self-hosted, all-features-unlocked clone of the iRacing Reports Discord bot lives in [`discord-bot/`](discord-bot/README.md) — race announcements, driver/team stats, lap-pace and field-strength analytics, and league tracking, deployed as its own Cloudflare Worker sharing this repo's D1 database (`migrations/0031_discord_bot.sql`).
 
 ---
 
