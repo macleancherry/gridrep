@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="Draft two forces of any size and species and watch an animated 3D battle resolve, round by round.">
+<meta name="description" content="Draft two forces of any size and species and watch the entire army charge into a swarming 3D battle.">
 <title>Battle Simulator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
@@ -587,9 +587,37 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
     const target = { x:0, y:1, z:0 };
     let radius = 16, azimuth = Math.PI/2, polar = 1.05;
     let dragging = false, lastX = 0, lastY = 0, lastInteract = 0;
-    let unitsA = [], unitsB = [];
+    let sideA = null, sideB = null;
+    let battleStartTime = 0;
     let floaters = [], particles = [], flags = [];
     const iconTexCache = new Map();
+    const CROWD_GEO_CACHE = {};
+    const MAX_INSTANCES = 6000;   // per side — beyond this, one figure stands in for several combatants
+    const FULL_DETAIL_LIMIT = 120; // at or below this, every unit gets the full jointed model
+    const HERO_COUNT = 24;         // detailed "standard bearer" units scattered through a large crowd
+    const CHARGE_MS = 1300;
+    const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+    function randomDiskPoint(r){
+      const a = Math.random()*Math.PI*2, rad = Math.sqrt(Math.random())*r;
+      return {x: Math.cos(a)*rad, z: Math.sin(a)*rad};
+    }
+
+    function getCrowdGeometry(type){
+      if(CROWD_GEO_CACHE[type]) return CROWD_GEO_CACHE[type];
+      let geo;
+      if(type === 'quadruped' || type === 'rex'){
+        geo = new THREE.CapsuleGeometry(0.15, 0.42, 3, 6);
+        geo.rotateZ(Math.PI/2);
+      } else if(type === 'swarm'){
+        geo = new THREE.SphereGeometry(0.15, 6, 5);
+      } else if(type === 'vehicle'){
+        geo = new THREE.BoxGeometry(0.42, 0.24, 0.3);
+      } else {
+        geo = new THREE.CapsuleGeometry(0.16, 0.4, 3, 6);
+      }
+      CROWD_GEO_CACHE[type] = geo;
+      return geo;
+    }
 
     function teamMat(side){
       return new THREE.MeshStandardMaterial({color: TEAM_COLOR[side], roughness:.55, metalness:.15});
@@ -1095,7 +1123,7 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
       return g;
     }
 
-    function makeUnit(side, stats){
+    function makeHeroUnit(side, stats){
       const scale = clamp(0.42 + Math.log10(stats.hp + 1) * 0.34, 0.42, 2.3);
       let g;
       if(stats.type === 'quadruped') g = buildQuadruped(scale, side, stats);
@@ -1111,78 +1139,152 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
       sprite.position.y = g.userData.topY + 0.16;
       g.add(sprite);
 
-      g.userData = {alive:true, dying:false, dieT:0, hitT:-9999, phase:Math.random()*Math.PI*2, bodyMat};
+      g.userData = {alive:true, dying:false, dieT:0, hitT:-9999, phase:Math.random()*Math.PI*2, bodyMat, home:{x:0,z:0}, target:{x:0,z:0}};
       return g;
     }
 
-    function layoutFormation(count){
-      const displayTokens = Math.min(36, count);
-      const perToken = Math.ceil(count / displayTokens);
-      const cols = Math.ceil(Math.sqrt(displayTokens));
-      const positions = [];
-      for(let i=0;i<displayTokens;i++){
-        const r = Math.floor(i/cols), c = i % cols;
-        positions.push({ lateral: (c - (cols-1)/2) * 0.85, depth: r * 0.85 });
+    // Builds one side's population: a grid of "home" start positions behind
+    // its banner, a handful of fully-jointed "hero" figures for flavor, and
+    // (for large armies) an InstancedMesh standing in for everyone else so
+    // the *entire* headcount can be on the field without melting the GPU.
+    function buildSide(side, force){
+      const count = force.count;
+      const displayCount = Math.min(MAX_INSTANCES, count);
+      const perToken = Math.ceil(count / displayCount);
+      const scale = clamp(0.42 + Math.log10(force.stats.hp + 1) * 0.34, 0.42, 2.3);
+      const heroCount = displayCount <= FULL_DETAIL_LIMIT ? displayCount : HERO_COUNT;
+      const crowdCount = displayCount - heroCount;
+
+      const spacing = clamp(0.85 - Math.log10(displayCount + 1) * 0.1, 0.4, 0.85);
+      const cols = Math.max(1, Math.ceil(Math.sqrt(displayCount)));
+      const dirX = side === 'a' ? -1 : 1;
+      const zoneDepth = 2.6;
+
+      const heroGroups = [];
+      for(let i=0;i<heroCount;i++){
+        const g = makeHeroUnit(side, force.stats);
+        const r = Math.floor(i / cols), c = i % cols;
+        const lateral = (c - (cols-1)/2) * spacing + (Math.random()-0.5) * spacing * 0.3;
+        const depth = r * spacing;
+        const hx = dirX * (zoneDepth + depth), hz = lateral;
+        g.position.set(hx, 0, hz);
+        g.rotation.y = dirX > 0 ? -Math.PI/2 : Math.PI/2;
+        g.userData.home = {x:hx, z:hz};
+        g.userData.target = {x:hx, z:hz};
+        scene.add(g);
+        heroGroups.push(g);
       }
-      return {displayTokens, perToken, positions};
+
+      let crowd = null;
+      if(crowdCount > 0){
+        const geo = getCrowdGeometry(force.stats.type);
+        const mat = teamMat(side);
+        const mesh = new THREE.InstancedMesh(geo, mat, crowdCount);
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        mesh.castShadow = false; mesh.receiveShadow = false;
+        scene.add(mesh);
+        const home = new Float32Array(crowdCount*2);
+        const targetArr = new Float32Array(crowdCount*2);
+        const wanderPhase = new Float32Array(crowdCount);
+        const alive = new Uint8Array(crowdCount).fill(1);
+        const dying = new Float32Array(crowdCount).fill(-1);
+        const dummy = new THREE.Object3D();
+        for(let i=0;i<crowdCount;i++){
+          const gi = heroCount + i;
+          const r = Math.floor(gi / cols), c = gi % cols;
+          const lateral = (c - (cols-1)/2) * spacing + (Math.random()-0.5) * spacing * 0.4;
+          const depth = r * spacing;
+          home[i*2] = dirX * (zoneDepth + depth);
+          home[i*2+1] = lateral;
+          wanderPhase[i] = Math.random()*Math.PI*2;
+          dummy.position.set(home[i*2], 0, home[i*2+1]);
+          dummy.scale.setScalar(scale);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(i, dummy.matrix);
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        crowd = {mesh, home, target: targetArr, wanderPhase, alive, dying, dummy, count: crowdCount, scale};
+      }
+
+      return {side, count, perToken, displayCount, heroCount, heroGroups, crowd, scale, dirX};
     }
 
-    function disposeUnit(u){
-      scene.remove(u);
-      u.traverse(o => {
-        if(o.geometry) o.geometry.dispose();
-        if(o.material) o.material.dispose();
+    function assignMeleeTargets(s, meleeR){
+      s.heroGroups.forEach(g => {
+        const p = randomDiskPoint(meleeR);
+        g.userData.target = {x:p.x, z:p.z};
       });
+      if(s.crowd){
+        const c = s.crowd;
+        for(let i=0;i<c.count;i++){
+          const p = randomDiskPoint(meleeR);
+          c.target[i*2] = p.x; c.target[i*2+1] = p.z;
+        }
+      }
+    }
+
+    function clearSide(s){
+      if(!s) return;
+      s.heroGroups.forEach(g => {
+        scene.remove(g);
+        g.traverse(o => { if(o.geometry) o.geometry.dispose(); if(o.material) o.material.dispose(); });
+      });
+      if(s.crowd){
+        scene.remove(s.crowd.mesh);
+        s.crowd.mesh.material.dispose(); // geometry is cached/shared — never dispose it here
+      }
     }
 
     function setupBattle(forceA, forceB){
-      unitsA.forEach(disposeUnit); unitsB.forEach(disposeUnit);
-      unitsA = []; unitsB = [];
+      clearSide(sideA); clearSide(sideB);
+      sideA = null; sideB = null;
       if(!ok) return {perTokenA:1, perTokenB:1};
-      const layoutA = layoutFormation(forceA.count);
-      const layoutB = layoutFormation(forceB.count);
-      const zoneDepth = 2.6;
-      layoutA.positions.forEach(p => {
-        const u = makeUnit('a', forceA.stats);
-        const jitter = (Math.random()-0.5)*0.22;
-        u.position.set(-(zoneDepth + p.depth), 0, p.lateral + jitter);
-        u.rotation.y = Math.PI/2 + (Math.random()-0.5)*0.3;
-        scene.add(u);
-        unitsA.push(u);
-      });
-      layoutB.positions.forEach(p => {
-        const u = makeUnit('b', forceB.stats);
-        const jitter = (Math.random()-0.5)*0.22;
-        u.position.set(zoneDepth + p.depth, 0, p.lateral + jitter);
-        u.rotation.y = -Math.PI/2 + (Math.random()-0.5)*0.3;
-        scene.add(u);
-        unitsB.push(u);
-      });
-      radius = clamp(10 + Math.max(layoutA.positions.length, layoutB.positions.length) * 0.18, 13, 24);
+      const sa = buildSide('a', forceA);
+      const sb = buildSide('b', forceB);
+      sideA = sa; sideB = sb;
+      const totalDisplay = sa.displayCount + sb.displayCount;
+      const meleeR = clamp(1.1 + Math.sqrt(totalDisplay) * 0.09, 3.5, 16);
+      assignMeleeTargets(sa, meleeR);
+      assignMeleeTargets(sb, meleeR);
+      sa.anchor = {x: -meleeR*0.55, z:0};
+      sb.anchor = {x: meleeR*0.55, z:0};
+      battleStartTime = performance.now();
+      radius = clamp(11 + Math.sqrt(totalDisplay) * 0.5, 13, 30);
       azimuth = Math.PI/2 + 0.5;
       polar = 1.05;
       resize();
-      return {perTokenA: layoutA.perToken, perTokenB: layoutB.perToken};
+      return {perTokenA: sa.perToken, perTokenB: sb.perToken};
     }
 
     function killTo(side, aliveTarget){
       if(!ok) return;
-      const list = side === 'a' ? unitsA : unitsB;
-      const alive = list.filter(u => u.userData.alive && !u.userData.dying);
-      let toKill = alive.length - aliveTarget;
-      while(toKill > 0 && alive.length){
-        const idx = Math.floor(Math.random()*alive.length);
-        const victim = alive.splice(idx,1)[0];
-        victim.userData.dying = true;
-        victim.userData.dieT = 0;
+      const s = side === 'a' ? sideA : sideB;
+      if(!s) return;
+      const aliveHeroes = s.heroGroups.filter(g => g.userData.alive && !g.userData.dying);
+      const aliveCrowdIdx = [];
+      if(s.crowd) for(let i=0;i<s.crowd.count;i++) if(s.crowd.alive[i] && s.crowd.dying[i] < 0) aliveCrowdIdx.push(i);
+      let toKill = aliveHeroes.length + aliveCrowdIdx.length - aliveTarget;
+      while(toKill > 0 && (aliveHeroes.length + aliveCrowdIdx.length) > 0){
+        const pickCrowd = aliveCrowdIdx.length > 0 &&
+          (aliveHeroes.length === 0 || Math.random() < aliveCrowdIdx.length / (aliveCrowdIdx.length + aliveHeroes.length));
+        if(pickCrowd){
+          const k = Math.floor(Math.random()*aliveCrowdIdx.length);
+          s.crowd.dying[aliveCrowdIdx.splice(k,1)[0]] = 0;
+        } else {
+          const k = Math.floor(Math.random()*aliveHeroes.length);
+          const victim = aliveHeroes.splice(k,1)[0];
+          victim.userData.dying = true;
+          victim.userData.dieT = 0;
+        }
         toKill--;
       }
     }
 
     function pulse(){
       if(!ok) return;
-      [unitsA, unitsB].forEach(list => {
-        const alive = list.filter(u => u.userData.alive && !u.userData.dying);
+      [sideA, sideB].forEach(s => {
+        if(!s) return;
+        const alive = s.heroGroups.filter(g => g.userData.alive && !g.userData.dying);
         const n = Math.min(4, alive.length);
         for(let i=0;i<n;i++) alive[Math.floor(Math.random()*alive.length)].userData.hitT = performance.now();
       });
@@ -1192,15 +1294,21 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
     function clash(){
       if(!ok) return;
       if(!sparkTex) sparkTex = makeSparkTexture();
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map: sparkTex, transparent:true, depthWrite:false}));
-      sprite.position.set((Math.random()-0.5)*1.2, 0.8 + Math.random()*0.6, (Math.random()-0.5)*2.2);
-      sprite.scale.set(0.2,0.2,1);
-      scene.add(sprite);
-      particles.push({sprite, t:0, dur:0.45});
+      const spread = Math.max(1.5, Math.min(radius*0.5, 10));
+      for(let i=0;i<2;i++){
+        const p = randomDiskPoint(spread);
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map: sparkTex, transparent:true, depthWrite:false}));
+        sprite.position.set(p.x, 0.5 + Math.random()*0.7, p.z);
+        sprite.scale.set(0.2,0.2,1);
+        scene.add(sprite);
+        particles.push({sprite, t:0, dur:0.45});
+      }
     }
 
     function damageNumber(side, text){
       if(!ok) return;
+      const s = side === 'a' ? sideA : sideB;
+      const anchor = (s && s.anchor) || {x: side==='a'?-3.4:3.4, z:0};
       const c = document.createElement('canvas');
       c.width = 160; c.height = 56;
       const ctx = c.getContext('2d');
@@ -1212,9 +1320,73 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
       const tex = new THREE.CanvasTexture(c);
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map: tex, transparent:true, depthWrite:false}));
       sprite.scale.set(2, 0.7, 1);
-      sprite.position.set(side === 'a' ? -3.4 : 3.4, 1.9, (Math.random()-0.5)*2);
+      sprite.position.set(anchor.x + (Math.random()-0.5)*2, 1.9, anchor.z + (Math.random()-0.5)*2);
       scene.add(sprite);
       floaters.push({sprite, tex, t:0, dur:1.1});
+    }
+
+    function updateHeroGroup(u, dt, now, chargeActive, chargeT){
+      const d = u.userData;
+      if(!d.alive) return;
+      if(d.dying){
+        d.dieT += dt;
+        const t = Math.min(1, d.dieT/0.6);
+        u.rotation.z = t * 1.4;
+        u.traverse(o => { if(o.material && 'opacity' in o.material){ o.material.transparent = true; o.material.opacity = 1 - t; }});
+        if(t >= 1){ u.visible = false; d.alive = false; d.dying = false; }
+        return;
+      }
+      if(chargeActive){
+        const te = easeOutCubic(chargeT);
+        u.position.x = d.home.x + (d.target.x - d.home.x) * te;
+        u.position.z = d.home.z + (d.target.z - d.home.z) * te;
+        u.position.y = Math.abs(Math.sin(chargeT*Math.PI*9)) * 0.09 * (1 - chargeT*0.5);
+      } else {
+        u.position.x = d.target.x + Math.sin(now*0.0009 + d.phase) * 0.18;
+        u.position.z = d.target.z + Math.cos(now*0.0011 + d.phase) * 0.18;
+        u.position.y = Math.sin(now*0.004 + d.phase) * 0.03;
+        const sinceHit = now - d.hitT;
+        if(sinceHit < 220){
+          const k = 1 - sinceHit/220;
+          d.bodyMat.emissive.setScalar(k*0.7);
+          u.scale.setScalar(1 + k*0.16);
+        } else if(u.scale.x !== 1){
+          d.bodyMat.emissive.setScalar(0);
+          u.scale.setScalar(1);
+        }
+      }
+    }
+
+    function updateCrowd(c, dt, now, chargeActive, chargeT){
+      if(!c) return;
+      const dummy = c.dummy;
+      for(let i=0;i<c.count;i++){
+        if(c.dying[i] >= 0){
+          c.dying[i] += dt;
+          const t = Math.min(1, c.dying[i]/0.5);
+          dummy.position.set(c.target[i*2], 0, c.target[i*2+1]);
+          dummy.scale.setScalar(Math.max(0.0001, c.scale*(1-t)));
+          dummy.updateMatrix();
+          c.mesh.setMatrixAt(i, dummy.matrix);
+          if(t >= 1){ c.alive[i] = 0; c.dying[i] = -1; }
+          continue;
+        }
+        if(!c.alive[i]) continue;
+        let px, pz;
+        if(chargeActive){
+          const te = easeOutCubic(chargeT);
+          px = c.home[i*2] + (c.target[i*2] - c.home[i*2]) * te;
+          pz = c.home[i*2+1] + (c.target[i*2+1] - c.home[i*2+1]) * te;
+        } else {
+          px = c.target[i*2] + Math.sin(now*0.0009 + c.wanderPhase[i]) * 0.16;
+          pz = c.target[i*2+1] + Math.cos(now*0.0011 + c.wanderPhase[i]) * 0.16;
+        }
+        dummy.position.set(px, 0, pz);
+        dummy.scale.setScalar(c.scale);
+        dummy.updateMatrix();
+        c.mesh.setMatrixAt(i, dummy.matrix);
+      }
+      c.mesh.instanceMatrix.needsUpdate = true;
     }
 
     function loop(){
@@ -1231,28 +1403,14 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
       );
       camera.lookAt(target.x, target.y, target.z);
 
-      unitsA.concat(unitsB).forEach(u => {
-        const d = u.userData;
-        if(!d.alive) return;
-        if(d.dying){
-          d.dieT += dt;
-          const t = Math.min(1, d.dieT/0.6);
-          u.rotation.z = t * 1.4;
-          u.position.y = -t * 0.3;
-          u.traverse(o => { if(o.material && 'opacity' in o.material){ o.material.transparent = true; o.material.opacity = 1 - t; }});
-          if(t >= 1){ u.visible = false; d.alive = false; d.dying = false; }
-        } else {
-          u.position.y = Math.sin(now*0.004 + d.phase) * 0.03;
-          const sinceHit = now - d.hitT;
-          if(sinceHit < 220){
-            const k = 1 - sinceHit/220;
-            d.bodyMat.emissive.setScalar(k*0.7);
-            u.scale.setScalar(1 + k*0.16);
-          } else if(u.scale.x !== 1){
-            d.bodyMat.emissive.setScalar(0);
-            u.scale.setScalar(1);
-          }
-        }
+      const chargeElapsed = now - battleStartTime;
+      const chargeActive = battleStartTime > 0 && chargeElapsed < CHARGE_MS;
+      const chargeT = clamp(chargeElapsed / CHARGE_MS, 0, 1);
+
+      [sideA, sideB].forEach(s => {
+        if(!s) return;
+        s.heroGroups.forEach(u => updateHeroGroup(u, dt, now, chargeActive, chargeT));
+        updateCrowd(s.crowd, dt, now, chargeActive, chargeT);
       });
 
       flags.forEach(flag => {
@@ -1286,7 +1444,7 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
       renderer.render(scene, camera);
     }
 
-    return {init, setupBattle, killTo, pulse, clash, damageNumber, resize};
+    return {init, setupBattle, killTo, pulse, clash, damageNumber, resize, CHARGE_MS};
   })();
 
   /* ---------------- UI wiring ---------------- */
@@ -1371,7 +1529,7 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
     battleScreen.hidden = false;
     overlay.hidden = true;
     logEl.innerHTML = '';
-    $('round-badge').textContent = 'ROUND 0';
+    $('round-badge').textContent = 'CHARGING';
     setForceStats('a', forceA);
     setForceStats('b', forceB);
 
@@ -1382,7 +1540,7 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
       noteA.textContent = `Formations shown at scale — each figure represents up to ${fmt(Math.max(perTokenA,perTokenB))} combatants.`;
     } else noteA.style.display = 'none';
 
-    logLine(`<span class="rn">R0</span> <span class="a">${forceA.name}</span> (${fmt(forceA.count)}) squares off against <span class="b">${forceB.name}</span> (${fmt(forceB.count)}).`);
+    logLine(`<span class="rn">R0</span> <span class="a">${forceA.name}</span> (${fmt(forceA.count)}) and <span class="b">${forceB.name}</span> (${fmt(forceB.count)}) charge into the melee.`);
 
     // Build a smooth frame list so even a battle the math settles in one or
     // two rounds still plays out as a visible skirmish rather than a jump-cut.
@@ -1433,7 +1591,7 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
       playbackTimer = setTimeout(playFrame, f.isFinal ? 300 : 75);
     }
     clearTimeout(playbackTimer);
-    playbackTimer = setTimeout(playFrame, 300);
+    playbackTimer = setTimeout(playFrame, Battle3D.CHARGE_MS + 150);
   }
 
   function finishBattle(){
