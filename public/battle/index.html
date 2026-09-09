@@ -394,50 +394,52 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
   }
 
   /* ---------------- stat & icon knowledge base ---------------- */
+  // type: silhouette used by the 3D renderer. weapon: carries a melee prop.
+  // wings: gets a pair of wings. shield: carries a round shield.
   const KNOWN = [
-    {k:['t-rex','trex','tyrannosaurus'], icon:'🦖', hp:600, atk:90, def:50, spd:5},
-    {k:['dragon'], icon:'🐉', hp:2500, atk:180, def:120, spd:6},
-    {k:['harry potter','wizard','witch','mage','sorcerer','hogwarts'], icon:'🧙', hp:12, atk:16, def:4, spd:7},
-    {k:['gladiator'], icon:'🗡️', hp:28, atk:14, def:11, spd:6},
-    {k:['knight'], icon:'🛡️', hp:22, atk:11, def:15, spd:4},
-    {k:['spartan'], icon:'🛡️', hp:26, atk:14, def:14, spd:6},
-    {k:['samurai'], icon:'🗡️', hp:20, atk:15, def:12, spd:8},
-    {k:['ninja'], icon:'🥷', hp:14, atk:20, def:5, spd:13},
-    {k:['viking'], icon:'🪓', hp:24, atk:16, def:10, spd:6},
-    {k:['pirate'], icon:'🏴‍☠️', hp:18, atk:13, def:7, spd:6},
-    {k:['zombie'], icon:'🧟', hp:16, atk:6, def:2, spd:2},
-    {k:['vampire'], icon:'🧛', hp:35, atk:26, def:14, spd:11},
-    {k:['werewolf'], icon:'🐺', hp:45, atk:30, def:17, spd:10},
-    {k:['skeleton'], icon:'💀', hp:8, atk:8, def:5, spd:4},
-    {k:['ghost','spirit','phantom'], icon:'👻', hp:10, atk:14, def:22, spd:10},
-    {k:['alien'], icon:'👽', hp:40, atk:34, def:20, spd:8},
-    {k:['robot','android','cyborg'], icon:'🤖', hp:110, atk:32, def:55, spd:5},
-    {k:['tank'], icon:'🚙', hp:350, atk:110, def:160, spd:2},
-    {k:['soldier','infantry','trooper'], icon:'🪖', hp:12, atk:8, def:6, spd:6},
-    {k:['ant'], icon:'🐜', hp:1, atk:1, def:.5, spd:8},
-    {k:['bee','wasp'], icon:'🐝', hp:1, atk:2, def:.5, spd:9},
-    {k:['spider'], icon:'🕷️', hp:3, atk:4, def:1, spd:7},
-    {k:['snake'], icon:'🐍', hp:6, atk:9, def:2, spd:6},
-    {k:['wolf'], icon:'🐺', hp:20, atk:18, def:8, spd:10},
-    {k:['lion','tiger'], icon:'🦁', hp:65, atk:36, def:16, spd:9},
-    {k:['bear'], icon:'🐻', hp:85, atk:32, def:22, spd:6},
-    {k:['shark'], icon:'🦈', hp:75, atk:42, def:16, spd:7},
-    {k:['gorilla'], icon:'🦍', hp:95, atk:38, def:26, spd:6},
-    {k:['elephant'], icon:'🐘', hp:220, atk:42, def:32, spd:3},
-    {k:['rhino'], icon:'🦏', hp:180, atk:45, def:40, spd:4},
-    {k:['horse'], icon:'🐴', hp:32, atk:11, def:10, spd:11},
-    {k:['crocodile','alligator'], icon:'🐊', hp:90, atk:38, def:35, spd:3},
-    {k:['dinosaur','dino'], icon:'🦕', hp:400, atk:70, def:45, spd:4},
-    {k:['dog'], icon:'🐕', hp:9, atk:6, def:3, spd:8},
-    {k:['cat'], icon:'🐈', hp:4, atk:3, def:2, spd:9},
-    {k:['penguin'], icon:'🐧', hp:6, atk:2, def:3, spd:4},
-    {k:['god','deity','titan'], icon:'⚡', hp:6000, atk:600, def:450, spd:10},
-    {k:['angel'], icon:'😇', hp:900, atk:220, def:180, spd:9},
-    {k:['demon','devil'], icon:'😈', hp:950, atk:260, def:170, spd:8},
-    {k:['stormtrooper','clone trooper'], icon:'🪖', hp:10, atk:9, def:6, spd:6},
-    {k:['jedi'], icon:'🗡️', hp:30, atk:28, def:12, spd:11},
-    {k:['superhero','superman'], icon:'🦸', hp:2000, atk:300, def:250, spd:14},
-    {k:['human','person','man','woman','villager'], icon:'🧍', hp:10, atk:5, def:3, spd:5},
+    {k:['t-rex','trex','tyrannosaurus'], icon:'🦖', hp:600, atk:90, def:50, spd:5, type:'rex'},
+    {k:['dragon'], icon:'🐉', hp:2500, atk:180, def:120, spd:6, type:'quadruped', wings:true},
+    {k:['harry potter','wizard','witch','mage','sorcerer','hogwarts'], icon:'🧙', hp:12, atk:16, def:4, spd:7, type:'biped', weapon:'staff'},
+    {k:['gladiator'], icon:'🗡️', hp:28, atk:14, def:11, spd:6, type:'biped', weapon:'sword', shield:true},
+    {k:['knight'], icon:'🛡️', hp:22, atk:11, def:15, spd:4, type:'biped', weapon:'sword', shield:true},
+    {k:['spartan'], icon:'🛡️', hp:26, atk:14, def:14, spd:6, type:'biped', weapon:'spear', shield:true},
+    {k:['samurai'], icon:'🗡️', hp:20, atk:15, def:12, spd:8, type:'biped', weapon:'sword'},
+    {k:['ninja'], icon:'🥷', hp:14, atk:20, def:5, spd:13, type:'biped', weapon:'dagger'},
+    {k:['viking'], icon:'🪓', hp:24, atk:16, def:10, spd:6, type:'biped', weapon:'axe', shield:true},
+    {k:['pirate'], icon:'🏴‍☠️', hp:18, atk:13, def:7, spd:6, type:'biped', weapon:'sword'},
+    {k:['zombie'], icon:'🧟', hp:16, atk:6, def:2, spd:2, type:'biped'},
+    {k:['vampire'], icon:'🧛', hp:35, atk:26, def:14, spd:11, type:'biped'},
+    {k:['werewolf'], icon:'🐺', hp:45, atk:30, def:17, spd:10, type:'quadruped'},
+    {k:['skeleton'], icon:'💀', hp:8, atk:8, def:5, spd:4, type:'biped', weapon:'sword'},
+    {k:['ghost','spirit','phantom'], icon:'👻', hp:10, atk:14, def:22, spd:10, type:'biped'},
+    {k:['alien'], icon:'👽', hp:40, atk:34, def:20, spd:8, type:'biped'},
+    {k:['robot','android','cyborg'], icon:'🤖', hp:110, atk:32, def:55, spd:5, type:'vehicle'},
+    {k:['tank'], icon:'🚙', hp:350, atk:110, def:160, spd:2, type:'vehicle'},
+    {k:['soldier','infantry','trooper'], icon:'🪖', hp:12, atk:8, def:6, spd:6, type:'biped', weapon:'rifle'},
+    {k:['ant'], icon:'🐜', hp:1, atk:1, def:.5, spd:8, type:'swarm'},
+    {k:['bee','wasp'], icon:'🐝', hp:1, atk:2, def:.5, spd:9, type:'swarm', wings:true},
+    {k:['spider'], icon:'🕷️', hp:3, atk:4, def:1, spd:7, type:'swarm'},
+    {k:['snake'], icon:'🐍', hp:6, atk:9, def:2, spd:6, type:'swarm'},
+    {k:['wolf'], icon:'🐺', hp:20, atk:18, def:8, spd:10, type:'quadruped'},
+    {k:['lion','tiger'], icon:'🦁', hp:65, atk:36, def:16, spd:9, type:'quadruped'},
+    {k:['bear'], icon:'🐻', hp:85, atk:32, def:22, spd:6, type:'quadruped'},
+    {k:['shark'], icon:'🦈', hp:75, atk:42, def:16, spd:7, type:'quadruped'},
+    {k:['gorilla'], icon:'🦍', hp:95, atk:38, def:26, spd:6, type:'biped'},
+    {k:['elephant'], icon:'🐘', hp:220, atk:42, def:32, spd:3, type:'quadruped'},
+    {k:['rhino'], icon:'🦏', hp:180, atk:45, def:40, spd:4, type:'quadruped'},
+    {k:['horse'], icon:'🐴', hp:32, atk:11, def:10, spd:11, type:'quadruped'},
+    {k:['crocodile','alligator'], icon:'🐊', hp:90, atk:38, def:35, spd:3, type:'quadruped'},
+    {k:['dinosaur','dino'], icon:'🦕', hp:400, atk:70, def:45, spd:4, type:'quadruped'},
+    {k:['dog'], icon:'🐕', hp:9, atk:6, def:3, spd:8, type:'quadruped'},
+    {k:['cat'], icon:'🐈', hp:4, atk:3, def:2, spd:9, type:'quadruped'},
+    {k:['penguin'], icon:'🐧', hp:6, atk:2, def:3, spd:4, type:'biped'},
+    {k:['god','deity','titan'], icon:'⚡', hp:6000, atk:600, def:450, spd:10, type:'biped', wings:true, weapon:'staff'},
+    {k:['angel'], icon:'😇', hp:900, atk:220, def:180, spd:9, type:'biped', wings:true, weapon:'sword'},
+    {k:['demon','devil'], icon:'😈', hp:950, atk:260, def:170, spd:8, type:'biped', wings:true, weapon:'sword'},
+    {k:['stormtrooper','clone trooper'], icon:'🪖', hp:10, atk:9, def:6, spd:6, type:'biped', weapon:'rifle'},
+    {k:['jedi'], icon:'🗡️', hp:30, atk:28, def:12, spd:11, type:'biped', weapon:'sword'},
+    {k:['superhero','superman'], icon:'🦸', hp:2000, atk:300, def:250, spd:14, type:'biped'},
+    {k:['human','person','man','woman','villager'], icon:'🧍', hp:10, atk:5, def:3, spd:5, type:'biped'},
   ];
 
   const MODIFIERS = [
@@ -455,6 +457,8 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
   ];
 
   const FALLBACK_ICONS = ['🧍','🦹','🧝','🧌','👹','🎭','🐾'];
+  const FALLBACK_TYPES = ['biped','biped','biped','quadruped','swarm'];
+  const FALLBACK_WEAPONS = [null, 'sword', 'staff', 'axe', 'dagger'];
 
   function hashSeed(str){
     let h = 2166136261;
@@ -476,9 +480,10 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
     for(const entry of KNOWN){
       if(entry.k.some(key => low.includes(key))){ base = entry; break; }
     }
-    let hp, atk, def, spd, icon;
+    let hp, atk, def, spd, icon, type, wings, weapon, shield;
     if(base){
-      ({hp,atk,def,spd,icon} = base);
+      ({hp,atk,def,spd,icon,type} = base);
+      wings = !!base.wings; weapon = base.weapon || null; shield = !!base.shield;
     } else {
       const rnd = mulberry32(hashSeed(low));
       hp  = 8 + rnd()*22;
@@ -486,6 +491,10 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
       def = 1 + rnd()*7;
       spd = 3 + rnd()*7;
       icon = FALLBACK_ICONS[Math.floor(rnd()*FALLBACK_ICONS.length)];
+      type = FALLBACK_TYPES[Math.floor(rnd()*FALLBACK_TYPES.length)];
+      weapon = type === 'biped' ? FALLBACK_WEAPONS[Math.floor(rnd()*FALLBACK_WEAPONS.length)] : null;
+      wings = rnd() < 0.12;
+      shield = type === 'biped' && rnd() < 0.25;
     }
     for(const mod of MODIFIERS){
       if(mod.k.some(key => low.includes(key))){
@@ -495,44 +504,58 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
         if(mod.m.spd) spd *= mod.m.spd;
       }
     }
+    if(/wing|flying|winged/.test(low)) wings = true;
     hp = Math.max(1, hp); atk = Math.max(1, atk); def = Math.max(0, def); spd = Math.max(1, spd);
-    return {hp,atk,def,spd,icon};
+    return {hp,atk,def,spd,icon,type,wings,weapon,shield};
   }
 
   /* ---------------- battle simulation ---------------- */
-  const MAX_ROUNDS = 40;
+  const MAX_ROUNDS = 60;
+  // A single defender still falls in one alpha strike (a lone gladiator has
+  // no business surviving 1000 attackers), but once a side has more than one
+  // unit left, a round can only take out ROUND_CAP of its current pool — so
+  // real armies grind each other down over many rounds instead of vanishing
+  // in one hit. DEATH_FRAC keeps a last straggler from lingering forever at
+  // near-zero health.
+  const ROUND_CAP = 0.32;
+  const DEATH_FRAC = 0.12;
   function simulate(a, b){
     let aHP = a.count * a.stats.hp, bHP = b.count * b.stats.hp;
     const aTotalHP = aHP, bTotalHP = bHP;
     let aAlive = a.count, bAlive = b.count;
+    const deathA = a.stats.hp * DEATH_FRAC, deathB = b.stats.hp * DEATH_FRAC;
     const rounds = [];
     let round = 0;
+    const resolve = (hp, deathThresh, stats, cap) =>
+      hp <= 0 ? 0 : (hp < deathThresh ? 0 : Math.max(1, Math.ceil(hp / stats.hp)));
     while(aAlive > 0 && bAlive > 0 && round < MAX_ROUNDS){
       round++;
       const aFirst = (a.stats.spd + Math.random()*4) >= (b.stats.spd + Math.random()*4);
-      const dmg = (attCount, att, defUnit) => {
+      const dmg = (attCount, att, defUnit, defHP, defAlive) => {
         const variance = .8 + Math.random()*.4;
         const per = Math.max(.5, att.atk - defUnit.def*.35);
-        return attCount * per * variance;
+        let raw = attCount * per * variance;
+        if(defAlive > 1) raw = Math.min(raw, defHP * ROUND_CAP);
+        return raw;
       };
       let dmgAtoB = 0, dmgBtoA = 0;
       if(aFirst){
-        dmgAtoB = dmg(aAlive, a.stats, b.stats);
+        dmgAtoB = dmg(aAlive, a.stats, b.stats, bHP, bAlive);
         bHP = Math.max(0, bHP - dmgAtoB);
-        bAlive = bHP <= 0 ? 0 : Math.max(1, Math.ceil(bHP / b.stats.hp));
+        bAlive = resolve(bHP, deathB, b.stats);
         if(bAlive > 0){
-          dmgBtoA = dmg(bAlive, b.stats, a.stats);
+          dmgBtoA = dmg(bAlive, b.stats, a.stats, aHP, aAlive);
           aHP = Math.max(0, aHP - dmgBtoA);
-          aAlive = aHP <= 0 ? 0 : Math.max(1, Math.ceil(aHP / a.stats.hp));
+          aAlive = resolve(aHP, deathA, a.stats);
         }
       } else {
-        dmgBtoA = dmg(bAlive, b.stats, a.stats);
+        dmgBtoA = dmg(bAlive, b.stats, a.stats, aHP, aAlive);
         aHP = Math.max(0, aHP - dmgBtoA);
-        aAlive = aHP <= 0 ? 0 : Math.max(1, Math.ceil(aHP / a.stats.hp));
+        aAlive = resolve(aHP, deathA, a.stats);
         if(aAlive > 0){
-          dmgAtoB = dmg(aAlive, a.stats, b.stats);
+          dmgAtoB = dmg(aAlive, a.stats, b.stats, bHP, bAlive);
           bHP = Math.max(0, bHP - dmgAtoB);
-          bAlive = bHP <= 0 ? 0 : Math.max(1, Math.ceil(bHP / b.stats.hp));
+          bAlive = resolve(bHP, deathB, b.stats);
         }
       }
       aAlive = Math.min(aAlive, a.count);
@@ -562,42 +585,71 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
 
     let ok = false, canvas, renderer, scene, camera, clock;
     const target = { x:0, y:1, z:0 };
-    let radius = 15, azimuth = Math.PI/2, polar = 1.0;
+    let radius = 16, azimuth = Math.PI/2, polar = 1.05;
     let dragging = false, lastX = 0, lastY = 0, lastInteract = 0;
     let unitsA = [], unitsB = [];
-    let floaters = [], particles = [];
+    let floaters = [], particles = [], flags = [];
     const iconTexCache = new Map();
+
+    function teamMat(side){
+      return new THREE.MeshStandardMaterial({color: TEAM_COLOR[side], roughness:.55, metalness:.15});
+    }
 
     function getIconTexture(icon){
       if(iconTexCache.has(icon)) return iconTexCache.get(icon);
       const c = document.createElement('canvas');
-      c.width = c.height = 64;
+      c.width = c.height = 128;
       const ctx = c.getContext('2d');
-      ctx.font = '46px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+      ctx.font = '92px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(icon, 32, 36);
+      ctx.fillText(icon, 64, 70);
       const tex = new THREE.CanvasTexture(c);
       iconTexCache.set(icon, tex);
       return tex;
     }
 
+    // ---- environment textures ----
     function buildGroundTexture(){
       const c = document.createElement('canvas');
-      c.width = c.height = 256;
+      c.width = c.height = 512;
       const ctx = c.getContext('2d');
-      ctx.fillStyle = '#2a2620';
-      ctx.fillRect(0,0,256,256);
-      ctx.strokeStyle = 'rgba(201,131,79,.16)';
-      ctx.lineWidth = 2;
-      for(let i=0;i<=256;i+=32){
-        ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,256); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(256,i); ctx.stroke();
+      const base = ctx.createLinearGradient(0,0,0,512);
+      base.addColorStop(0,'#455233'); base.addColorStop(1,'#39331f');
+      ctx.fillStyle = base; ctx.fillRect(0,0,512,512);
+      const tones = ['rgba(76,92,48,.4)','rgba(52,62,34,.35)','rgba(100,80,50,.22)','rgba(120,104,70,.18)','rgba(35,42,24,.3)'];
+      for(let i=0;i<340;i++){
+        const x=Math.random()*512, y=Math.random()*512, r=6+Math.random()*34;
+        ctx.fillStyle = tones[(Math.random()*tones.length)|0];
+        ctx.beginPath(); ctx.ellipse(x,y,r,r*0.55,Math.random()*Math.PI,0,Math.PI*2); ctx.fill();
+      }
+      for(let i=0;i<1400;i++){
+        const x=Math.random()*512, y=Math.random()*512;
+        ctx.fillStyle = Math.random()<0.5 ? 'rgba(255,255,255,.035)' : 'rgba(0,0,0,.07)';
+        ctx.fillRect(x,y,1.4,1.4);
       }
       const tex = new THREE.CanvasTexture(c);
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-      tex.repeat.set(7,5);
+      tex.repeat.set(9,7);
+      tex.anisotropy = 4;
       return tex;
+    }
+
+    function buildPathTexture(){
+      const c = document.createElement('canvas');
+      c.width = 96; c.height = 512;
+      const ctx = c.getContext('2d');
+      const grad = ctx.createLinearGradient(0,0,96,0);
+      grad.addColorStop(0,'rgba(126,101,63,0)');
+      grad.addColorStop(.5,'rgba(140,113,70,.6)');
+      grad.addColorStop(1,'rgba(126,101,63,0)');
+      ctx.fillStyle = grad; ctx.fillRect(0,0,96,512);
+      for(let i=0;i<160;i++){
+        ctx.fillStyle = Math.random()<0.5 ? 'rgba(90,70,45,.3)' : 'rgba(170,150,110,.22)';
+        const x=28+Math.random()*40, y=Math.random()*512, r=3+Math.random()*7;
+        ctx.beginPath(); ctx.ellipse(x,y,r,r*0.5,0,0,Math.PI*2); ctx.fill();
+      }
+      return new THREE.CanvasTexture(c);
     }
 
     function makeSparkTexture(){
@@ -611,6 +663,88 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
       ctx.fillStyle = g;
       ctx.fillRect(0,0,64,64);
       return new THREE.CanvasTexture(c);
+    }
+
+    function buildSkyDome(){
+      const geo = new THREE.SphereGeometry(120, 24, 16);
+      const mat = new THREE.ShaderMaterial({
+        uniforms: {
+          topColor: {value: new THREE.Color(0x151a35)},
+          bottomColor: {value: new THREE.Color(0xd08a4f)},
+          offset: {value: 10},
+          exponent: {value: 0.75}
+        },
+        vertexShader: `varying vec3 vWorldPosition;
+          void main(){
+            vec4 wp = modelMatrix * vec4(position, 1.0);
+            vWorldPosition = wp.xyz;
+            gl_Position = projectionMatrix * viewMatrix * wp;
+          }`,
+        fragmentShader: `uniform vec3 topColor; uniform vec3 bottomColor; uniform float offset; uniform float exponent;
+          varying vec3 vWorldPosition;
+          void main(){
+            float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y;
+            gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+          }`,
+        side: THREE.BackSide,
+        depthWrite: false
+      });
+      return new THREE.Mesh(geo, mat);
+    }
+
+    function buildGroundGeometry(){
+      const geo = new THREE.PlaneGeometry(70, 46, 56, 36);
+      const pos = geo.attributes.position;
+      for(let i=0;i<pos.count;i++){
+        const x = pos.getX(i), y = pos.getY(i);
+        const edge = clamp((Math.max(Math.abs(x), Math.abs(y)) - 9) / 14, 0, 1);
+        const n = (Math.sin(x*0.35)+Math.cos(y*0.28)+Math.sin((x+y)*0.15))*0.22;
+        pos.setZ(i, n * edge * edge);
+      }
+      geo.computeVertexNormals();
+      return geo;
+    }
+
+    function addRock(x, z, scale){
+      const rock = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(scale, 0),
+        new THREE.MeshStandardMaterial({color:0x5b564c, roughness:1, flatShading:true})
+      );
+      rock.position.set(x, scale*0.4, z);
+      rock.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, 0);
+      rock.castShadow = true; rock.receiveShadow = true;
+      scene.add(rock);
+    }
+
+    function addDeadTree(x, z, scale){
+      const g = new THREE.Group();
+      const trunkMat = new THREE.MeshStandardMaterial({color:0x3a2f24, roughness:1});
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05*scale, 0.09*scale, 1.4*scale, 6), trunkMat);
+      trunk.position.y = 0.7*scale; trunk.castShadow = true;
+      g.add(trunk);
+      for(let i=0;i<3;i++){
+        const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.02*scale, 0.03*scale, 0.6*scale, 5), trunkMat);
+        branch.position.set(0, 1.05*scale + i*0.16*scale, 0);
+        branch.rotation.z = (i-1)*0.85 + 0.3;
+        branch.castShadow = true;
+        g.add(branch);
+      }
+      g.position.set(x, 0, z);
+      scene.add(g);
+    }
+
+    function addBanner(x, side){
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,3.2,6), new THREE.MeshStandardMaterial({color:0x5b4a36, roughness:.8}));
+      pole.position.set(x, 1.6, 0);
+      pole.castShadow = true;
+      scene.add(pole);
+      const flag = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.1, 0.7, 7, 5),
+        new THREE.MeshStandardMaterial({color: TEAM_COLOR[side], roughness:.6, side:THREE.DoubleSide})
+      );
+      flag.position.set(x + (x < 0 ? 0.6 : -0.6), 2.65, 0);
+      scene.add(flag);
+      flags.push(flag);
     }
 
     function resize(){
@@ -635,7 +769,7 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
     function onUp(){ dragging = false; }
     function onWheel(e){
       e.preventDefault();
-      radius = clamp(radius + e.deltaY * 0.012, 8, 26);
+      radius = clamp(radius + e.deltaY * 0.012, 8, 28);
       lastInteract = performance.now();
     }
 
@@ -645,31 +779,68 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
         renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
       } catch(e){ ok = false; return false; }
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       scene = new THREE.Scene();
-      scene.fog = new THREE.Fog(0x3a2f4d, 15, 32);
-      camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+      scene.fog = new THREE.Fog(0x7a5a3f, 16, 40);
+      camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
 
-      scene.add(new THREE.AmbientLight(0x8fa0c8, 0.6));
-      const sun = new THREE.DirectionalLight(0xffb37a, 1.15);
-      sun.position.set(-9, 13, 7);
+      scene.add(buildSkyDome());
+      scene.add(new THREE.AmbientLight(0x8fa0c8, 0.55));
+      scene.add(new THREE.HemisphereLight(0xbdd0ff, 0x3a2f1f, 0.4));
+
+      const sun = new THREE.DirectionalLight(0xffb37a, 1.35);
+      sun.position.set(-10, 15, 8);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(1024, 1024);
+      sun.shadow.camera.left = -16; sun.shadow.camera.right = 16;
+      sun.shadow.camera.top = 16; sun.shadow.camera.bottom = -16;
+      sun.shadow.camera.near = 1; sun.shadow.camera.far = 40;
+      sun.shadow.bias = -0.002;
       scene.add(sun);
-      const rim = new THREE.DirectionalLight(0x5a7fff, 0.35);
+      const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({map: makeSparkTexture(), color:0xffddaa, transparent:true, depthWrite:false, fog:false}));
+      sunGlow.position.copy(sun.position).multiplyScalar(4.2);
+      sunGlow.scale.set(14,14,1);
+      scene.add(sunGlow);
+
+      const rim = new THREE.DirectionalLight(0x5a7fff, 0.3);
       rim.position.set(9, 6, -10);
       scene.add(rim);
 
       const ground = new THREE.Mesh(
-        new THREE.PlaneGeometry(50, 30),
+        buildGroundGeometry(),
         new THREE.MeshStandardMaterial({map: buildGroundTexture(), roughness:1})
       );
       ground.rotation.x = -Math.PI/2;
+      ground.receiveShadow = true;
       scene.add(ground);
 
+      const path = new THREE.Mesh(
+        new THREE.PlaneGeometry(4, 26),
+        new THREE.MeshStandardMaterial({map: buildPathTexture(), transparent:true, roughness:1, depthWrite:false})
+      );
+      path.rotation.x = -Math.PI/2;
+      path.position.y = 0.012;
+      path.receiveShadow = true;
+      scene.add(path);
+
       const lineGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, 0.02, -11), new THREE.Vector3(0, 0.02, 11)
+        new THREE.Vector3(0, 0.03, -11), new THREE.Vector3(0, 0.03, 11)
       ]);
       const line = new THREE.Line(lineGeo, new THREE.LineDashedMaterial({color:0xe8c468, dashSize:.4, gapSize:.3, transparent:true, opacity:.5}));
       line.computeLineDistances();
       scene.add(line);
+
+      addBanner(-9.5, 'a');
+      addBanner(9.5, 'b');
+      for(let i=0;i<12;i++){
+        const ang = Math.random()*Math.PI*2, r = 12 + Math.random()*14;
+        addRock(Math.cos(ang)*r, Math.sin(ang)*r, 0.25 + Math.random()*0.5);
+      }
+      for(let i=0;i<6;i++){
+        const ang = Math.random()*Math.PI*2, r = 14 + Math.random()*12;
+        addDeadTree(Math.cos(ang)*r, Math.sin(ang)*r, 0.8 + Math.random()*0.7);
+      }
 
       canvas.addEventListener('pointerdown', onDown);
       window.addEventListener('pointermove', onMove);
@@ -685,27 +856,263 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
       return true;
     }
 
-    function makeUnit(side, stats, icon){
-      const group = new THREE.Group();
+    // ---- character builders ----
+    const METAL = () => new THREE.MeshStandardMaterial({color:0xd7dbe0, metalness:.6, roughness:.35});
+    const DARKWOOD = () => new THREE.MeshStandardMaterial({color:0x2b2621, roughness:.7});
+    const SKIN = () => new THREE.MeshStandardMaterial({color:0xf1ead9, roughness:.8});
+
+    function addWeapon(g, weapon, scale, side, hx, hy){
+      const grp = new THREE.Group();
+      grp.position.set(hx, hy, 0.05*scale);
+      const accent = new THREE.MeshStandardMaterial({color: TEAM_COLOR[side], emissive: TEAM_COLOR[side], emissiveIntensity:.5, roughness:.4});
+      if(weapon === 'sword'){
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.035*scale,0.5*scale,0.02*scale), METAL());
+        blade.position.y = 0.28*scale; grp.add(blade);
+        const hilt = new THREE.Mesh(new THREE.BoxGeometry(0.07*scale,0.09*scale,0.03*scale), DARKWOOD());
+        grp.add(hilt);
+      } else if(weapon === 'axe'){
+        const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.02*scale,0.02*scale,0.5*scale,5), DARKWOOD());
+        handle.position.y = 0.22*scale; grp.add(handle);
+        const blade = new THREE.Mesh(new THREE.ConeGeometry(0.12*scale,0.18*scale,4), METAL());
+        blade.rotation.z = Math.PI/2; blade.position.set(0.06*scale, 0.42*scale, 0); grp.add(blade);
+      } else if(weapon === 'spear'){
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.02*scale,0.02*scale,0.72*scale,5), DARKWOOD());
+        shaft.position.y = 0.32*scale; grp.add(shaft);
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.045*scale,0.16*scale,5), METAL());
+        tip.position.y = 0.72*scale; grp.add(tip);
+      } else if(weapon === 'staff'){
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.018*scale,0.018*scale,0.62*scale,5), DARKWOOD());
+        shaft.position.y = 0.28*scale; grp.add(shaft);
+        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.065*scale,10,8), accent);
+        orb.position.y = 0.6*scale; grp.add(orb);
+      } else if(weapon === 'dagger'){
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.03*scale,0.22*scale,0.015*scale), METAL());
+        blade.position.y = 0.12*scale; grp.add(blade);
+      } else if(weapon === 'rifle'){
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.5*scale,0.045*scale,0.045*scale), DARKWOOD());
+        body.rotation.z = 0.12; body.position.set(0.16*scale, 0.05*scale, 0); grp.add(body);
+      }
+      grp.traverse(o => { if(o.isMesh) o.castShadow = true; });
+      g.add(grp);
+    }
+
+    function addShield(g, scale, side, hx, hy){
+      const shield = new THREE.Mesh(
+        new THREE.CircleGeometry(0.16*scale, 12),
+        new THREE.MeshStandardMaterial({color: TEAM_COLOR[side], metalness:.35, roughness:.45, side:THREE.DoubleSide})
+      );
+      shield.position.set(hx, hy, 0.08*scale);
+      shield.rotation.y = Math.PI/2 - 0.35;
+      shield.castShadow = true;
+      g.add(shield);
+    }
+
+    function addWings(g, scale, side, y, small){
+      const mat = new THREE.MeshStandardMaterial({color: TEAM_COLOR[side], roughness:.5, side:THREE.DoubleSide, transparent:true, opacity:.82});
+      const w = small ? 0.22*scale : 0.55*scale, h = small ? 0.14*scale : 0.3*scale;
+      [-1,1].forEach(sgn => {
+        const wing = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+        wing.position.set(sgn*w*0.42, y, -0.05*scale);
+        wing.rotation.y = sgn*0.5;
+        wing.rotation.z = sgn*0.35;
+        g.add(wing);
+      });
+    }
+
+    function buildBiped(scale, side, u){
+      const g = new THREE.Group();
+      const mat = teamMat(side);
+      const legH = 0.30*scale, legR = 0.05*scale;
+      const torsoR = 0.15*scale, torsoLen = 0.20*scale;
+      const armR = 0.045*scale, armLen = 0.26*scale;
+      const headR = 0.15*scale;
+
+      [-1,1].forEach(sgn => {
+        const leg = new THREE.Mesh(new THREE.CapsuleGeometry(legR, legH-2*legR, 3, 6), mat);
+        leg.position.set(sgn*torsoR*0.55, legH/2, 0);
+        leg.castShadow = true; leg.receiveShadow = true;
+        g.add(leg);
+      });
+
+      const torsoCenterY = legH + torsoLen/2 + torsoR;
+      const torso = new THREE.Mesh(new THREE.CapsuleGeometry(torsoR, torsoLen, 4, 8), mat);
+      torso.position.y = torsoCenterY;
+      torso.castShadow = true;
+      g.add(torso);
+
+      const shoulderY = torsoCenterY + torsoLen*0.3;
+      [-1,1].forEach(sgn => {
+        const arm = new THREE.Mesh(new THREE.CapsuleGeometry(armR, armLen-2*armR, 3, 6), mat);
+        arm.position.set(sgn*(torsoR+armR*1.3), shoulderY - armLen*0.35, 0.02*scale);
+        arm.rotation.z = sgn * 0.3;
+        arm.castShadow = true;
+        g.add(arm);
+      });
+
+      const headY = torsoCenterY + torsoLen/2 + torsoR + headR*0.85;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(headR, 12, 9), SKIN());
+      head.position.y = headY;
+      head.castShadow = true;
+      g.add(head);
+
+      if(u.shield) addShield(g, scale, side, -(torsoR+armR*2.1), shoulderY-armLen*0.3);
+      if(u.weapon) addWeapon(g, u.weapon, scale, side, torsoR+armR*2.1, shoulderY-armLen*0.2);
+      if(u.wings) addWings(g, scale, side, shoulderY);
+
+      g.userData.mat = mat;
+      g.userData.topY = headY + headR;
+      return g;
+    }
+
+    function buildQuadruped(scale, side, u){
+      const g = new THREE.Group();
+      const mat = teamMat(side);
+      const bodyLen = 0.55*scale, bodyR = 0.16*scale;
+      const legH = 0.22*scale, legR = 0.045*scale;
+
+      const body = new THREE.Mesh(new THREE.CapsuleGeometry(bodyR, bodyLen, 4, 8), mat);
+      body.rotation.z = Math.PI/2;
+      body.position.y = legH + bodyR;
+      body.castShadow = true;
+      g.add(body);
+
+      [-bodyLen*0.32, bodyLen*0.32].forEach(lx => {
+        [-bodyR*0.7, bodyR*0.7].forEach(lz => {
+          const leg = new THREE.Mesh(new THREE.CylinderGeometry(legR, legR*0.85, legH, 6), mat);
+          leg.position.set(lx, legH/2, lz);
+          leg.castShadow = true;
+          g.add(leg);
+        });
+      });
+
+      const headR = 0.14*scale;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(headR, 10, 8), mat);
+      head.position.set(bodyLen*0.62, legH+bodyR+headR*0.3, 0);
+      head.castShadow = true;
+      g.add(head);
+
+      const tail = new THREE.Mesh(new THREE.ConeGeometry(bodyR*0.55, bodyLen*0.4, 6), mat);
+      tail.rotation.z = -Math.PI/2;
+      tail.position.set(-bodyLen*0.62, legH+bodyR, 0);
+      g.add(tail);
+
+      if(u.wings){
+        addWings(g, scale, side, legH+bodyR*2.1);
+        [-1,1].forEach(sgn => {
+          const horn = new THREE.Mesh(new THREE.ConeGeometry(0.022*scale,0.09*scale,4), mat);
+          horn.position.set(bodyLen*0.6, legH+bodyR+headR*1.5, sgn*0.05*scale);
+          g.add(horn);
+        });
+      }
+
+      g.userData.mat = mat;
+      g.userData.topY = legH+bodyR*2+headR;
+      return g;
+    }
+
+    function buildRex(scale, side){
+      const g = new THREE.Group();
+      const mat = teamMat(side);
+      const legH = 0.42*scale, legR = 0.09*scale;
+      [-1,1].forEach(sgn => {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(legR, legR*0.8, legH, 6), mat);
+        leg.position.set(sgn*0.12*scale, legH/2, 0);
+        leg.castShadow = true;
+        g.add(leg);
+      });
+      const bodyLen = 0.5*scale, bodyR = 0.17*scale;
+      const body = new THREE.Mesh(new THREE.CapsuleGeometry(bodyR, bodyLen, 4, 8), mat);
+      body.rotation.z = Math.PI/2 - 0.35;
+      body.position.set(0.05*scale, legH+bodyR*1.1, 0);
+      body.castShadow = true;
+      g.add(body);
+      const headR = 0.16*scale;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(headR, 10, 8), mat);
+      head.position.set(0.42*scale, legH+bodyR*1.6, 0);
+      head.scale.set(1.3, 0.9, 0.9);
+      head.castShadow = true;
+      g.add(head);
+      const tail = new THREE.Mesh(new THREE.ConeGeometry(bodyR*0.6, bodyLen*0.7, 6), mat);
+      tail.rotation.z = Math.PI/2 + 0.35;
+      tail.position.set(-0.4*scale, legH+bodyR*0.6, 0);
+      g.add(tail);
+      [-1,1].forEach(sgn => {
+        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.025*scale,0.02*scale,0.14*scale,5), mat);
+        arm.position.set(0.2*scale, legH+bodyR*1.1, sgn*0.12*scale);
+        arm.rotation.z = 1.1;
+        g.add(arm);
+      });
+      g.userData.mat = mat;
+      g.userData.topY = legH+bodyR*1.6+headR;
+      return g;
+    }
+
+    function buildSwarm(scale, side, u){
+      const g = new THREE.Group();
+      const mat = teamMat(side);
+      const r = 0.13*scale;
+      const body = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), mat);
+      body.position.y = r*1.1;
+      body.castShadow = true;
+      g.add(body);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(r*0.55, 7, 5), mat);
+      head.position.set(r*1.1, r*1.3, 0);
+      g.add(head);
+      for(let i=0;i<3;i++){
+        [-1,1].forEach(sgn => {
+          const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.012*scale,0.012*scale,r*1.1,4), mat);
+          leg.position.set((i-1)*r*0.5, r*0.5, sgn*r*0.9);
+          leg.rotation.z = sgn*0.9;
+          g.add(leg);
+        });
+      }
+      if(u.wings) addWings(g, scale, side, r*1.3, true);
+      g.userData.mat = mat;
+      g.userData.topY = r*2.2;
+      return g;
+    }
+
+    function buildVehicle(scale, side){
+      const g = new THREE.Group();
+      const mat = teamMat(side);
+      const dark = DARKWOOD();
+      const baseH = 0.22*scale;
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.5*scale, baseH, 0.32*scale), dark);
+      base.position.y = baseH/2;
+      base.castShadow = true;
+      g.add(base);
+      const turretH = 0.2*scale;
+      const turret = new THREE.Mesh(new THREE.BoxGeometry(0.3*scale, turretH, 0.26*scale), mat);
+      turret.position.y = baseH+turretH/2;
+      turret.castShadow = true;
+      g.add(turret);
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.025*scale,0.025*scale,0.4*scale,6), dark);
+      barrel.rotation.z = Math.PI/2;
+      barrel.position.set(0.35*scale, baseH+turretH/2, 0);
+      g.add(barrel);
+      g.userData.mat = mat;
+      g.userData.topY = baseH+turretH+0.05*scale;
+      return g;
+    }
+
+    function makeUnit(side, stats){
       const scale = clamp(0.42 + Math.log10(stats.hp + 1) * 0.34, 0.42, 2.3);
-      const bodyMat = new THREE.MeshStandardMaterial({color: TEAM_COLOR[side], roughness:.55, metalness:.12});
-      const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.2*scale, 0.46*scale, 4, 8), bodyMat);
-      body.position.y = 0.23*scale + 0.23*scale;
-      group.add(body);
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.16*scale, 10, 8), new THREE.MeshStandardMaterial({color:0xf1ead9, roughness:.8}));
-      head.position.y = body.position.y + 0.23*scale + 0.16*scale;
-      group.add(head);
-      const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.32*scale, 16), new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:.35}));
-      shadow.rotation.x = -Math.PI/2;
-      shadow.position.y = 0.01;
-      group.add(shadow);
-      const spriteScale = 0.5*scale + 0.28;
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map: getIconTexture(icon), transparent:true}));
+      let g;
+      if(stats.type === 'quadruped') g = buildQuadruped(scale, side, stats);
+      else if(stats.type === 'rex') g = buildRex(scale, side);
+      else if(stats.type === 'swarm') g = buildSwarm(scale, side, stats);
+      else if(stats.type === 'vehicle') g = buildVehicle(scale, side);
+      else g = buildBiped(scale, side, stats);
+
+      const bodyMat = g.userData.mat;
+      const spriteScale = 0.42*scale + 0.26;
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map: getIconTexture(stats.icon), transparent:true}));
       sprite.scale.set(spriteScale, spriteScale, 1);
-      sprite.position.y = head.position.y + 0.3*scale + 0.16;
-      group.add(sprite);
-      group.userData = {alive:true, dying:false, dieT:0, hitT:-9999, phase:Math.random()*Math.PI*2, bodyMat};
-      return group;
+      sprite.position.y = g.userData.topY + 0.16;
+      g.add(sprite);
+
+      g.userData = {alive:true, dying:false, dieT:0, hitT:-9999, phase:Math.random()*Math.PI*2, bodyMat};
+      return g;
     }
 
     function layoutFormation(count){
@@ -736,7 +1143,7 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
       const layoutB = layoutFormation(forceB.count);
       const zoneDepth = 2.6;
       layoutA.positions.forEach(p => {
-        const u = makeUnit('a', forceA.stats, forceA.stats.icon);
+        const u = makeUnit('a', forceA.stats);
         const jitter = (Math.random()-0.5)*0.22;
         u.position.set(-(zoneDepth + p.depth), 0, p.lateral + jitter);
         u.rotation.y = Math.PI/2 + (Math.random()-0.5)*0.3;
@@ -744,16 +1151,16 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
         unitsA.push(u);
       });
       layoutB.positions.forEach(p => {
-        const u = makeUnit('b', forceB.stats, forceB.stats.icon);
+        const u = makeUnit('b', forceB.stats);
         const jitter = (Math.random()-0.5)*0.22;
         u.position.set(zoneDepth + p.depth, 0, p.lateral + jitter);
         u.rotation.y = -Math.PI/2 + (Math.random()-0.5)*0.3;
         scene.add(u);
         unitsB.push(u);
       });
-      radius = clamp(9 + Math.max(layoutA.positions.length, layoutB.positions.length) * 0.18, 12, 22);
+      radius = clamp(10 + Math.max(layoutA.positions.length, layoutB.positions.length) * 0.18, 13, 24);
       azimuth = Math.PI/2 + 0.5;
-      polar = 1.0;
+      polar = 1.05;
       resize();
       return {perTokenA: layoutA.perToken, perTokenB: layoutB.perToken};
     }
@@ -846,6 +1253,16 @@ footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:
             u.scale.setScalar(1);
           }
         }
+      });
+
+      flags.forEach(flag => {
+        const pos = flag.geometry.attributes.position;
+        for(let i=0;i<pos.count;i++){
+          const ox = pos.getX(i);
+          const w = Math.sin(now*0.003 + ox*3) * 0.05 * ((ox+0.55)/1.1);
+          pos.setZ(i, w);
+        }
+        pos.needsUpdate = true;
       });
 
       particles = particles.filter(p => {
