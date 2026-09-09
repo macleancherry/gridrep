@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Draft two forces of any size and species and watch an animated battle resolve, round by round.">
+<title>Battle Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --bg:#12150f;
+  --bg-grid: rgba(233,230,216,.055);
+  --surface:#1b2016;
+  --surface-2:#242b1c;
+  --surface-border:#3a4430;
+  --ink:#eae6d6;
+  --ink-dim:#a8ab97;
+  --muted:#7d8570;
+  --accent-a:#ff8c33;
+  --accent-a-dim:#7a4a1f;
+  --accent-b:#43d9c8;
+  --accent-b-dim:#22574f;
+  --danger:#ff5a4e;
+  --gold:#e8c468;
+  --shadow: rgba(0,0,0,.55);
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#eef0e2;
+    --bg-grid: rgba(28,33,20,.08);
+    --surface:#f8f8ef;
+    --surface-2:#eceadb;
+    --surface-border:#c9cbb4;
+    --ink:#1c2117;
+    --ink-dim:#4b5140;
+    --muted:#6b7160;
+    --accent-a:#c65e12;
+    --accent-a-dim:#e7c19c;
+    --accent-b:#0f8a80;
+    --accent-b-dim:#aedcd7;
+    --danger:#c73b30;
+    --gold:#a67a1e;
+    --shadow: rgba(0,0,0,.18);
+  }
+}
+:root[data-theme="light"]{
+  --bg:#eef0e2;
+  --bg-grid: rgba(28,33,20,.08);
+  --surface:#f8f8ef;
+  --surface-2:#eceadb;
+  --surface-border:#c9cbb4;
+  --ink:#1c2117;
+  --ink-dim:#4b5140;
+  --muted:#6b7160;
+  --accent-a:#c65e12;
+  --accent-a-dim:#e7c19c;
+  --accent-b:#0f8a80;
+  --accent-b-dim:#aedcd7;
+  --danger:#c73b30;
+  --gold:#a67a1e;
+  --shadow: rgba(0,0,0,.18);
+}
+:root[data-theme="dark"]{
+  --bg:#12150f;
+  --bg-grid: rgba(233,230,216,.055);
+  --surface:#1b2016;
+  --surface-2:#242b1c;
+  --surface-border:#3a4430;
+  --ink:#eae6d6;
+  --ink-dim:#a8ab97;
+  --muted:#7d8570;
+  --accent-a:#ff8c33;
+  --accent-a-dim:#7a4a1f;
+  --accent-b:#43d9c8;
+  --accent-b-dim:#22574f;
+  --danger:#ff5a4e;
+  --gold:#e8c468;
+  --shadow: rgba(0,0,0,.55);
+}
+
+*{box-sizing:border-box;}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:'Barlow Condensed',system-ui,sans-serif;
+  min-height:100vh;
+  background-image:
+    linear-gradient(var(--bg-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+.stencil{ font-family:'Black Ops One', 'Barlow Condensed', system-ui, sans-serif; }
+.mono{ font-family:'JetBrains Mono', ui-monospace, monospace; }
+h1,h2,h3{ text-wrap:balance; margin:0; }
+button{ font-family:inherit; cursor:pointer; }
+::selection{ background:var(--accent-a); color:#14170f; }
+
+.screen{
+  min-height:100vh;
+  width:100%;
+  padding:28px 20px 40px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+[hidden]{ display:none !important; }
+
+/* ---------- Setup screen ---------- */
+.masthead{ text-align:center; margin-bottom:6px; max-width:720px; }
+.masthead .kicker{
+  font-family:'JetBrains Mono',monospace; letter-spacing:.35em; font-size:11px;
+  color:var(--accent-a); text-transform:uppercase; margin-bottom:10px;
+}
+.masthead h1{
+  font-size:clamp(30px,6vw,52px); letter-spacing:.02em; line-height:1.05;
+  color:var(--ink);
+}
+.masthead h1 span{ color:var(--accent-a); }
+.masthead p{ color:var(--ink-dim); font-size:18px; margin-top:12px; max-width:56ch; margin-inline:auto; }
+
+.deploy-row{
+  display:flex; align-items:stretch; gap:0; margin-top:34px;
+  width:100%; max-width:920px; position:relative;
+}
+.card{
+  flex:1; background:var(--surface); border:1px solid var(--surface-border);
+  padding:22px 22px 24px; position:relative; min-width:0;
+}
+.card::before, .card::after, .card .corner-b1, .card .corner-b2{
+  content:''; position:absolute; width:14px; height:14px; border-color:inherit;
+}
+.card{ --corner:var(--muted); }
+.card::before{ top:6px; left:6px; border-top:2px solid var(--corner); border-left:2px solid var(--corner); }
+.card::after{ bottom:6px; right:6px; border-bottom:2px solid var(--corner); border-right:2px solid var(--corner); }
+.card.side-a{ --corner:var(--accent-a); }
+.card.side-b{ --corner:var(--accent-b); }
+.card .tag{
+  font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.25em;
+  text-transform:uppercase; color:var(--muted); margin-bottom:12px; display:block;
+}
+.card.side-a .tag{ color:var(--accent-a); }
+.card.side-b .tag{ color:var(--accent-b); }
+.card input[type=text]{
+  width:100%; background:var(--surface-2); border:1px solid var(--surface-border);
+  color:var(--ink); font-family:'Barlow Condensed',sans-serif; font-weight:600;
+  font-size:19px; padding:12px 14px; outline:none;
+}
+.card input[type=text]:focus{ border-color:var(--corner); }
+.card .preview{
+  margin-top:14px; display:flex; align-items:center; gap:10px; min-height:34px;
+  font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--ink-dim);
+}
+.card .preview .icon{ font-size:22px; line-height:1; }
+.card .preview .count{ color:var(--ink); font-weight:600; }
+.card .preview .stats{ margin-left:auto; font-size:11px; color:var(--muted); text-align:right; }
+
+.vs-medallion{
+  flex:0 0 auto; width:64px; display:flex; align-items:center; justify-content:center;
+  position:relative; z-index:2;
+}
+.vs-medallion span{
+  width:56px;height:56px;border-radius:50%; background:var(--bg);
+  border:2px solid var(--gold); color:var(--gold);
+  display:flex; align-items:center; justify-content:center;
+  font-family:'Black Ops One'; font-size:15px;
+  box-shadow:0 0 0 5px var(--bg);
+}
+
+.presets{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:26px; max-width:760px; }
+.preset{
+  background:transparent; border:1px dashed var(--surface-border); color:var(--ink-dim);
+  font-family:'JetBrains Mono',monospace; font-size:12px; padding:7px 12px;
+  transition:border-color .15s, color .15s;
+}
+.preset:hover{ border-color:var(--accent-a); color:var(--ink); }
+
+.deploy-btn{
+  margin-top:30px; background:var(--accent-a); color:#1a1200; border:none;
+  font-family:'Black Ops One'; font-size:18px; letter-spacing:.06em;
+  padding:16px 46px; box-shadow:0 6px 0 var(--accent-a-dim);
+  transition:transform .08s;
+}
+.deploy-btn:active{ transform:translateY(4px); box-shadow:0 2px 0 var(--accent-a-dim); }
+.deploy-hint{ margin-top:10px; font-size:12px; color:var(--muted); font-family:'JetBrains Mono',monospace; }
+
+/* ---------- Battle screen ---------- */
+.arena-wrap{ width:100%; max-width:1040px; }
+.arena-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.arena-head .kicker{
+  font-family:'JetBrains Mono',monospace; letter-spacing:.3em; font-size:11px; color:var(--muted); text-transform:uppercase;
+}
+.round-badge{
+  font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--ink);
+  border:1px solid var(--surface-border); padding:5px 12px; background:var(--surface);
+}
+.skip-btn{
+  background:transparent; border:1px solid var(--surface-border); color:var(--ink-dim);
+  font-family:'JetBrains Mono',monospace; font-size:12px; padding:6px 12px;
+}
+.skip-btn:hover{ color:var(--ink); border-color:var(--ink-dim); }
+
+.status-row{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
+.status{ background:var(--surface); border:1px solid var(--surface-border); padding:14px 16px; }
+.status.b{ text-align:right; }
+.status .who{ display:flex; align-items:center; gap:10px; }
+.status.b .who{ flex-direction:row-reverse; }
+.status .who .icon{ font-size:26px; }
+.status .who .name{ font-weight:700; font-size:17px; }
+.status.a .name{ color:var(--accent-a); }
+.status.b .name{ color:var(--accent-b); }
+.status .count{ font-family:'JetBrains Mono',monospace; font-size:26px; margin-top:6px; font-variant-numeric:tabular-nums; }
+.status .count .of{ font-size:13px; color:var(--muted); }
+.hp-bar{ height:8px; background:var(--surface-2); margin-top:8px; border:1px solid var(--surface-border); overflow:hidden; }
+.hp-fill{ height:100%; transition:width .5s ease; }
+.status.a .hp-fill{ background:var(--accent-a); margin-left:0; }
+.status.b .hp-fill{ background:var(--accent-b); float:right; }
+
+.arena{
+  position:relative; background:var(--surface); border:1px solid var(--surface-border);
+  min-height:260px; padding:18px; overflow:hidden;
+  display:grid; grid-template-columns:1fr auto 1fr;
+}
+.arena .zone{ display:flex; flex-wrap:wrap; align-content:flex-start; gap:5px; }
+.arena .zone.a{ justify-content:flex-start; }
+.arena .zone.b{ justify-content:flex-end; }
+.arena .divider{ width:1px; background:repeating-linear-gradient(var(--surface-border) 0 6px, transparent 6px 12px); margin:0 16px; }
+.unit{
+  width:34px; height:34px; display:flex; align-items:center; justify-content:center;
+  font-size:20px; background:var(--surface-2); border:1px solid var(--surface-border);
+  position:relative; transition:transform .2s, opacity .3s;
+}
+.unit.dead{ opacity:0; transform:scale(.3) rotate(25deg); }
+.unit.hit{ animation:hit .35s ease; }
+@keyframes hit{ 0%{transform:scale(1)} 40%{transform:scale(1.35); filter:brightness(1.6)} 100%{transform:scale(1)} }
+.zone.a .unit{ border-color:var(--accent-a-dim); }
+.zone.b .unit{ border-color:var(--accent-b-dim); }
+.unit-note{
+  grid-column:1/-1; text-align:center; font-family:'JetBrains Mono',monospace;
+  font-size:11px; color:var(--muted); margin-top:10px;
+}
+
+.clash{
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  font-size:34px; opacity:0; pointer-events:none;
+}
+.clash.show{ animation:clashpop .5s ease; }
+@keyframes clashpop{ 0%{opacity:0; transform:translate(-50%,-50%) scale(.4)} 40%{opacity:1; transform:translate(-50%,-50%) scale(1.3)} 100%{opacity:0; transform:translate(-50%,-50%) scale(1.6)} }
+
+.log-wrap{
+  margin-top:14px; background:#00000022; border:1px solid var(--surface-border);
+  padding:10px 14px; height:132px; overflow-y:auto; font-family:'JetBrains Mono',monospace;
+  font-size:12.5px; color:var(--ink-dim); line-height:1.7;
+}
+.log-wrap div span.rn{ color:var(--muted); margin-right:8px; }
+.log-wrap div span.win{ color:var(--gold); }
+.log-wrap div span.a{ color:var(--accent-a); }
+.log-wrap div span.b{ color:var(--accent-b); }
+
+.new-btn{
+  margin-top:18px; background:transparent; border:1px solid var(--surface-border); color:var(--ink-dim);
+  font-family:'JetBrains Mono',monospace; font-size:13px; padding:10px 18px;
+}
+.new-btn:hover{ color:var(--ink); border-color:var(--ink); }
+
+.overlay{
+  position:fixed; inset:0; background:color-mix(in srgb, var(--bg) 78%, transparent);
+  display:flex; align-items:center; justify-content:center; z-index:10;
+}
+.stamp{
+  border:6px double var(--gold); color:var(--gold); padding:26px 50px;
+  transform:rotate(-6deg); text-align:center; background:var(--bg);
+  animation:stampin .35s cubic-bezier(.2,1.4,.4,1);
+}
+@keyframes stampin{ 0%{transform:rotate(-6deg) scale(2.2); opacity:0} 100%{transform:rotate(-6deg) scale(1); opacity:1} }
+.stamp h2{ font-family:'Black Ops One'; font-size:34px; letter-spacing:.05em; }
+.stamp p{ font-family:'JetBrains Mono',monospace; font-size:14px; margin-top:10px; color:var(--ink); }
+.stamp button{
+  margin-top:18px; background:var(--gold); color:#1a1200; border:none; font-family:'Black Ops One';
+  font-size:14px; padding:10px 24px; transform:rotate(0); box-shadow:0 4px 0 #8a6a1e;
+}
+
+footer.credit{ margin-top:30px; font-size:11px; color:var(--muted); font-family:'JetBrains Mono',monospace; text-align:center; }
+
+@media (max-width:640px){
+  .deploy-row{ flex-direction:column; gap:16px; }
+  .vs-medallion{ width:100%; }
+  .status-row{ grid-template-columns:1fr; }
+  .status.b{ text-align:left; }
+  .status.b .who{ flex-direction:row; }
+  .status.b .hp-fill{ float:none; }
+  .arena{ grid-template-columns:1fr; }
+  .arena .divider{ display:none; }
+  .arena .zone.b{ justify-content:flex-start; margin-top:10px; }
+}
+</style>
+</head>
+<body>
+
+
+<div class="screen" id="setup-screen">
+  <div class="masthead">
+    <div class="kicker">FIELD ADJUDICATION UNIT &middot; EST. 2026</div>
+    <h1 class="stencil">BATTLE <span>SIMULATOR</span></h1>
+    <p>Draft two forces — any species, any size, any era. Write the count and the name, we'll issue stat cards and run the engagement.</p>
+  </div>
+
+  <div class="deploy-row">
+    <div class="card side-a">
+      <span class="tag">Force Alpha</span>
+      <input type="text" id="input-a" maxlength="60" placeholder="1000 Harry Potters" autocomplete="off">
+      <div class="preview" id="preview-a"></div>
+    </div>
+    <div class="vs-medallion"><span>VS</span></div>
+    <div class="card side-b">
+      <span class="tag">Force Bravo</span>
+      <input type="text" id="input-b" maxlength="60" placeholder="1 Gladiator" autocomplete="off">
+      <div class="preview" id="preview-b"></div>
+    </div>
+  </div>
+
+  <div class="presets" id="presets"></div>
+
+  <button class="deploy-btn stencil" id="deploy-btn">DEPLOY FORCES</button>
+  <div class="deploy-hint">Stats are adjudicated by field heuristics, not vibes. Mostly.</div>
+</div>
+
+<div class="screen" id="battle-screen" hidden>
+  <div class="arena-wrap">
+    <div class="arena-head">
+      <span class="kicker">ENGAGEMENT REPORT</span>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <span class="round-badge mono" id="round-badge">ROUND 0</span>
+        <button class="skip-btn" id="skip-btn">SKIP TO RESULT</button>
+      </div>
+    </div>
+
+    <div class="status-row">
+      <div class="status a">
+        <div class="who"><span class="icon" id="a-icon">🧙</span><span class="name" id="a-name">—</span></div>
+        <div class="count mono"><span id="a-count">0</span><span class="of"> / <span id="a-total">0</span></span></div>
+        <div class="hp-bar"><div class="hp-fill" id="a-hp" style="width:100%"></div></div>
+      </div>
+      <div class="status b">
+        <div class="who"><span class="icon" id="b-icon">⚔️</span><span class="name" id="b-name">—</span></div>
+        <div class="count mono"><span id="b-count">0</span><span class="of"> / <span id="b-total">0</span></span></div>
+        <div class="hp-bar"><div class="hp-fill" id="b-hp" style="width:100%"></div></div>
+      </div>
+    </div>
+
+    <div class="arena" id="arena">
+      <div class="zone a" id="zone-a"></div>
+      <div class="divider"></div>
+      <div class="zone b" id="zone-b"></div>
+      <div class="clash" id="clash">💥</div>
+      <div class="unit-note" id="unit-note-a" style="display:none"></div>
+    </div>
+
+    <div class="log-wrap mono" id="log"></div>
+
+    <button class="new-btn" id="new-btn">&larr; NEW DEPLOYMENT</button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay" hidden>
+  <div class="stamp">
+    <h2 id="winner-title">VICTORY</h2>
+    <p id="winner-sub"></p>
+    <button id="overlay-close">FILE REPORT</button>
+  </div>
+</div>
+
+<footer class="credit">Outcomes generated by procedural heuristics for entertainment. No historical figures, franchises, or ant colonies were harmed.</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------------- parsing ---------------- */
+  const WORD_NUM = {a:1,an:1,one:1,single:1,couple:2,few:3,dozen:12,pair:2};
+  function parseForce(raw){
+    let s = (raw||'').trim();
+    if(!s) return null;
+    let count, rest;
+    let m = s.match(/^(\d[\d,]*\.?\d*)\s*(thousand|million|billion|k|m|b)?\b\.?\s*(.*)$/i);
+    if(m && m[1]){
+      count = parseFloat(m[1].replace(/,/g,''));
+      const suf = (m[2]||'').toLowerCase();
+      const mult = {thousand:1e3, million:1e6, billion:1e9, k:1e3, m:1e6, b:1e9}[suf];
+      if(mult) count *= mult;
+      rest = m[3].trim();
+    } else {
+      const m2 = s.match(/^(a|an|one|single|couple|few|dozen|pair)\s+(.*)$/i);
+      if(m2){ count = WORD_NUM[m2[1].toLowerCase()]; rest = m2[2].trim(); }
+      else { count = 1; rest = s; }
+    }
+    rest = rest.replace(/^(of|x)\s+/i,'').trim();
+    if(!rest) rest = 'Fighters';
+    count = Math.max(1, Math.min(50000000, Math.round(count)));
+    return {count, name: rest};
+  }
+
+  /* ---------------- stat & icon knowledge base ---------------- */
+  const KNOWN = [
+    {k:['t-rex','trex','tyrannosaurus'], icon:'🦖', hp:600, atk:90, def:50, spd:5},
+    {k:['dragon'], icon:'🐉', hp:2500, atk:180, def:120, spd:6},
+    {k:['harry potter','wizard','witch','mage','sorcerer','hogwarts'], icon:'🧙', hp:12, atk:16, def:4, spd:7},
+    {k:['gladiator'], icon:'🗡️', hp:28, atk:14, def:11, spd:6},
+    {k:['knight'], icon:'🛡️', hp:22, atk:11, def:15, spd:4},
+    {k:['spartan'], icon:'🛡️', hp:26, atk:14, def:14, spd:6},
+    {k:['samurai'], icon:'🗡️', hp:20, atk:15, def:12, spd:8},
+    {k:['ninja'], icon:'🥷', hp:14, atk:20, def:5, spd:13},
+    {k:['viking'], icon:'🪓', hp:24, atk:16, def:10, spd:6},
+    {k:['pirate'], icon:'🏴‍☠️', hp:18, atk:13, def:7, spd:6},
+    {k:['zombie'], icon:'🧟', hp:16, atk:6, def:2, spd:2},
+    {k:['vampire'], icon:'🧛', hp:35, atk:26, def:14, spd:11},
+    {k:['werewolf'], icon:'🐺', hp:45, atk:30, def:17, spd:10},
+    {k:['skeleton'], icon:'💀', hp:8, atk:8, def:5, spd:4},
+    {k:['ghost','spirit','phantom'], icon:'👻', hp:10, atk:14, def:22, spd:10},
+    {k:['alien'], icon:'👽', hp:40, atk:34, def:20, spd:8},
+    {k:['robot','android','cyborg'], icon:'🤖', hp:110, atk:32, def:55, spd:5},
+    {k:['tank'], icon:'🚙', hp:350, atk:110, def:160, spd:2},
+    {k:['soldier','infantry','trooper'], icon:'🪖', hp:12, atk:8, def:6, spd:6},
+    {k:['ant'], icon:'🐜', hp:1, atk:1, def:.5, spd:8},
+    {k:['bee','wasp'], icon:'🐝', hp:1, atk:2, def:.5, spd:9},
+    {k:['spider'], icon:'🕷️', hp:3, atk:4, def:1, spd:7},
+    {k:['snake'], icon:'🐍', hp:6, atk:9, def:2, spd:6},
+    {k:['wolf'], icon:'🐺', hp:20, atk:18, def:8, spd:10},
+    {k:['lion','tiger'], icon:'🦁', hp:65, atk:36, def:16, spd:9},
+    {k:['bear'], icon:'🐻', hp:85, atk:32, def:22, spd:6},
+    {k:['shark'], icon:'🦈', hp:75, atk:42, def:16, spd:7},
+    {k:['gorilla'], icon:'🦍', hp:95, atk:38, def:26, spd:6},
+    {k:['elephant'], icon:'🐘', hp:220, atk:42, def:32, spd:3},
+    {k:['rhino'], icon:'🦏', hp:180, atk:45, def:40, spd:4},
+    {k:['horse'], icon:'🐴', hp:32, atk:11, def:10, spd:11},
+    {k:['crocodile','alligator'], icon:'🐊', hp:90, atk:38, def:35, spd:3},
+    {k:['dinosaur','dino'], icon:'🦕', hp:400, atk:70, def:45, spd:4},
+    {k:['dog'], icon:'🐕', hp:9, atk:6, def:3, spd:8},
+    {k:['cat'], icon:'🐈', hp:4, atk:3, def:2, spd:9},
+    {k:['penguin'], icon:'🐧', hp:6, atk:2, def:3, spd:4},
+    {k:['god','deity','titan'], icon:'⚡', hp:6000, atk:600, def:450, spd:10},
+    {k:['angel'], icon:'😇', hp:900, atk:220, def:180, spd:9},
+    {k:['demon','devil'], icon:'😈', hp:950, atk:260, def:170, spd:8},
+    {k:['stormtrooper','clone trooper'], icon:'🪖', hp:10, atk:9, def:6, spd:6},
+    {k:['jedi'], icon:'🗡️', hp:30, atk:28, def:12, spd:11},
+    {k:['superhero','superman'], icon:'🦸', hp:2000, atk:300, def:250, spd:14},
+    {k:['human','person','man','woman','villager'], icon:'🧍', hp:10, atk:5, def:3, spd:5},
+  ];
+
+  const MODIFIERS = [
+    {k:['giant','huge','massive','colossal','titanic'], m:{hp:5,atk:3,def:3,spd:.7}},
+    {k:['mega','super','ultra'], m:{hp:3,atk:2.5,def:2,spd:1.1}},
+    {k:['tiny','mini','miniature','baby','micro'], m:{hp:.3,atk:.4,def:.5,spd:1.3}},
+    {k:['armored','armoured'], m:{def:2}},
+    {k:['fire','flaming','blazing'], m:{atk:1.4}},
+    {k:['ice','frozen'], m:{def:1.3}},
+    {k:['undead','zombified'], m:{hp:1.2,spd:.8}},
+    {k:['flying','winged'], m:{spd:1.4}},
+    {k:['armed','weaponized'], m:{atk:1.3}},
+    {k:['ancient','elder'], m:{hp:1.5,atk:1.3,def:1.3}},
+    {k:['legendary','mythic'], m:{hp:2,atk:1.8,def:1.6}},
+  ];
+
+  const FALLBACK_ICONS = ['🧍','🦹','🧝','🧌','👹','🎭','🐾'];
+
+  function hashSeed(str){
+    let h = 2166136261;
+    for(let i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  }
+  function mulberry32(seed){
+    return function(){
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function buildUnit(name){
+    const low = name.toLowerCase();
+    let base = null;
+    for(const entry of KNOWN){
+      if(entry.k.some(key => low.includes(key))){ base = entry; break; }
+    }
+    let hp, atk, def, spd, icon;
+    if(base){
+      ({hp,atk,def,spd,icon} = base);
+    } else {
+      const rnd = mulberry32(hashSeed(low));
+      hp  = 8 + rnd()*22;
+      atk = 4 + rnd()*12;
+      def = 1 + rnd()*7;
+      spd = 3 + rnd()*7;
+      icon = FALLBACK_ICONS[Math.floor(rnd()*FALLBACK_ICONS.length)];
+    }
+    for(const mod of MODIFIERS){
+      if(mod.k.some(key => low.includes(key))){
+        if(mod.m.hp) hp *= mod.m.hp;
+        if(mod.m.atk) atk *= mod.m.atk;
+        if(mod.m.def) def *= mod.m.def;
+        if(mod.m.spd) spd *= mod.m.spd;
+      }
+    }
+    hp = Math.max(1, hp); atk = Math.max(1, atk); def = Math.max(0, def); spd = Math.max(1, spd);
+    return {hp,atk,def,spd,icon};
+  }
+
+  /* ---------------- battle simulation ---------------- */
+  const MAX_ROUNDS = 40;
+  function simulate(a, b){
+    let aHP = a.count * a.stats.hp, bHP = b.count * b.stats.hp;
+    const aTotalHP = aHP, bTotalHP = bHP;
+    let aAlive = a.count, bAlive = b.count;
+    const rounds = [];
+    let round = 0;
+    while(aAlive > 0 && bAlive > 0 && round < MAX_ROUNDS){
+      round++;
+      const aFirst = (a.stats.spd + Math.random()*4) >= (b.stats.spd + Math.random()*4);
+      const dmg = (attCount, att, defUnit) => {
+        const variance = .8 + Math.random()*.4;
+        const per = Math.max(.5, att.atk - defUnit.def*.35);
+        return attCount * per * variance;
+      };
+      let dmgAtoB = 0, dmgBtoA = 0;
+      if(aFirst){
+        dmgAtoB = dmg(aAlive, a.stats, b.stats);
+        bHP = Math.max(0, bHP - dmgAtoB);
+        bAlive = bHP <= 0 ? 0 : Math.max(1, Math.ceil(bHP / b.stats.hp));
+        if(bAlive > 0){
+          dmgBtoA = dmg(bAlive, b.stats, a.stats);
+          aHP = Math.max(0, aHP - dmgBtoA);
+          aAlive = aHP <= 0 ? 0 : Math.max(1, Math.ceil(aHP / a.stats.hp));
+        }
+      } else {
+        dmgBtoA = dmg(bAlive, b.stats, a.stats);
+        aHP = Math.max(0, aHP - dmgBtoA);
+        aAlive = aHP <= 0 ? 0 : Math.max(1, Math.ceil(aHP / a.stats.hp));
+        if(aAlive > 0){
+          dmgAtoB = dmg(aAlive, a.stats, b.stats);
+          bHP = Math.max(0, bHP - dmgAtoB);
+          bAlive = bHP <= 0 ? 0 : Math.max(1, Math.ceil(bHP / b.stats.hp));
+        }
+      }
+      aAlive = Math.min(aAlive, a.count);
+      bAlive = Math.min(bAlive, b.count);
+      rounds.push({
+        round, aAlive, bAlive,
+        aHpPct: Math.max(0, aHP/aTotalHP), bHpPct: Math.max(0, bHP/bTotalHP),
+        dmgAtoB, dmgBtoA, aFirst
+      });
+    }
+    let stalemate = false;
+    if(aAlive > 0 && bAlive > 0){
+      stalemate = true;
+      const aPct = aHP/aTotalHP, bPct = bHP/bTotalHP;
+      if(aPct >= bPct){ bAlive = 0; } else { aAlive = 0; }
+      rounds[rounds.length-1].bAlive = bAlive;
+      rounds[rounds.length-1].aAlive = aAlive;
+    }
+    return {rounds, winner: aAlive > 0 ? 'a' : 'b', stalemate};
+  }
+
+  /* ---------------- UI wiring ---------------- */
+  const $ = id => document.getElementById(id);
+  const inputA = $('input-a'), inputB = $('input-b');
+  const previewA = $('preview-a'), previewB = $('preview-b');
+  const fmt = n => Math.round(n).toLocaleString('en-US');
+
+  function renderPreview(el, raw){
+    const f = parseForce(raw);
+    if(!f){ el.innerHTML = ''; return; }
+    const u = buildUnit(f.name);
+    el.innerHTML = `<span class="icon">${u.icon}</span>
+      <span><span class="count">${fmt(f.count)}</span> &times; ${f.name}</span>
+      <span class="stats">HP ${Math.round(u.hp)} · ATK ${Math.round(u.atk)} · DEF ${Math.round(u.def)} · SPD ${Math.round(u.spd)}</span>`;
+  }
+  inputA.addEventListener('input', () => renderPreview(previewA, inputA.value));
+  inputB.addEventListener('input', () => renderPreview(previewB, inputB.value));
+
+  const PRESETS = [
+    ['1000 Harry Potters', '1 Gladiator'],
+    ['10 T-Rex', '1 Million Ants'],
+    ['1 Dragon', '200 Knights'],
+    ['50 Zombies', '3 Ninjas'],
+    ['1 Giant Robot', '10000 Soldiers'],
+    ['1 Legendary Vampire', '500 Werewolves'],
+  ];
+  const presetsEl = $('presets');
+  PRESETS.forEach(([a,b]) => {
+    const btn = document.createElement('button');
+    btn.className = 'preset';
+    btn.textContent = `${a}  vs  ${b}`;
+    btn.addEventListener('click', () => {
+      inputA.value = a; inputB.value = b;
+      renderPreview(previewA, a); renderPreview(previewB, b);
+    });
+    presetsEl.appendChild(btn);
+  });
+  renderPreview(previewA, inputA.placeholder);
+  renderPreview(previewB, inputB.placeholder);
+
+  const setupScreen = $('setup-screen'), battleScreen = $('battle-screen');
+  const zoneA = $('zone-a'), zoneB = $('zone-b');
+  const logEl = $('log');
+  const overlay = $('overlay');
+  let playbackTimer = null;
+  let playbackGeneration = 0;
+  let currentSim = null, currentA = null, currentB = null;
+
+  function buildTokens(zone, count){
+    zone.innerHTML = '';
+    const displayTokens = Math.min(30, count);
+    const perToken = Math.ceil(count / displayTokens);
+    const tokens = [];
+    for(let i=0;i<displayTokens;i++){
+      const d = document.createElement('div');
+      d.className = 'unit';
+      zone.appendChild(d);
+      tokens.push(d);
+    }
+    return {tokens, perToken};
+  }
+
+  function setForceStats(side, force){
+    $(`${side}-icon`).textContent = force.stats.icon;
+    $(`${side}-name`).textContent = force.name;
+    $(`${side}-total`).textContent = fmt(force.count);
+    $(`${side}-count`).textContent = fmt(force.count);
+    $(`${side}-hp`).style.width = '100%';
+  }
+
+  function logLine(html){
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function updateZone(zone, tokenState, alive, total){
+    const {tokens, perToken} = tokenState;
+    const shouldShow = Math.ceil(alive / perToken);
+    let currentlyShown = tokens.filter(t => !t.classList.contains('dead')).length;
+    let toKill = currentlyShown - shouldShow;
+    while(toKill > 0){
+      const candidates = tokens.filter(t => !t.classList.contains('dead'));
+      const victim = candidates[Math.floor(Math.random()*candidates.length)];
+      if(!victim) break;
+      victim.classList.add('dead');
+      toKill--;
+    }
+  }
+
+  function pulseHit(zone){
+    const alive = Array.from(zone.querySelectorAll('.unit:not(.dead)'));
+    const n = Math.min(4, alive.length);
+    for(let i=0;i<n;i++){
+      const u = alive[Math.floor(Math.random()*alive.length)];
+      if(u){ u.classList.remove('hit'); void u.offsetWidth; u.classList.add('hit'); }
+    }
+  }
+
+  function showClash(){
+    const c = $('clash');
+    c.classList.remove('show'); void c.offsetWidth; c.classList.add('show');
+  }
+
+  function startBattle(){
+    const fa = parseForce(inputA.value || inputA.placeholder);
+    const fb = parseForce(inputB.value || inputB.placeholder);
+    const forceA = {name: fa.name, count: fa.count, stats: buildUnit(fa.name)};
+    const forceB = {name: fb.name, count: fb.count, stats: buildUnit(fb.name)};
+    currentA = forceA; currentB = forceB;
+    currentSim = simulate(forceA, forceB);
+
+    setupScreen.hidden = true;
+    battleScreen.hidden = false;
+    overlay.hidden = true;
+    logEl.innerHTML = '';
+    $('round-badge').textContent = 'ROUND 0';
+    setForceStats('a', forceA);
+    setForceStats('b', forceB);
+
+    const tokenA = buildTokens(zoneA, forceA.count);
+    const tokenB = buildTokens(zoneB, forceB.count);
+    const noteA = $('unit-note-a');
+    if(tokenA.perToken > 1 || tokenB.perToken > 1){
+      noteA.style.display = 'block';
+      noteA.textContent = `Formations shown at scale — each icon represents up to ${fmt(Math.max(tokenA.perToken,tokenB.perToken))} combatants.`;
+    } else noteA.style.display = 'none';
+
+    logLine(`<span class="rn">R0</span> <span class="a">${forceA.name}</span> (${fmt(forceA.count)}) squares off against <span class="b">${forceB.name}</span> (${fmt(forceB.count)}).`);
+
+    // Build a smooth frame list so even a battle the math settles in one or
+    // two rounds still plays out as a visible skirmish rather than a jump-cut.
+    const frames = [];
+    let prevA = forceA.count, prevB = forceB.count, prevAHp = 1, prevBHp = 1;
+    for(const r of currentSim.rounds){
+      const subSteps = Math.max(1, Math.min(6, Math.round(10 / currentSim.rounds.length)));
+      for(let s=1; s<=subSteps; s++){
+        const t = s / subSteps;
+        frames.push({
+          round: r.round,
+          aAlive: prevA + (r.aAlive - prevA) * t,
+          bAlive: prevB + (r.bAlive - prevB) * t,
+          aHpPct: prevAHp + (r.aHpPct - prevAHp) * t,
+          bHpPct: prevBHp + (r.bHpPct - prevBHp) * t,
+          isFinal: s === subSteps,
+          dmgAtoB: r.dmgAtoB, dmgBtoA: r.dmgBtoA, aFirst: r.aFirst
+        });
+      }
+      prevA = r.aAlive; prevB = r.bAlive; prevAHp = r.aHpPct; prevBHp = r.bHpPct;
+    }
+
+    let frameIdx = 0;
+    const battleToken = ++playbackGeneration;
+
+    function playFrame(){
+      if(battleToken !== playbackGeneration) return;
+      if(frameIdx >= frames.length){ finishBattle(); return; }
+      const f = frames[frameIdx++];
+      $('round-badge').textContent = `ROUND ${f.round}`;
+      showClash();
+      pulseHit(zoneA); pulseHit(zoneB);
+      const aAliveInt = Math.round(f.aAlive), bAliveInt = Math.round(f.bAlive);
+      updateZone(zoneA, tokenA, aAliveInt, forceA.count);
+      updateZone(zoneB, tokenB, bAliveInt, forceB.count);
+      $('a-count').textContent = fmt(aAliveInt);
+      $('b-count').textContent = fmt(bAliveInt);
+      $('a-hp').style.width = Math.max(0, f.aHpPct*100) + '%';
+      $('b-hp').style.width = Math.max(0, f.bHpPct*100) + '%';
+      if(f.isFinal){
+        const order = f.aFirst ? 'a' : 'b';
+        logLine(`<span class="rn">R${f.round}</span> <span class="${order}">${order==='a'?forceA.name:forceB.name}</span> strikes first — ` +
+          `<span class="a">${forceA.name}</span> deal ${fmt(f.dmgAtoB)} dmg, <span class="b">${forceB.name}</span> deal ${fmt(f.dmgBtoA)} dmg. ` +
+          `Remaining: <span class="a">${fmt(aAliveInt)}</span> vs <span class="b">${fmt(bAliveInt)}</span>.`);
+      }
+      playbackTimer = setTimeout(playFrame, f.isFinal ? 300 : 75);
+    }
+    clearTimeout(playbackTimer);
+    playbackTimer = setTimeout(playFrame, 300);
+  }
+
+  function finishBattle(){
+    clearTimeout(playbackTimer);
+    playbackGeneration++;
+    const winnerForce = currentSim.winner === 'a' ? currentA : currentB;
+    const loserForce = currentSim.winner === 'a' ? currentB : currentA;
+    const lastRound = currentSim.rounds[currentSim.rounds.length-1];
+    const remaining = currentSim.winner === 'a' ? lastRound.aAlive : lastRound.bAlive;
+    $('winner-title').textContent = `${winnerForce.name.toUpperCase()} WIN`;
+    let sub = `${fmt(remaining)} of ${fmt(winnerForce.count)} ${winnerForce.name} still standing after ${lastRound.round} round${lastRound.round===1?'':'s'}.`;
+    if(currentSim.stalemate) sub += ' Ruling by remaining strength after prolonged engagement.';
+    $('winner-sub').textContent = sub;
+    logLine(`<span class="rn">FINAL</span> <span class="win">${winnerForce.name} are victorious.</span> ${loserForce.name} forces are eliminated.`);
+    overlay.hidden = false;
+  }
+
+  $('deploy-btn').addEventListener('click', startBattle);
+  $('new-btn').addEventListener('click', () => {
+    clearTimeout(playbackTimer);
+    playbackGeneration++;
+    battleScreen.hidden = true;
+    overlay.hidden = true;
+    setupScreen.hidden = false;
+  });
+  $('overlay-close').addEventListener('click', () => { overlay.hidden = true; });
+  $('skip-btn').addEventListener('click', () => {
+    clearTimeout(playbackTimer);
+    playbackGeneration++;
+    if(!currentSim) return;
+    const last = currentSim.rounds[currentSim.rounds.length-1];
+    $('round-badge').textContent = `ROUND ${last.round}`;
+    updateZone(zoneA, {tokens: Array.from(zoneA.querySelectorAll('.unit')), perToken: Math.ceil(currentA.count/Math.min(30,currentA.count))}, last.aAlive, currentA.count);
+    updateZone(zoneB, {tokens: Array.from(zoneB.querySelectorAll('.unit')), perToken: Math.ceil(currentB.count/Math.min(30,currentB.count))}, last.bAlive, currentB.count);
+    $('a-count').textContent = fmt(last.aAlive);
+    $('b-count').textContent = fmt(last.bAlive);
+    $('a-hp').style.width = Math.max(0,last.aHpPct*100)+'%';
+    $('b-hp').style.width = Math.max(0,last.bHpPct*100)+'%';
+    finishBattle();
+  });
+
+  inputA.addEventListener('keydown', e => { if(e.key==='Enter') startBattle(); });
+  inputB.addEventListener('keydown', e => { if(e.key==='Enter') startBattle(); });
+})();
+</script>
+
+</body>
+</html>
