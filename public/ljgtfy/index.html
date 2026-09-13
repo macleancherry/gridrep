@@ -9,14 +9,20 @@
 <style>
   :root{
     --bg:#1a1c20;
-    --bg-alt:#202329;
-    --panel:#26292f;
-    --border:#33373f;
-    --text:#e7e9ec;
-    --muted:#9aa0aa;
+    --muted-page:#9aa0aa;
     --teal:#2dd4bf;
     --teal-dark:#159c8c;
     --blurple:#5865f2;
+
+    /* discord-ish palette */
+    --d-bg:#313338;
+    --d-bg2:#2b2d31;
+    --d-bg3:#1e1f22;
+    --d-composer:#383a40;
+    --d-text:#dbdee1;
+    --d-head:#f2f3f5;
+    --d-muted:#949ba4;
+    --d-online:#23a55a;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
@@ -25,7 +31,7 @@
     background:
       radial-gradient(1200px 600px at 50% -10%, rgba(45,212,191,0.10), transparent 60%),
       var(--bg);
-    color:var(--text);
+    color:#e7e9ec;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     display:flex;
     flex-direction:column;
@@ -42,7 +48,7 @@
 
   header.hero{
     text-align:center;
-    margin-bottom:28px;
+    margin-bottom:24px;
   }
 
   .logo{
@@ -63,7 +69,7 @@
   .logo .y{color:#22c55e;}
 
   .tagline{
-    color:var(--muted);
+    color:var(--muted-page);
     margin-top:10px;
     font-size:0.98rem;
     max-width:480px;
@@ -82,78 +88,71 @@
     display:inline-flex;
     align-items:center;
     gap:6px;
-    background:var(--panel);
-    border:1px solid var(--border);
-    color:var(--muted);
+    background:var(--d-bg2);
+    border:1px solid var(--d-bg3);
+    color:var(--muted-page);
     font-size:0.75rem;
     padding:4px 10px;
     border-radius:999px;
   }
   .pill b{ color:var(--teal); }
 
-  /* ---- Landing form ---- */
-  form.ask{
+  /* ---- Discord shell ---- */
+  .discord-shell{
+    background:var(--d-bg);
+    border:1px solid var(--d-bg3);
+    border-radius:12px;
+    overflow:hidden;
+    box-shadow:0 20px 50px rgba(0,0,0,0.35);
+  }
+
+  .discord-topbar{
     display:flex;
+    align-items:center;
     gap:8px;
-    background:var(--panel);
-    border:1px solid var(--border);
-    padding:8px;
-    border-radius:14px;
-    box-shadow:0 10px 30px rgba(0,0,0,0.25);
-  }
-  form.ask input[type="text"]{
-    flex:1;
-    background:var(--bg-alt);
-    border:1px solid var(--border);
-    color:var(--text);
-    padding:14px 16px;
-    border-radius:10px;
-    font-size:1rem;
-    outline:none;
-  }
-  form.ask input[type="text"]:focus{
-    border-color:var(--teal);
-  }
-  form.ask button{
-    background:linear-gradient(135deg, var(--teal), var(--teal-dark));
-    color:#08221e;
-    border:none;
+    background:var(--d-bg2);
+    border-bottom:1px solid var(--d-bg3);
+    padding:12px 16px;
+    color:var(--d-head);
     font-weight:700;
-    padding:0 20px;
-    border-radius:10px;
-    cursor:pointer;
     font-size:0.95rem;
-    white-space:nowrap;
   }
-  form.ask button:hover{ filter:brightness(1.05); }
-  form.ask button:active{ transform:translateY(1px); }
-
-  .hint{
-    text-align:center;
-    color:var(--muted);
-    font-size:0.8rem;
-    margin-top:14px;
-  }
-
-  /* ---- Result view ---- */
-  .stage{ display:none; }
-  .stage.active{ display:block; }
-
-  .chatlog{
-    background:var(--panel);
-    border:1px solid var(--border);
-    border-radius:14px;
-    padding:18px;
-    margin-bottom:18px;
-  }
-
-  .msg{
+  .discord-topbar .hash{ color:var(--d-muted); font-weight:800; }
+  .discord-topbar .sub{
+    margin-left:auto;
     display:flex;
-    gap:12px;
-    align-items:flex-start;
-    padding:6px 0;
+    align-items:center;
+    gap:6px;
+    font-size:0.72rem;
+    font-weight:600;
+    color:var(--d-muted);
   }
-  .avatar{
+  .online-dot{ width:8px; height:8px; border-radius:50%; background:var(--d-online); flex:none; }
+
+  .discord-messages{
+    padding:14px 16px 6px;
+    min-height:180px;
+    display:flex;
+    flex-direction:column;
+  }
+
+  .d-empty{
+    color:#7c828d;
+    font-size:0.85rem;
+    text-align:center;
+    padding:44px 10px 30px;
+  }
+  .d-empty .d-empty-icon{ font-size:1.8rem; display:block; margin-bottom:8px; }
+  .d-empty b{ color:var(--d-text); }
+
+  [hidden]{ display:none !important; }
+
+  .d-row{
+    display:flex;
+    gap:14px;
+    padding:6px 4px;
+  }
+  .d-avatar{
     width:38px;
     height:38px;
     border-radius:50%;
@@ -161,105 +160,143 @@
     display:flex;
     align-items:center;
     justify-content:center;
-    font-size:1.1rem;
+    font-size:1.15rem;
   }
-  .avatar.you{ background:#3a3f47; }
-  .avatar.joel{ background:radial-gradient(circle at 30% 30%, #2dd4bf, #0f766e); }
+  .d-avatar.you{ background:var(--blurple); }
+  .d-avatar.joel{ background:#0f766e; overflow:hidden; padding:0; }
+  .d-avatar.joel img{ width:100%; height:100%; object-fit:cover; display:block; }
 
-  .msg-body{ min-width:0; }
-  .msg-name{
-    font-weight:700;
-    font-size:0.9rem;
-  }
-  .msg-name .tag{
-    display:inline-flex;
-    align-items:center;
-    gap:3px;
+  .d-body{ min-width:0; flex:1; }
+  .d-head{ display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .d-name{ font-weight:600; font-size:0.95rem; color:var(--d-head); }
+  .d-name.joel{ color:var(--teal); }
+  .d-tag{
     background:#0d3b36;
     color:var(--teal);
-    font-size:0.65rem;
+    font-size:0.62rem;
     font-weight:700;
     padding:1px 6px;
     border-radius:6px;
-    margin-left:6px;
-    vertical-align:middle;
   }
-  .msg-text{
-    color:var(--text);
+  .d-time{ font-size:0.68rem; color:var(--d-muted); }
+  .d-text{
+    color:var(--d-text);
     font-size:0.95rem;
-    margin-top:2px;
-    word-break:break-word;
     line-height:1.45;
+    margin-top:1px;
+    word-break:break-word;
   }
-  .msg-text.q{ color:#c7cad1; }
 
-  .typing{
+  /* reply reference row, above a reply message */
+  .d-reply{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    margin-left:52px;
+    color:var(--d-muted);
+    font-size:0.78rem;
+    padding-top:6px;
+  }
+  .d-reply svg{ flex:none; color:#6a6d75; }
+  .d-reply .r-avatar{
+    width:16px; height:16px; border-radius:50%;
+    background:var(--blurple);
+    display:flex; align-items:center; justify-content:center;
+    font-size:0.6rem; flex:none;
+  }
+  .d-reply .r-name{ color:#b7bac1; font-weight:600; }
+  .d-reply .r-text{
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    max-width:280px; opacity:0.85;
+  }
+
+  .d-typing{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin:2px 4px 8px;
+    color:var(--d-muted);
+    font-size:0.8rem;
+    padding:4px 0;
+  }
+  .typing-dots{
     display:inline-flex;
     gap:4px;
     align-items:center;
-    height:20px;
   }
-  .typing span{
+  .typing-dots span{
     width:6px;height:6px;border-radius:50%;
-    background:var(--muted);
+    background:var(--d-muted);
     animation:bounce 1.2s infinite ease-in-out;
   }
-  .typing span:nth-child(2){ animation-delay:0.15s; }
-  .typing span:nth-child(3){ animation-delay:0.3s; }
+  .typing-dots span:nth-child(2){ animation-delay:0.15s; }
+  .typing-dots span:nth-child(3){ animation-delay:0.3s; }
   @keyframes bounce{
     0%,60%,100%{ transform:translateY(0); opacity:0.5; }
     30%{ transform:translateY(-4px); opacity:1; }
   }
 
-  /* fake browser */
-  .browser{
-    background:#111317;
-    border:1px solid var(--border);
-    border-radius:12px;
+  /* screen-share style attachment holding the fake browser */
+  .screen-caption{
+    margin:6px 0 6px 52px;
+    color:var(--d-muted);
+    font-size:0.78rem;
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+  .screen-attach{
+    margin-left:52px;
+    margin-bottom:4px;
+    max-width:440px;
+    border-radius:8px;
     overflow:hidden;
+    border:1px solid #232529;
     opacity:0;
     transform:translateY(6px);
     transition:opacity .35s ease, transform .35s ease;
   }
-  .browser.show{ opacity:1; transform:translateY(0); }
+  .screen-attach.show{ opacity:1; transform:translateY(0); }
+
   .browser-bar{
     display:flex;
     align-items:center;
     gap:8px;
-    padding:10px 12px;
+    padding:9px 10px;
     background:#1b1e24;
-    border-bottom:1px solid var(--border);
+    border-bottom:1px solid #232529;
   }
-  .dot{ width:9px;height:9px;border-radius:50%; }
+  .dot{ width:8px;height:8px;border-radius:50%; }
   .dot.r{ background:#ff5f57; }
   .dot.y{ background:#febc2e; }
   .dot.g{ background:#28c840; }
   .urlbar{
     flex:1;
     background:#0e1013;
-    border:1px solid var(--border);
+    border:1px solid #232529;
     border-radius:999px;
-    padding:6px 12px;
-    font-size:0.78rem;
-    color:var(--muted);
+    padding:5px 10px;
+    font-size:0.72rem;
+    color:var(--d-muted);
     overflow:hidden;
     white-space:nowrap;
     text-overflow:ellipsis;
   }
   .browser-body{
-    padding:18px;
+    padding:14px;
+    background:#111317;
   }
   .g-search{
     display:flex;
     align-items:center;
     gap:10px;
-    border:1px solid var(--border);
-    border-radius:24px;
-    padding:10px 16px;
-    margin-bottom:20px;
+    border:1px solid #232529;
+    border-radius:22px;
+    padding:8px 14px;
+    margin-bottom:16px;
     background:#0e1013;
   }
-  .g-search .g-icon{ font-weight:800; font-size:1rem; }
+  .g-search .g-icon{ font-weight:800; font-size:0.9rem; }
   .g-search .g-icon .b1{color:#4285F4}
   .g-search .g-icon .b2{color:#EA4335}
   .g-search .g-icon .b3{color:#FBBC05}
@@ -267,8 +304,8 @@
   .g-search .g-icon .b5{color:#34A853}
   .g-search .g-icon .b6{color:#EA4335}
   .g-query{
-    font-size:0.95rem;
-    color:var(--text);
+    font-size:0.88rem;
+    color:var(--d-text);
     white-space:nowrap;
     overflow:hidden;
   }
@@ -281,88 +318,111 @@
   }
   @keyframes blink{ 50%{ opacity:0; } }
 
-  .result-skel{
-    margin-bottom:16px;
-  }
+  .result-skel{ margin-bottom:12px; }
   .result-skel .r-title{
-    height:12px;
-    width:55%;
-    background:#3a5cc9;
-    opacity:.55;
-    border-radius:4px;
-    margin-bottom:8px;
+    height:11px; width:55%;
+    background:#3a5cc9; opacity:.55;
+    border-radius:4px; margin-bottom:7px;
   }
   .result-skel .r-url{
-    height:8px;
-    width:30%;
-    background:#2f7a3a;
-    opacity:.5;
-    border-radius:4px;
-    margin-bottom:8px;
+    height:7px; width:30%;
+    background:#2f7a3a; opacity:.5;
+    border-radius:4px; margin-bottom:7px;
   }
   .result-skel .r-line{
-    height:8px;
-    background:#3a3f47;
-    border-radius:4px;
-    margin-bottom:6px;
+    height:7px; background:#3a3f47;
+    border-radius:4px; margin-bottom:5px;
   }
   .result-skel .r-line.w1{ width:92%; }
   .result-skel .r-line.w2{ width:78%; }
 
-  .punch{
-    margin-top:16px;
-    background:linear-gradient(135deg, rgba(45,212,191,0.12), rgba(88,101,242,0.10));
-    border:1px solid var(--border);
-    border-radius:12px;
-    padding:16px;
+  /* discord link-embed styled answer card */
+  .d-embed{
+    margin:6px 0 10px 52px;
+    border-left:4px solid var(--teal);
+    background:var(--d-bg2);
+    border-radius:4px;
+    padding:10px 14px;
+    max-width:420px;
     opacity:0;
     transform:translateY(6px);
     transition:opacity .4s ease, transform .4s ease;
   }
-  .punch.show{ opacity:1; transform:translateY(0); }
-  .punch b{ color:var(--teal); }
+  .d-embed.show{ opacity:1; transform:translateY(0); }
+  .d-embed .e-site{ font-size:0.7rem; color:var(--d-muted); margin-bottom:2px; }
+  .d-embed .e-title{ color:#00a8fc; font-weight:600; font-size:0.9rem; margin-bottom:8px; }
 
   .share{
     display:flex;
-    gap:8px;
-    margin-top:14px;
+    gap:6px;
+    margin-top:2px;
   }
   .share input{
     flex:1;
-    background:var(--bg-alt);
-    border:1px solid var(--border);
-    color:var(--muted);
-    padding:10px 12px;
-    border-radius:8px;
-    font-size:0.85rem;
+    background:var(--d-bg3);
+    border:1px solid #232529;
+    color:var(--d-muted);
+    padding:8px 10px;
+    border-radius:6px;
+    font-size:0.78rem;
+    min-width:0;
   }
   .share button{
-    background:var(--panel);
-    border:1px solid var(--border);
-    color:var(--text);
-    padding:0 14px;
-    border-radius:8px;
+    background:#232529;
+    border:1px solid #33373f;
+    color:var(--d-text);
+    padding:0 12px;
+    border-radius:6px;
     cursor:pointer;
     font-weight:600;
-    font-size:0.85rem;
+    font-size:0.78rem;
+    white-space:nowrap;
   }
   .share button:hover{ border-color:var(--teal); color:var(--teal); }
 
-  .again{
+  /* composer */
+  .discord-composer{ padding:8px 16px 16px; }
+  form.composer-inner{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    background:var(--d-composer);
+    border-radius:8px;
+    padding:10px 14px;
+  }
+  form.composer-inner input[type="text"]{
+    flex:1;
+    background:transparent;
+    border:none;
+    color:var(--d-text);
+    font-size:0.95rem;
+    outline:none;
+  }
+  form.composer-inner input[type="text"]::placeholder{ color:#6d6f78; }
+  form.composer-inner button{
+    background:none;
+    border:none;
+    color:var(--teal);
+    cursor:pointer;
+    font-size:1.15rem;
+    display:flex;
+    align-items:center;
+    padding:2px;
+  }
+  form.composer-inner button:hover{ color:#7ce9dc; }
+
+  .hint{
     text-align:center;
-    margin-top:22px;
+    color:var(--muted-page);
+    font-size:0.8rem;
+    margin-top:14px;
   }
-  .again a{
-    color:var(--muted);
-    font-size:0.85rem;
-    text-decoration:none;
-    border-bottom:1px dashed var(--border);
-  }
-  .again a:hover{ color:var(--teal); border-color:var(--teal); }
+  .hint a{ color:var(--d-muted); text-decoration:none; border-bottom:1px dashed #3a3f47; }
+  .hint a:hover{ color:var(--teal); border-color:var(--teal); }
 
   footer{
-    margin-top:40px;
-    color:var(--muted);
+    margin-top:30px;
+    color:var(--muted-page);
     font-size:0.75rem;
     text-align:center;
     max-width:480px;
@@ -384,76 +444,104 @@
     </div>
   </header>
 
-  <!-- STAGE 1: landing / ask form -->
-  <section id="stage-ask" class="stage">
-    <form class="ask" id="ask-form" action="" method="get">
-      <input type="text" id="q-input" name="q" placeholder="What are the odds of getting struck by lightning at the bend?" autocomplete="off" />
-      <button type="submit">Let Joel Google It</button>
-    </form>
-    <p class="hint">He's going to google it anyway. Might as well get the link.</p>
-  </section>
+  <div class="discord-shell">
+    <div class="discord-topbar">
+      <span class="hash">#</span> ask-joel
+      <span class="sub"><span class="online-dot"></span> Joel Farley is here somewhere</span>
+    </div>
 
-  <!-- STAGE 2: result / animation -->
-  <section id="stage-result" class="stage">
-    <div class="chatlog">
-      <div class="msg">
-        <div class="avatar you">🙂</div>
-        <div class="msg-body">
-          <div class="msg-name">You</div>
-          <div class="msg-text q" id="asked-text"></div>
+    <div class="discord-messages" id="messages">
+      <div class="d-empty" id="d-empty">
+        <span class="d-empty-icon">🥽</span>
+        Welcome to <b>#ask-joel</b>. This is the beginning of an eternal cycle.<br />
+        Ask literally anything below — Joel's got it.
+      </div>
+
+      <!-- your question -->
+      <div class="d-row" id="row-you" hidden>
+        <div class="d-avatar you">🙂</div>
+        <div class="d-body">
+          <div class="d-head">
+            <span class="d-name">You</span>
+            <span class="d-time" id="you-time"></span>
+          </div>
+          <div class="d-text" id="asked-text"></div>
         </div>
       </div>
-      <div class="msg" id="joel-typing-msg">
-        <div class="avatar joel">🥽</div>
-        <div class="msg-body">
-          <div class="msg-name">Joel Farley <span class="tag">🥽 IGNM</span></div>
-          <div class="msg-text">
-            <span class="typing"><span></span><span></span><span></span></span>
+
+      <!-- typing indicator -->
+      <div class="d-typing" id="typing-row" hidden>
+        <span class="typing-dots"><span></span><span></span><span></span></span>
+        Joel Farley is typing…
+      </div>
+
+      <!-- meanwhile, on Joel's screen -->
+      <div class="screen-caption" id="screen-caption" hidden>🖥️ Joel is now Googling it for you…</div>
+      <div class="screen-attach" id="browser" hidden>
+        <div class="browser-bar">
+          <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+          <div class="urlbar" id="url-bar">google.com/search</div>
+        </div>
+        <div class="browser-body">
+          <div class="g-search">
+            <span class="g-icon"><span class="b1">G</span><span class="b2">o</span><span class="b3">o</span><span class="b4">g</span><span class="b5">l</span><span class="b6">e</span></span>
+            <span class="g-query" id="g-query"><span class="cursor">&nbsp;</span></span>
+          </div>
+          <div class="result-skel" id="skel" style="display:none;">
+            <div class="r-title"></div>
+            <div class="r-url"></div>
+            <div class="r-line w1"></div>
+            <div class="r-line w2"></div>
+          </div>
+          <div class="result-skel" id="skel2" style="display:none;">
+            <div class="r-title" style="width:40%"></div>
+            <div class="r-url"></div>
+            <div class="r-line w1"></div>
           </div>
         </div>
       </div>
-    </div>
 
-    <div class="browser" id="browser">
-      <div class="browser-bar">
-        <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
-        <div class="urlbar" id="url-bar">google.com/search</div>
+      <!-- joel's reply, quoting your question -->
+      <div class="d-reply" id="reply-ref" hidden>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17V9a4 4 0 0 1 4-4h8"/><path d="M9 17l-5-5 5-5"/></svg>
+        <span class="r-avatar">🙂</span>
+        <span class="r-name">You</span>
+        <span class="r-text" id="reply-quote"></span>
       </div>
-      <div class="browser-body">
-        <div class="g-search">
-          <span class="g-icon"><span class="b1">G</span><span class="b2">o</span><span class="b3">o</span><span class="b4">g</span><span class="b5">l</span><span class="b6">e</span></span>
-          <span class="g-query" id="g-query"><span class="cursor">&nbsp;</span></span>
-        </div>
-        <div class="result-skel" id="skel" style="display:none;">
-          <div class="r-title"></div>
-          <div class="r-url"></div>
-          <div class="r-line w1"></div>
-          <div class="r-line w2"></div>
-        </div>
-        <div class="result-skel" id="skel2" style="display:none;">
-          <div class="r-title" style="width:40%"></div>
-          <div class="r-url"></div>
-          <div class="r-line w1"></div>
+      <div class="d-row" id="row-joel" hidden>
+        <div class="d-avatar joel"><img src="joel-avatar-square.png" alt="Joel Farley" /></div>
+        <div class="d-body">
+          <div class="d-head">
+            <span class="d-name joel">Joel Farley</span>
+            <span class="d-tag">🥽 IGNM</span>
+            <span class="d-time" id="joel-time"></span>
+          </div>
+          <div class="d-text">here ya go 👇</div>
         </div>
       </div>
-    </div>
-
-    <div class="punch" id="punch">
-      <div>There ya go 🥽 — <b>Joel Farley</b> googled that for you so you didn't have to.</div>
-      <div class="share">
-        <input type="text" id="share-link" readonly />
-        <button id="copy-btn" type="button">Copy Link</button>
+      <div class="d-embed" id="answer-embed" hidden>
+        <div class="e-site">google.com/search</div>
+        <div class="e-title">Results for "<span id="embed-query"></span>"</div>
+        <div class="share">
+          <input type="text" id="share-link" readonly />
+          <button id="copy-btn" type="button">Copy Link</button>
+        </div>
       </div>
     </div>
 
-    <div class="again">
-      <a href="/ljgtfy/">← ask Joel something else</a>
+    <div class="discord-composer">
+      <form class="composer-inner" id="ask-form" action="" method="get">
+        <input type="text" id="q-input" name="q" placeholder="Message #ask-joel… (e.g. what are the odds of getting struck by lightning at the bend?)" autocomplete="off" />
+        <button type="submit" aria-label="Send">➤</button>
+      </form>
     </div>
-  </section>
+  </div>
+
+  <p class="hint" id="again-hint" style="display:none;"><a href="/ljgtfy/">← clear the channel and ask something else</a></p>
 
   <footer>
     An unofficial, entirely-in-good-fun GSRC tribute to Joel Farley's Google-it-for-you energy.
-    Not affiliated with Google. 100% affiliated with the bend.
+    Not affiliated with Google or Discord. 100% affiliated with the bend.
   </footer>
 </div>
 
@@ -461,15 +549,16 @@
 (function(){
   var params = new URLSearchParams(window.location.search);
   var q = params.get('q');
-  var askStage = document.getElementById('stage-ask');
-  var resultStage = document.getElementById('stage-result');
   var form = document.getElementById('ask-form');
 
-  function showAsk(){
-    askStage.classList.add('active');
-    resultStage.classList.remove('active');
-    var input = document.getElementById('q-input');
-    if (input) input.focus();
+  function formatTime(){
+    var d = new Date();
+    var h = d.getHours();
+    var m = d.getMinutes();
+    var ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12; if (h === 0) h = 12;
+    var mm = m < 10 ? '0' + m : '' + m;
+    return 'Today at ' + h + ':' + mm + ' ' + ampm;
   }
 
   function typeInto(el, text, speed, cb){
@@ -491,62 +580,12 @@
     step();
   }
 
-  function showResult(query){
-    askStage.classList.remove('active');
-    resultStage.classList.add('active');
-
-    document.getElementById('asked-text').textContent = query;
-    document.title = 'LJGTFY — ' + query;
-
-    var shareUrl = window.location.origin + window.location.pathname + '?q=' + encodeURIComponent(query);
-    document.getElementById('share-link').value = shareUrl;
-
-    var joelTyping = document.getElementById('joel-typing-msg');
-    var browser = document.getElementById('browser');
-    var urlBar = document.getElementById('url-bar');
-    var gQuery = document.getElementById('g-query');
-    var skel = document.getElementById('skel');
-    var skel2 = document.getElementById('skel2');
-    var punch = document.getElementById('punch');
-
-    var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-    if (reduceMotion){
-      joelTyping.querySelector('.msg-text').textContent = 'here 👇';
-      urlBar.textContent = 'google.com/search?q=' + encodeURIComponent(query).slice(0,60);
-      gQuery.textContent = query;
-      browser.classList.add('show');
-      skel.style.display = 'block';
-      skel2.style.display = 'block';
-      punch.classList.add('show');
-      wireCopy();
-      return;
-    }
-
-    setTimeout(function(){
-      joelTyping.querySelector('.msg-text').innerHTML = 'here 👇';
-    }, 900);
-
-    setTimeout(function(){
-      browser.classList.add('show');
-      urlBar.textContent = 'google.com/search?q=' + encodeURIComponent(query).slice(0, 60);
-    }, 1400);
-
-    setTimeout(function(){
-      typeInto(gQuery, query, 35, function(){
-        setTimeout(function(){
-          skel.style.display = 'block';
-        }, 250);
-        setTimeout(function(){
-          skel2.style.display = 'block';
-        }, 550);
-        setTimeout(function(){
-          punch.classList.add('show');
-        }, 950);
-      });
-    }, 1700);
-
-    wireCopy();
+  function show(el){ el.hidden = false; }
+  function hide(el){ el.hidden = true; }
+  function fadeShow(el){
+    el.hidden = false;
+    void el.offsetWidth; // force reflow so the opacity transition plays
+    el.classList.add('show');
   }
 
   function wireCopy(){
@@ -574,6 +613,73 @@
     });
   }
 
+  function runConversation(query){
+    document.getElementById('d-empty').style.display = 'none';
+    document.getElementById('again-hint').style.display = 'block';
+    document.title = 'LJGTFY — ' + query;
+
+    document.getElementById('asked-text').textContent = query;
+    document.getElementById('you-time').textContent = formatTime();
+    document.getElementById('reply-quote').textContent = query;
+    document.getElementById('embed-query').textContent = query;
+    document.getElementById('joel-time').textContent = formatTime();
+
+    var shareUrl = window.location.origin + window.location.pathname + '?q=' + encodeURIComponent(query);
+    document.getElementById('share-link').value = shareUrl;
+    wireCopy();
+
+    var rowYou = document.getElementById('row-you');
+    var typingRow = document.getElementById('typing-row');
+    var screenCaption = document.getElementById('screen-caption');
+    var browser = document.getElementById('browser');
+    var urlBar = document.getElementById('url-bar');
+    var gQuery = document.getElementById('g-query');
+    var skel = document.getElementById('skel');
+    var skel2 = document.getElementById('skel2');
+    var replyRef = document.getElementById('reply-ref');
+    var rowJoel = document.getElementById('row-joel');
+    var embed = document.getElementById('answer-embed');
+
+    var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (reduceMotion){
+      show(rowYou);
+      show(screenCaption);
+      urlBar.textContent = 'google.com/search?q=' + encodeURIComponent(query).slice(0,60);
+      gQuery.textContent = query;
+      fadeShow(browser);
+      skel.style.display = 'block';
+      skel2.style.display = 'block';
+      show(replyRef);
+      show(rowJoel);
+      fadeShow(embed);
+      return;
+    }
+
+    show(rowYou);
+
+    setTimeout(function(){ show(typingRow); }, 500);
+
+    setTimeout(function(){
+      hide(typingRow);
+      show(screenCaption);
+      fadeShow(browser);
+      urlBar.textContent = 'google.com/search?q=' + encodeURIComponent(query).slice(0, 60);
+    }, 1700);
+
+    setTimeout(function(){
+      typeInto(gQuery, query, 35, function(){
+        setTimeout(function(){ skel.style.display = 'block'; }, 250);
+        setTimeout(function(){ skel2.style.display = 'block'; }, 550);
+        setTimeout(function(){
+          show(replyRef);
+          show(rowJoel);
+          setTimeout(function(){ fadeShow(embed); }, 200);
+        }, 1200);
+      });
+    }, 2000);
+  }
+
   form.addEventListener('submit', function(e){
     var input = document.getElementById('q-input');
     if (!input.value.trim()){
@@ -583,9 +689,7 @@
   });
 
   if (q && q.trim()){
-    showResult(q.trim());
-  } else {
-    showAsk();
+    runConversation(q.trim());
   }
 })();
 </script>
