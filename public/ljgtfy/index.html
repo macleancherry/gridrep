@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LJGTFY — Let Joel Google That For You</title>
+<meta name="description" content="For all those people who find it more convenient to bother Joel Farley with their question rather than search it for themselves." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🥽</text></svg>" />
+<style>
+  :root{
+    --bg:#1a1c20;
+    --bg-alt:#202329;
+    --panel:#26292f;
+    --border:#33373f;
+    --text:#e7e9ec;
+    --muted:#9aa0aa;
+    --teal:#2dd4bf;
+    --teal-dark:#159c8c;
+    --blurple:#5865f2;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    min-height:100vh;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, rgba(45,212,191,0.10), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:32px 16px 60px;
+  }
+
+  a{color:var(--teal);}
+
+  .wrap{
+    width:100%;
+    max-width:640px;
+  }
+
+  header.hero{
+    text-align:center;
+    margin-bottom:28px;
+  }
+
+  .logo{
+    display:inline-flex;
+    align-items:center;
+    gap:10px;
+    font-weight:800;
+    font-size:2.4rem;
+    letter-spacing:-0.03em;
+    line-height:1;
+  }
+  .logo .goggles{ font-size:2rem; filter:drop-shadow(0 2px 6px rgba(45,212,191,.35)); }
+  .logo .l{color:#f28b30;}
+  .logo .j{color:#e5484d;}
+  .logo .g{color:#2dd4bf;}
+  .logo .t{color:#5865f2;}
+  .logo .f{color:#f2c94c;}
+  .logo .y{color:#22c55e;}
+
+  .tagline{
+    color:var(--muted);
+    margin-top:10px;
+    font-size:0.98rem;
+    max-width:480px;
+    margin-left:auto;
+    margin-right:auto;
+    line-height:1.5;
+  }
+
+  .badge-strip{
+    display:flex;
+    justify-content:center;
+    gap:8px;
+    margin-top:14px;
+  }
+  .pill{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--muted);
+    font-size:0.75rem;
+    padding:4px 10px;
+    border-radius:999px;
+  }
+  .pill b{ color:var(--teal); }
+
+  /* ---- Landing form ---- */
+  form.ask{
+    display:flex;
+    gap:8px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    padding:8px;
+    border-radius:14px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.25);
+  }
+  form.ask input[type="text"]{
+    flex:1;
+    background:var(--bg-alt);
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:14px 16px;
+    border-radius:10px;
+    font-size:1rem;
+    outline:none;
+  }
+  form.ask input[type="text"]:focus{
+    border-color:var(--teal);
+  }
+  form.ask button{
+    background:linear-gradient(135deg, var(--teal), var(--teal-dark));
+    color:#08221e;
+    border:none;
+    font-weight:700;
+    padding:0 20px;
+    border-radius:10px;
+    cursor:pointer;
+    font-size:0.95rem;
+    white-space:nowrap;
+  }
+  form.ask button:hover{ filter:brightness(1.05); }
+  form.ask button:active{ transform:translateY(1px); }
+
+  .hint{
+    text-align:center;
+    color:var(--muted);
+    font-size:0.8rem;
+    margin-top:14px;
+  }
+
+  /* ---- Result view ---- */
+  .stage{ display:none; }
+  .stage.active{ display:block; }
+
+  .chatlog{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:18px;
+    margin-bottom:18px;
+  }
+
+  .msg{
+    display:flex;
+    gap:12px;
+    align-items:flex-start;
+    padding:6px 0;
+  }
+  .avatar{
+    width:38px;
+    height:38px;
+    border-radius:50%;
+    flex:none;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:1.1rem;
+  }
+  .avatar.you{ background:#3a3f47; }
+  .avatar.joel{ background:radial-gradient(circle at 30% 30%, #2dd4bf, #0f766e); }
+
+  .msg-body{ min-width:0; }
+  .msg-name{
+    font-weight:700;
+    font-size:0.9rem;
+  }
+  .msg-name .tag{
+    display:inline-flex;
+    align-items:center;
+    gap:3px;
+    background:#0d3b36;
+    color:var(--teal);
+    font-size:0.65rem;
+    font-weight:700;
+    padding:1px 6px;
+    border-radius:6px;
+    margin-left:6px;
+    vertical-align:middle;
+  }
+  .msg-text{
+    color:var(--text);
+    font-size:0.95rem;
+    margin-top:2px;
+    word-break:break-word;
+    line-height:1.45;
+  }
+  .msg-text.q{ color:#c7cad1; }
+
+  .typing{
+    display:inline-flex;
+    gap:4px;
+    align-items:center;
+    height:20px;
+  }
+  .typing span{
+    width:6px;height:6px;border-radius:50%;
+    background:var(--muted);
+    animation:bounce 1.2s infinite ease-in-out;
+  }
+  .typing span:nth-child(2){ animation-delay:0.15s; }
+  .typing span:nth-child(3){ animation-delay:0.3s; }
+  @keyframes bounce{
+    0%,60%,100%{ transform:translateY(0); opacity:0.5; }
+    30%{ transform:translateY(-4px); opacity:1; }
+  }
+
+  /* fake browser */
+  .browser{
+    background:#111317;
+    border:1px solid var(--border);
+    border-radius:12px;
+    overflow:hidden;
+    opacity:0;
+    transform:translateY(6px);
+    transition:opacity .35s ease, transform .35s ease;
+  }
+  .browser.show{ opacity:1; transform:translateY(0); }
+  .browser-bar{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:10px 12px;
+    background:#1b1e24;
+    border-bottom:1px solid var(--border);
+  }
+  .dot{ width:9px;height:9px;border-radius:50%; }
+  .dot.r{ background:#ff5f57; }
+  .dot.y{ background:#febc2e; }
+  .dot.g{ background:#28c840; }
+  .urlbar{
+    flex:1;
+    background:#0e1013;
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:6px 12px;
+    font-size:0.78rem;
+    color:var(--muted);
+    overflow:hidden;
+    white-space:nowrap;
+    text-overflow:ellipsis;
+  }
+  .browser-body{
+    padding:18px;
+  }
+  .g-search{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    border:1px solid var(--border);
+    border-radius:24px;
+    padding:10px 16px;
+    margin-bottom:20px;
+    background:#0e1013;
+  }
+  .g-search .g-icon{ font-weight:800; font-size:1rem; }
+  .g-search .g-icon .b1{color:#4285F4}
+  .g-search .g-icon .b2{color:#EA4335}
+  .g-search .g-icon .b3{color:#FBBC05}
+  .g-search .g-icon .b4{color:#4285F4}
+  .g-search .g-icon .b5{color:#34A853}
+  .g-search .g-icon .b6{color:#EA4335}
+  .g-query{
+    font-size:0.95rem;
+    color:var(--text);
+    white-space:nowrap;
+    overflow:hidden;
+  }
+  .g-query .cursor{
+    display:inline-block;
+    width:2px;
+    background:var(--teal);
+    margin-left:1px;
+    animation:blink 0.9s steps(1) infinite;
+  }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  .result-skel{
+    margin-bottom:16px;
+  }
+  .result-skel .r-title{
+    height:12px;
+    width:55%;
+    background:#3a5cc9;
+    opacity:.55;
+    border-radius:4px;
+    margin-bottom:8px;
+  }
+  .result-skel .r-url{
+    height:8px;
+    width:30%;
+    background:#2f7a3a;
+    opacity:.5;
+    border-radius:4px;
+    margin-bottom:8px;
+  }
+  .result-skel .r-line{
+    height:8px;
+    background:#3a3f47;
+    border-radius:4px;
+    margin-bottom:6px;
+  }
+  .result-skel .r-line.w1{ width:92%; }
+  .result-skel .r-line.w2{ width:78%; }
+
+  .punch{
+    margin-top:16px;
+    background:linear-gradient(135deg, rgba(45,212,191,0.12), rgba(88,101,242,0.10));
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:16px;
+    opacity:0;
+    transform:translateY(6px);
+    transition:opacity .4s ease, transform .4s ease;
+  }
+  .punch.show{ opacity:1; transform:translateY(0); }
+  .punch b{ color:var(--teal); }
+
+  .share{
+    display:flex;
+    gap:8px;
+    margin-top:14px;
+  }
+  .share input{
+    flex:1;
+    background:var(--bg-alt);
+    border:1px solid var(--border);
+    color:var(--muted);
+    padding:10px 12px;
+    border-radius:8px;
+    font-size:0.85rem;
+  }
+  .share button{
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:0 14px;
+    border-radius:8px;
+    cursor:pointer;
+    font-weight:600;
+    font-size:0.85rem;
+  }
+  .share button:hover{ border-color:var(--teal); color:var(--teal); }
+
+  .again{
+    text-align:center;
+    margin-top:22px;
+  }
+  .again a{
+    color:var(--muted);
+    font-size:0.85rem;
+    text-decoration:none;
+    border-bottom:1px dashed var(--border);
+  }
+  .again a:hover{ color:var(--teal); border-color:var(--teal); }
+
+  footer{
+    margin-top:40px;
+    color:var(--muted);
+    font-size:0.75rem;
+    text-align:center;
+    max-width:480px;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="logo">
+      <span class="goggles">🥽</span><span class="l">L</span><span class="j">J</span><span class="g">G</span><span class="t">T</span><span class="f">F</span><span class="y">Y</span>
+    </div>
+    <p class="tagline">Let Joel Google That For You — for all those people who find it more convenient to bother Joel Farley with their question rather than search it for themselves.</p>
+    <div class="badge-strip">
+      <span class="pill">🥽 <b>IGNM</b> certified</span>
+      <span class="pill">fahhhhh what are the odds</span>
+    </div>
+  </header>
+
+  <!-- STAGE 1: landing / ask form -->
+  <section id="stage-ask" class="stage">
+    <form class="ask" id="ask-form" action="" method="get">
+      <input type="text" id="q-input" name="q" placeholder="What are the odds of getting struck by lightning at the bend?" autocomplete="off" />
+      <button type="submit">Let Joel Google It</button>
+    </form>
+    <p class="hint">He's going to google it anyway. Might as well get the link.</p>
+  </section>
+
+  <!-- STAGE 2: result / animation -->
+  <section id="stage-result" class="stage">
+    <div class="chatlog">
+      <div class="msg">
+        <div class="avatar you">🙂</div>
+        <div class="msg-body">
+          <div class="msg-name">You</div>
+          <div class="msg-text q" id="asked-text"></div>
+        </div>
+      </div>
+      <div class="msg" id="joel-typing-msg">
+        <div class="avatar joel">🥽</div>
+        <div class="msg-body">
+          <div class="msg-name">Joel Farley <span class="tag">🥽 IGNM</span></div>
+          <div class="msg-text">
+            <span class="typing"><span></span><span></span><span></span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="browser" id="browser">
+      <div class="browser-bar">
+        <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+        <div class="urlbar" id="url-bar">google.com/search</div>
+      </div>
+      <div class="browser-body">
+        <div class="g-search">
+          <span class="g-icon"><span class="b1">G</span><span class="b2">o</span><span class="b3">o</span><span class="b4">g</span><span class="b5">l</span><span class="b6">e</span></span>
+          <span class="g-query" id="g-query"><span class="cursor">&nbsp;</span></span>
+        </div>
+        <div class="result-skel" id="skel" style="display:none;">
+          <div class="r-title"></div>
+          <div class="r-url"></div>
+          <div class="r-line w1"></div>
+          <div class="r-line w2"></div>
+        </div>
+        <div class="result-skel" id="skel2" style="display:none;">
+          <div class="r-title" style="width:40%"></div>
+          <div class="r-url"></div>
+          <div class="r-line w1"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="punch" id="punch">
+      <div>There ya go 🥽 — <b>Joel Farley</b> googled that for you so you didn't have to.</div>
+      <div class="share">
+        <input type="text" id="share-link" readonly />
+        <button id="copy-btn" type="button">Copy Link</button>
+      </div>
+    </div>
+
+    <div class="again">
+      <a href="/ljgtfy/">← ask Joel something else</a>
+    </div>
+  </section>
+
+  <footer>
+    An unofficial, entirely-in-good-fun GSRC tribute to Joel Farley's Google-it-for-you energy.
+    Not affiliated with Google. 100% affiliated with the bend.
+  </footer>
+</div>
+
+<script>
+(function(){
+  var params = new URLSearchParams(window.location.search);
+  var q = params.get('q');
+  var askStage = document.getElementById('stage-ask');
+  var resultStage = document.getElementById('stage-result');
+  var form = document.getElementById('ask-form');
+
+  function showAsk(){
+    askStage.classList.add('active');
+    resultStage.classList.remove('active');
+    var input = document.getElementById('q-input');
+    if (input) input.focus();
+  }
+
+  function typeInto(el, text, speed, cb){
+    var i = 0;
+    var cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    cursor.innerHTML = '&nbsp;';
+    el.textContent = '';
+    el.appendChild(cursor);
+    function step(){
+      if (i < text.length){
+        cursor.insertAdjacentText('beforebegin', text.charAt(i));
+        i++;
+        setTimeout(step, speed);
+      } else if (cb) {
+        setTimeout(cb, 350);
+      }
+    }
+    step();
+  }
+
+  function showResult(query){
+    askStage.classList.remove('active');
+    resultStage.classList.add('active');
+
+    document.getElementById('asked-text').textContent = query;
+    document.title = 'LJGTFY — ' + query;
+
+    var shareUrl = window.location.origin + window.location.pathname + '?q=' + encodeURIComponent(query);
+    document.getElementById('share-link').value = shareUrl;
+
+    var joelTyping = document.getElementById('joel-typing-msg');
+    var browser = document.getElementById('browser');
+    var urlBar = document.getElementById('url-bar');
+    var gQuery = document.getElementById('g-query');
+    var skel = document.getElementById('skel');
+    var skel2 = document.getElementById('skel2');
+    var punch = document.getElementById('punch');
+
+    var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (reduceMotion){
+      joelTyping.querySelector('.msg-text').textContent = 'here 👇';
+      urlBar.textContent = 'google.com/search?q=' + encodeURIComponent(query).slice(0,60);
+      gQuery.textContent = query;
+      browser.classList.add('show');
+      skel.style.display = 'block';
+      skel2.style.display = 'block';
+      punch.classList.add('show');
+      wireCopy();
+      return;
+    }
+
+    setTimeout(function(){
+      joelTyping.querySelector('.msg-text').innerHTML = 'here 👇';
+    }, 900);
+
+    setTimeout(function(){
+      browser.classList.add('show');
+      urlBar.textContent = 'google.com/search?q=' + encodeURIComponent(query).slice(0, 60);
+    }, 1400);
+
+    setTimeout(function(){
+      typeInto(gQuery, query, 35, function(){
+        setTimeout(function(){
+          skel.style.display = 'block';
+        }, 250);
+        setTimeout(function(){
+          skel2.style.display = 'block';
+        }, 550);
+        setTimeout(function(){
+          punch.classList.add('show');
+        }, 950);
+      });
+    }, 1700);
+
+    wireCopy();
+  }
+
+  function wireCopy(){
+    var btn = document.getElementById('copy-btn');
+    if (btn.dataset.wired) return;
+    btn.dataset.wired = '1';
+    btn.addEventListener('click', function(){
+      var input = document.getElementById('share-link');
+      input.select();
+      input.setSelectionRange(0, 99999);
+      var done = function(){
+        var original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(function(){ btn.textContent = original; }, 1400);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(input.value).then(done).catch(function(){
+          document.execCommand('copy');
+          done();
+        });
+      } else {
+        document.execCommand('copy');
+        done();
+      }
+    });
+  }
+
+  form.addEventListener('submit', function(e){
+    var input = document.getElementById('q-input');
+    if (!input.value.trim()){
+      e.preventDefault();
+    }
+    // otherwise let the GET form navigate to ?q=... naturally
+  });
+
+  if (q && q.trim()){
+    showResult(q.trim());
+  } else {
+    showAsk();
+  }
+})();
+</script>
+
+</body>
+</html>
