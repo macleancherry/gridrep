@@ -59,7 +59,11 @@
     font-size:2.4rem;
     letter-spacing:-0.03em;
     line-height:1;
+    text-decoration:none;
+    cursor:pointer;
+    transition:opacity .15s ease;
   }
+  .logo:hover{ opacity:0.85; }
   .logo .goggles{ font-size:2rem; filter:drop-shadow(0 2px 6px rgba(45,212,191,.35)); }
   .logo .l{color:#f28b30;}
   .logo .j{color:#e5484d;}
@@ -443,9 +447,9 @@
 <div class="wrap">
 
   <header class="hero">
-    <div class="logo">
+    <a class="logo" href="/ljgtfy/" aria-label="LJGTFY home — start a new search">
       <span class="goggles">🥽</span><span class="l">L</span><span class="j">J</span><span class="g">G</span><span class="t">T</span><span class="f">F</span><span class="y">Y</span>
-    </div>
+    </a>
     <p class="tagline">Let Joel Google That For You — for all those people who find it more convenient to bother Joel Farley with their question rather than search it for themselves.</p>
     <div class="badge-strip">
       <span class="pill">🥽 <b>IGNM</b> certified</span>
