@@ -250,7 +250,7 @@
   .screen-attach{
     margin-left:52px;
     margin-bottom:4px;
-    max-width:440px;
+    max-width:480px;
     border-radius:8px;
     overflow:hidden;
     border:1px solid #232529;
@@ -283,7 +283,10 @@
     overflow:hidden;
     white-space:nowrap;
     text-overflow:ellipsis;
+    text-decoration:none;
+    display:block;
   }
+  .urlbar:hover{ color:var(--teal); border-color:var(--teal); }
   .browser-body{
     padding:14px;
     background:#111317;
@@ -320,23 +323,27 @@
   }
   @keyframes blink{ 50%{ opacity:0; } }
 
-  .result-skel{ margin-bottom:12px; }
-  .result-skel .r-title{
-    height:11px; width:55%;
-    background:#3a5cc9; opacity:.55;
-    border-radius:4px; margin-bottom:7px;
+  .results-frame-wrap{
+    background:#fff;
+    height:0;
+    overflow:hidden;
+    transition:height .3s ease;
   }
-  .result-skel .r-url{
-    height:7px; width:30%;
-    background:#2f7a3a; opacity:.5;
-    border-radius:4px; margin-bottom:7px;
+  .results-frame-wrap.loaded{ height:440px; }
+  #results-frame{
+    width:100%;
+    height:440px;
+    border:none;
+    display:block;
+    background:#fff;
   }
-  .result-skel .r-line{
-    height:7px; background:#3a3f47;
-    border-radius:4px; margin-bottom:5px;
+  .results-fallback{
+    padding:10px 14px 14px;
+    font-size:0.72rem;
+    color:var(--d-muted);
+    background:#111317;
   }
-  .result-skel .r-line.w1{ width:92%; }
-  .result-skel .r-line.w2{ width:78%; }
+  .results-fallback a{ color:var(--teal); }
 
   /* discord link-embed styled answer card */
   .d-embed{
@@ -482,24 +489,19 @@
       <div class="screen-attach" id="browser" hidden>
         <div class="browser-bar">
           <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
-          <div class="urlbar" id="url-bar">google.com/search</div>
+          <a class="urlbar" id="url-bar" href="#" target="_blank" rel="noopener">google.com/search</a>
         </div>
         <div class="browser-body">
           <div class="g-search">
             <span class="g-icon"><span class="b1">G</span><span class="b2">o</span><span class="b3">o</span><span class="b4">g</span><span class="b5">l</span><span class="b6">e</span></span>
             <span class="g-query" id="g-query"><span class="cursor">&nbsp;</span></span>
           </div>
-          <div class="result-skel" id="skel" style="display:none;">
-            <div class="r-title"></div>
-            <div class="r-url"></div>
-            <div class="r-line w1"></div>
-            <div class="r-line w2"></div>
-          </div>
-          <div class="result-skel" id="skel2" style="display:none;">
-            <div class="r-title" style="width:40%"></div>
-            <div class="r-url"></div>
-            <div class="r-line w1"></div>
-          </div>
+        </div>
+        <div class="results-frame-wrap" id="results-wrap">
+          <iframe id="results-frame" title="Google search results" referrerpolicy="no-referrer-when-downgrade" loading="lazy"></iframe>
+        </div>
+        <div class="results-fallback">
+          Results not showing? <a id="results-fallback-link" href="#" target="_blank" rel="noopener">open the real search in a new tab ↗</a>
         </div>
       </div>
 
@@ -636,11 +638,22 @@
     var browser = document.getElementById('browser');
     var urlBar = document.getElementById('url-bar');
     var gQuery = document.getElementById('g-query');
-    var skel = document.getElementById('skel');
-    var skel2 = document.getElementById('skel2');
+    var resultsWrap = document.getElementById('results-wrap');
+    var resultsFrame = document.getElementById('results-frame');
+    var fallbackLink = document.getElementById('results-fallback-link');
     var replyRef = document.getElementById('reply-ref');
     var rowJoel = document.getElementById('row-joel');
     var embed = document.getElementById('answer-embed');
+
+    var realSearchUrl = 'https://www.google.com/search?q=' + encodeURIComponent(query);
+    var embedSearchUrl = 'https://www.google.com/search?igu=1&q=' + encodeURIComponent(query);
+    urlBar.href = realSearchUrl;
+    fallbackLink.href = realSearchUrl;
+
+    function loadResults(){
+      resultsFrame.src = embedSearchUrl;
+      resultsWrap.classList.add('loaded');
+    }
 
     var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -650,8 +663,7 @@
       urlBar.textContent = 'google.com/search?q=' + encodeURIComponent(query).slice(0,60);
       gQuery.textContent = query;
       fadeShow(browser);
-      skel.style.display = 'block';
-      skel2.style.display = 'block';
+      loadResults();
       show(replyRef);
       show(rowJoel);
       fadeShow(embed);
@@ -671,13 +683,12 @@
 
     setTimeout(function(){
       typeInto(gQuery, query, 35, function(){
-        setTimeout(function(){ skel.style.display = 'block'; }, 250);
-        setTimeout(function(){ skel2.style.display = 'block'; }, 550);
+        setTimeout(loadResults, 250);
         setTimeout(function(){
           show(replyRef);
           show(rowJoel);
           setTimeout(function(){ fadeShow(embed); }, 200);
-        }, 1200);
+        }, 1400);
       });
     }, 2000);
   }
