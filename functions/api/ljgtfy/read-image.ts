@@ -21,22 +21,26 @@ export async function onRequestPost(context: any) {
   }
 
   try {
-    const result: any = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
+    const result: any = await env.AI.run("@cf/llava-hf/llava-1.5-7b-hf", {
       image: Array.from(new Uint8Array(buf)),
       prompt:
-        "This is a screenshot, likely of a chat message or a question someone typed. " +
-        "Reply with ONLY the question or statement being asked in the image, verbatim if possible. " +
-        "No preamble, no quotes, no explanation. If there's no clear question, reply with the single most prominent line of text in the image.",
+        "This image contains a screenshot of a chat message, or some other piece of text. " +
+        "Reply with ONLY the exact question or statement shown in the image, verbatim if legible. " +
+        "No preamble, no quotes, no description of the image itself — just the text of the question. " +
+        "If there's no legible question, reply with the single most prominent line of text in the image.",
       max_tokens: 120,
     });
 
-    const text = String(result?.response ?? "").trim();
+    const text = String(result?.description ?? "").trim();
     if (!text) {
       return Response.json({ error: "Couldn't make out any text in that image." }, { status: 422 });
     }
 
     return Response.json({ text }, { headers: { "Cache-Control": "no-store" } });
   } catch (err: any) {
-    return Response.json({ error: "Joel squinted at it and gave up. Try again?" }, { status: 500 });
+    return Response.json(
+      { error: "Joel squinted at it and gave up. Try again?", detail: String(err?.message ?? err) },
+      { status: 500 }
+    );
   }
 }
