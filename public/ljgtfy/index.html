@@ -421,8 +421,11 @@
     display:flex;
     align-items:center;
     padding:2px;
+    flex:none;
   }
   form.composer-inner button:hover{ color:#7ce9dc; }
+  form.composer-inner .attach-btn{ color:var(--d-muted); font-size:1.25rem; }
+  form.composer-inner .attach-btn:hover{ color:var(--teal); }
 
   .hint{
     text-align:center;
@@ -539,13 +542,15 @@
 
     <div class="discord-composer">
       <form class="composer-inner" id="ask-form" action="" method="get">
+        <button type="button" class="attach-btn" id="attach-btn" aria-label="Attach a screenshot">📎</button>
+        <input type="file" id="image-input" accept="image/*" hidden />
         <input type="text" id="q-input" name="q" placeholder="Message #ask-joel… (e.g. what are the odds of getting struck by lightning at the bend?)" autocomplete="off" />
         <button type="submit" aria-label="Send">➤</button>
       </form>
     </div>
   </div>
 
-  <p class="hint" id="paste-hint">📋 Tip: paste a screenshot into the box and Joel will read the question for you.</p>
+  <p class="hint" id="paste-hint">📎 Tip: tap the paperclip (or paste a screenshot) and Joel will read the question for you.</p>
   <p class="hint" id="again-hint" style="display:none;"><a href="/ljgtfy/">← clear the channel and ask something else</a></p>
 
   <footer>
@@ -709,19 +714,7 @@
     // otherwise let the GET form navigate to ?q=... naturally
   });
 
-  qInput.addEventListener('paste', function(e){
-    var items = (e.clipboardData && e.clipboardData.items) || [];
-    var imageItem = null;
-    for (var i = 0; i < items.length; i++){
-      if (items[i].type && items[i].type.indexOf('image/') === 0){
-        imageItem = items[i];
-        break;
-      }
-    }
-    if (!imageItem) return; // no image on the clipboard, let normal text paste happen
-
-    e.preventDefault();
-    var file = imageItem.getAsFile();
+  function readImageFile(file){
     if (!file) return;
 
     qInput.value = '';
@@ -749,6 +742,32 @@
       qInput.placeholder = "Couldn't reach Joel's brain. Try again?";
       setTimeout(function(){ qInput.placeholder = defaultPlaceholder; }, 3000);
     });
+  }
+
+  qInput.addEventListener('paste', function(e){
+    var items = (e.clipboardData && e.clipboardData.items) || [];
+    var imageItem = null;
+    for (var i = 0; i < items.length; i++){
+      if (items[i].type && items[i].type.indexOf('image/') === 0){
+        imageItem = items[i];
+        break;
+      }
+    }
+    if (!imageItem) return; // no image on the clipboard, let normal text paste happen
+
+    e.preventDefault();
+    readImageFile(imageItem.getAsFile());
+  });
+
+  var attachBtn = document.getElementById('attach-btn');
+  var imageInput = document.getElementById('image-input');
+  attachBtn.addEventListener('click', function(){
+    imageInput.click();
+  });
+  imageInput.addEventListener('change', function(){
+    var file = imageInput.files && imageInput.files[0];
+    imageInput.value = ''; // allow picking the same file again later
+    readImageFile(file);
   });
 
   if (q && q.trim()){
