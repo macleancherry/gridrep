@@ -545,6 +545,7 @@
     </div>
   </div>
 
+  <p class="hint" id="paste-hint">📋 Tip: paste a screenshot into the box and Joel will read the question for you.</p>
   <p class="hint" id="again-hint" style="display:none;"><a href="/ljgtfy/">← clear the channel and ask something else</a></p>
 
   <footer>
@@ -558,6 +559,8 @@
   var params = new URLSearchParams(window.location.search);
   var q = params.get('q');
   var form = document.getElementById('ask-form');
+  var qInput = document.getElementById('q-input');
+  var defaultPlaceholder = qInput.placeholder;
 
   function formatTime(){
     var d = new Date();
@@ -623,6 +626,7 @@
 
   function runConversation(query){
     document.getElementById('d-empty').style.display = 'none';
+    document.getElementById('paste-hint').style.display = 'none';
     document.getElementById('again-hint').style.display = 'block';
     document.title = 'LJGTFY — ' + query;
 
@@ -703,6 +707,48 @@
       e.preventDefault();
     }
     // otherwise let the GET form navigate to ?q=... naturally
+  });
+
+  qInput.addEventListener('paste', function(e){
+    var items = (e.clipboardData && e.clipboardData.items) || [];
+    var imageItem = null;
+    for (var i = 0; i < items.length; i++){
+      if (items[i].type && items[i].type.indexOf('image/') === 0){
+        imageItem = items[i];
+        break;
+      }
+    }
+    if (!imageItem) return; // no image on the clipboard, let normal text paste happen
+
+    e.preventDefault();
+    var file = imageItem.getAsFile();
+    if (!file) return;
+
+    qInput.value = '';
+    qInput.disabled = true;
+    qInput.placeholder = '🥽 Joel is squinting at the image…';
+
+    fetch('/api/ljgtfy/read-image', {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'image/png' },
+      body: file
+    }).then(function(res){
+      return res.json().then(function(data){ return { ok: res.ok, data: data }; });
+    }).then(function(result){
+      qInput.disabled = false;
+      if (result.ok && result.data && result.data.text){
+        qInput.placeholder = defaultPlaceholder;
+        qInput.value = result.data.text;
+        qInput.focus();
+      } else {
+        qInput.placeholder = (result.data && result.data.error) || "Couldn't read that image — try again?";
+        setTimeout(function(){ qInput.placeholder = defaultPlaceholder; }, 3000);
+      }
+    }).catch(function(){
+      qInput.disabled = false;
+      qInput.placeholder = "Couldn't reach Joel's brain. Try again?";
+      setTimeout(function(){ qInput.placeholder = defaultPlaceholder; }, 3000);
+    });
   });
 
   if (q && q.trim()){
