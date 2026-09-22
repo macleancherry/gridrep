@@ -461,7 +461,12 @@ export async function fetchSeasonList(accessToken: string): Promise<any> {
 }
 
 const SERIES_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours - the catalog barely changes intra-day
-const SERIES_SUMMARIES_CACHE_ID = "series_summaries_v1";
+// Bumped to v2 when the special/endurance classification logic changed (min_team_drivers
+// signal added) - the cached row stores the already-classified result, not raw data, so a
+// code fix alone doesn't retroactively reclassify a row cached under the old logic. Changing
+// the key forces one fresh fetch+reclassify instead of silently serving stale output for up
+// to SERIES_CACHE_TTL_MS after a classification-affecting deploy.
+const SERIES_SUMMARIES_CACHE_ID = "series_summaries_v2";
 
 /**
  * Read-through cache, migration 0019 - but caching the raw fetchSeasonList payload
