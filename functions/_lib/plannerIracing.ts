@@ -683,6 +683,21 @@ function extractSeasonRows(payload: any): Array<Record<string, unknown>> {
 }
 
 /**
+ * A real, already-confirmed-live signal (min_team_drivers/max_team_drivers, e.g. 2/16 for
+ * "6 Hours of Road America" - see extractTeamSizeLimits below) rather than a guessed field.
+ * A series iRacing itself requires 2+ drivers to enter isn't a solo sprint by definition -
+ * this is exactly gridrep's target audience (team/relay racing) regardless of whether the
+ * name happens to say "Hours" or "Endurance". Found via a real gap: "iRacing Petit Le Mans
+ * Presented by VCO" (a genuine 10h team special event, min 2/max 16 drivers) carries none
+ * of the name-based signals below, so it was silently invisible in both the special-only
+ * default view and an endurance-preference-tailored search until this was added.
+ */
+function isTeamEvent(row: Record<string, unknown>): boolean {
+  const minTeamDrivers = pickNumber(row.min_team_drivers);
+  return minTeamDrivers !== undefined && minTeamDrivers >= 2;
+}
+
+/**
  * Heuristic only - iRacing's exact "this season is a Special Event" flag is unconfirmed.
  * Special Events are historically one-off, non-points series with a fixed short window
  * rather than a recurring multi-week season, so this leans on name/shape signals
@@ -693,6 +708,7 @@ function extractSeasonRows(payload: any): Array<Record<string, unknown>> {
  */
 function looksLikeSpecialEvent(row: Record<string, unknown>): boolean {
   if (row.special_event === true || row.is_special_event === true) return true;
+  if (isTeamEvent(row)) return true;
 
   const name = (pickString(row.series_name) ?? pickString(row.season_name) ?? "").toLowerCase();
   return name.includes("special event") || /\b\d+\s*hours?\b/.test(name) || /\b\d+h\b/.test(name);
@@ -803,7 +819,11 @@ export type RacingDiscipline = "road" | "oval" | "dirt_road" | "dirt_oval";
 export function classifyFormats(row: Record<string, unknown>): RacingFormat[] {
   const name = (pickString(row.series_name) ?? pickString(row.season_name) ?? "").toLowerCase();
   const isHourNamed = /\b\d+\s*hours?\b/.test(name) || /\b\d+h\b/.test(name);
-  const isEnduranceNamed = name.includes("endurance") || isHourNamed;
+  // A series requiring 2+ team drivers (min_team_drivers, confirmed live) is definitionally
+  // endurance/relay racing regardless of what it's branded - same reasoning as isTeamEvent
+  // above, closes the gap that hid "iRacing Petit Le Mans Presented by VCO" from an
+  // endurance-preference-tailored search even after it was fixed to show in the default view.
+  const isEnduranceNamed = name.includes("endurance") || isHourNamed || isTeamEvent(row);
   const isSpecial = looksLikeSpecialEvent(row);
 
   const out: RacingFormat[] = [];
