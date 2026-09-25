@@ -7,6 +7,15 @@ function clampN(raw: string | null, fallback: number, max: number): number {
   return Math.min(max, Math.trunc(n));
 }
 
+// iRacing scores incidents in points, not one-per-flag: contact-type flags
+// count for 4, everything else (off track, spin/loss of control, etc.) for
+// 2. This is the community-reverse-engineered convention (iRacing doesn't
+// publish the weights), so the total here is a close estimate rather than
+// a guaranteed exact match to the in-sim incident count.
+function pointsForFlag(flag: string): number {
+  return flag.toLowerCase().includes("contact") ? 4 : 2;
+}
+
 export async function onRequestGet(context: any) {
   const subsessionId = context.params.subsessionId as string;
   const { DB } = context.env;
@@ -33,7 +42,7 @@ export async function onRequestGet(context: any) {
 
   type Key = string;
   const groups = new Map<Key, { custId: string; driverName: string; simsessionType: string; laps: StoredLap[] }>();
-  const incidentsByDriver = new Map<string, { count: number; types: Record<string, number> }>();
+  const incidentsByDriver = new Map<string, { points: number; lapsAffected: number; types: Record<string, number> }>();
 
   for (const row of rows.results ?? []) {
     const key = `${row.simsessionType}:${row.custId}`;
@@ -63,10 +72,11 @@ export async function onRequestGet(context: any) {
         flags = [];
       }
       if (flags.length > 0) {
-        if (!incidentsByDriver.has(row.custId)) incidentsByDriver.set(row.custId, { count: 0, types: {} });
+        if (!incidentsByDriver.has(row.custId)) incidentsByDriver.set(row.custId, { points: 0, lapsAffected: 0, types: {} });
         const stats = incidentsByDriver.get(row.custId)!;
-        stats.count += 1;
+        stats.lapsAffected += 1;
         for (const flag of flags) {
+          stats.points += pointsForFlag(flag);
           stats.types[flag] = (stats.types[flag] ?? 0) + 1;
         }
       }
@@ -99,7 +109,7 @@ export async function onRequestGet(context: any) {
       qualifying: unknown;
       race: unknown;
       average: unknown;
-      incidents: { count: number; types: Record<string, number> };
+      incidents: { points: number; lapsAffected: number; types: Record<string, number> };
     }
   >();
 
@@ -111,7 +121,7 @@ export async function onRequestGet(context: any) {
         qualifying: null,
         race: null,
         average: null,
-        incidents: incidentsByDriver.get(g.custId) ?? { count: 0, types: {} },
+        incidents: incidentsByDriver.get(g.custId) ?? { points: 0, lapsAffected: 0, types: {} },
       });
     }
     const entry = byDriver.get(g.custId)!;

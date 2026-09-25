@@ -6,7 +6,7 @@ type PaceResult =
   | { ok: false; reason: string }
   | null;
 
-type IncidentStats = { count: number; types: Record<string, number> };
+type IncidentStats = { points: number; lapsAffected: number; types: Record<string, number> };
 
 type DriverPaceRow = {
   custId: string;
@@ -52,16 +52,20 @@ function sortValue(result: PaceResult): number {
 }
 
 function IncidentsCell({ incidents }: { incidents: IncidentStats }) {
-  if (!incidents || incidents.count === 0) return <span className="pace-muted">0</span>;
+  if (!incidents || incidents.points === 0) return <span className="pace-muted">0</span>;
 
   const breakdown = Object.entries(incidents.types)
     .sort((a, b) => b[1] - a[1])
     .map(([type, n]) => `${type}: ${n}`)
     .join(", ");
 
+  const title = `Estimated iRacing incident points (2x off-track/spin, 4x contact) from ${
+    incidents.lapsAffected
+  } flagged lap(s): ${breakdown}`;
+
   return (
-    <span title={breakdown} style={{ cursor: "help" }}>
-      {incidents.count} <span className="pace-muted">({breakdown})</span>
+    <span title={title} style={{ cursor: "help" }}>
+      ~{incidents.points}x <span className="pace-muted">({breakdown})</span>
     </span>
   );
 }
@@ -127,7 +131,7 @@ export default function PaceSubsession() {
 
   const sorted = useMemo(() => {
     if (!drivers) return null;
-    const valueOf = (d: DriverPaceRow) => (sortColumn === "incidents" ? d.incidents.count : sortValue(d[sortColumn]));
+    const valueOf = (d: DriverPaceRow) => (sortColumn === "incidents" ? d.incidents.points : sortValue(d[sortColumn]));
     const withSort = [...drivers].sort((a, b) => valueOf(a) - valueOf(b));
     return sortAsc ? withSort : withSort.reverse();
   }, [drivers, sortColumn, sortAsc]);
@@ -198,7 +202,7 @@ export default function PaceSubsession() {
                     <SortHeader column="qualifying" label="Qualifying pace" />
                     <SortHeader column="race" label="Race pace" />
                     <SortHeader column="average" label="Average pace" />
-                    <SortHeader column="incidents" label="Incidents" />
+                    <SortHeader column="incidents" label="Incidents (est.)" />
                   </tr>
                 </thead>
                 <tbody>
