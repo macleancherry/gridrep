@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { usePaceBrand, withBrand } from "../brands";
 
 type IngestResponse = {
   ok: boolean;
@@ -41,6 +42,7 @@ type SyncSummary = {
 
 export default function PaceHome() {
   const navigate = useNavigate();
+  const { brandKey } = usePaceBrand();
 
   const [subsessionInput, setSubsessionInput] = useState("");
   const [pulling, setPulling] = useState(false);
@@ -136,7 +138,7 @@ export default function PaceHome() {
         return;
       }
 
-      navigate(`/pace/s/${encodeURIComponent(id)}`);
+      navigate(withBrand(`/pace/s/${encodeURIComponent(id)}`, brandKey));
     } catch {
       setPullError("Network error. Please try again.");
     } finally {
