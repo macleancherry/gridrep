@@ -257,8 +257,18 @@ export default function PaceHome() {
   }
 
   async function removeLeague(leagueId: string) {
-    await fetch(`/api/pace/leagues/${encodeURIComponent(leagueId)}`, { method: "DELETE" });
-    await loadLeagues();
+    setLeagueError(null);
+    try {
+      const r = await fetch(`/api/pace/leagues/${encodeURIComponent(leagueId)}`, { method: "DELETE" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setLeagueError(data.message ?? "Could not unfollow this league.");
+        return;
+      }
+      await loadLeagues();
+    } catch {
+      setLeagueError("Network error. Please try again.");
+    }
   }
 
   async function runSync() {

@@ -45,7 +45,17 @@ export async function onRequestDelete(context: any) {
   const leagueId = context.params.leagueId as string;
   const { DB } = context.env;
 
-  await DB.prepare(`DELETE FROM pace_leagues WHERE league_id = ?`).bind(leagueId).run();
+  // pace_subsessions.league_id has a foreign key onto this table with no
+  // cascade, so deleting a league that already has synced races would
+  // otherwise throw a constraint error (and, with no error handling on the
+  // frontend's fetch, look like the button silently does nothing). Unfollow
+  // should stop future syncs, not erase results already pulled in, so
+  // detach them (NULL league_id - the same state a manually-entered
+  // subsession is already in) before removing the league row itself.
+  await DB.batch([
+    DB.prepare(`UPDATE pace_subsessions SET league_id = NULL WHERE league_id = ?`).bind(leagueId),
+    DB.prepare(`DELETE FROM pace_leagues WHERE league_id = ?`).bind(leagueId),
+  ]);
 
   return json({ ok: true, leagueId });
 }
