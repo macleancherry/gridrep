@@ -6,7 +6,7 @@ type PaceResult =
   | { ok: false; reason: string }
   | null;
 
-type IncidentStats = { points: number; lapsAffected: number; types: Record<string, number> };
+type IncidentStats = { total: number; estimated: boolean; lapsAffected: number; types: Record<string, number> };
 
 type DriverPaceRow = {
   custId: string;
@@ -52,20 +52,21 @@ function sortValue(result: PaceResult): number {
 }
 
 function IncidentsCell({ incidents }: { incidents: IncidentStats }) {
-  if (!incidents || incidents.points === 0) return <span className="pace-muted">0</span>;
+  if (!incidents || incidents.total === 0) return <span className="pace-muted">0</span>;
 
   const breakdown = Object.entries(incidents.types)
     .sort((a, b) => b[1] - a[1])
     .map(([type, n]) => `${type}: ${n}`)
     .join(", ");
 
-  const title = `Estimated iRacing incident points (1x off track, 2x contact/lost control) from ${
-    incidents.lapsAffected
-  } flagged lap(s): ${breakdown}`;
+  const title = incidents.estimated
+    ? `iRacing didn't report an official incident total for this session - estimated from ${incidents.lapsAffected} flagged lap(s) (1x off track, 2x contact/lost control): ${breakdown}`
+    : `iRacing's reported incident total, from ${incidents.lapsAffected} flagged lap(s): ${breakdown}`;
 
   return (
     <span title={title} style={{ cursor: "help" }}>
-      ~{incidents.points}x <span className="pace-muted">({breakdown})</span>
+      {incidents.total}
+      {incidents.estimated && <span className="pace-muted"> (est.)</span>} <span className="pace-muted">({breakdown})</span>
     </span>
   );
 }
@@ -131,7 +132,7 @@ export default function PaceSubsession() {
 
   const sorted = useMemo(() => {
     if (!drivers) return null;
-    const valueOf = (d: DriverPaceRow) => (sortColumn === "incidents" ? d.incidents.points : sortValue(d[sortColumn]));
+    const valueOf = (d: DriverPaceRow) => (sortColumn === "incidents" ? d.incidents.total : sortValue(d[sortColumn]));
     const withSort = [...drivers].sort((a, b) => valueOf(a) - valueOf(b));
     return sortAsc ? withSort : withSort.reverse();
   }, [drivers, sortColumn, sortAsc]);
@@ -202,7 +203,7 @@ export default function PaceSubsession() {
                     <SortHeader column="qualifying" label="Qualifying pace" />
                     <SortHeader column="race" label="Race pace" />
                     <SortHeader column="average" label="Average pace" />
-                    <SortHeader column="incidents" label="Incidents (est.)" />
+                    <SortHeader column="incidents" label="Incidents" />
                   </tr>
                 </thead>
                 <tbody>

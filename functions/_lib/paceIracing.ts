@@ -13,6 +13,13 @@ export type SimSessionInfo = {
   participants: { custId: string; teamId: string | null }[];
 };
 
+export type IncidentsRow = {
+  custId: string;
+  simsessionNumber: number;
+  type: "qualifying" | "race";
+  incidents: number | null;
+};
+
 /**
  * iRacingHttpError's default .message only carries the HTTP status, which
  * hides the actual reason iRacing rejected the request (e.g. a missing/bad
@@ -128,6 +135,48 @@ export function extractDriverNames(resultPayload: any): Map<string, string> {
   }
 
   return names;
+}
+
+/**
+ * Pull iRacing's own per-driver incident totals straight out of the same
+ * result payload identifySimSessions/extractDriverNames already read - no
+ * need to reconstruct an estimate from lap flags when iRacing reports the
+ * real number directly on each result row (mirrors the "incidents" field
+ * functions/api/iracing/session/[subsessionId]/import.ts already trusts).
+ * A team entry's driver_results rows don't reliably carry their own
+ * incidents split, so those fall back to the team row's total.
+ */
+export function extractIncidents(resultPayload: any): IncidentsRow[] {
+  const blocks = Array.isArray(resultPayload?.session_results) ? resultPayload.session_results : [];
+  const out: IncidentsRow[] = [];
+
+  for (const block of blocks) {
+    const type = classifySimSessionType(block);
+    if (!type) continue;
+
+    const simsessionNumber = pickNumber(block?.simsession_number);
+    if (simsessionNumber === undefined) continue;
+
+    for (const row of pickRows(block)) {
+      const r = row as Record<string, unknown>;
+      const rowIncidents = pickNumber(r?.incidents ?? r?.total_incidents) ?? null;
+
+      const soloId = pickNumber(r?.cust_id ?? r?.id);
+      if (soloId !== undefined) {
+        out.push({ custId: String(soloId), simsessionNumber, type, incidents: rowIncidents });
+      }
+
+      const driverResults = Array.isArray(r?.driver_results) ? (r.driver_results as Record<string, unknown>[]) : [];
+      for (const dr of driverResults) {
+        const teamMemberId = pickNumber(dr?.cust_id ?? dr?.id);
+        if (teamMemberId === undefined) continue;
+        const driverIncidents = pickNumber(dr?.incidents ?? dr?.total_incidents) ?? rowIncidents;
+        out.push({ custId: String(teamMemberId), simsessionNumber, type, incidents: driverIncidents });
+      }
+    }
+  }
+
+  return out;
 }
 
 export function extractSessionHeader(payload: any): {
