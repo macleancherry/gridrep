@@ -44,6 +44,28 @@ async function incompleteSubsessionIds(DB: any, subsessionIds: string[]): Promis
   return subsessionIds.filter((id) => !completeSet.has(id));
 }
 
+// A subsession this league's search just found can already be fully
+// ingested (laps_complete = 1) without ever having been linked to this
+// league - e.g. it was pulled directly by ID (the "Pull a session" flow,
+// or an earlier debugging session) before this league was ever followed.
+// incompleteSubsessionIds filters those out entirely (there's nothing left
+// to ingest), and ingestPaceSubsession's own "already complete" fast path
+// never touches league_id either - so without this, a search that
+// genuinely finds the right session can still leave it permanently
+// invisible to this league's race list. Only fills in a NULL league_id,
+// same as the ON CONFLICT clause in paceIngest.ts - never reassigns one
+// that's already set.
+async function attachAlreadyCompleteSubsessions(DB: any, subsessionIds: string[], leagueId: string): Promise<number> {
+  if (subsessionIds.length === 0) return 0;
+  const placeholders = subsessionIds.map(() => "?").join(",");
+  const result = await DB.prepare(
+    `UPDATE pace_subsessions SET league_id = ? WHERE subsession_id IN (${placeholders}) AND laps_complete = 1 AND league_id IS NULL`
+  )
+    .bind(leagueId, ...subsessionIds)
+    .run();
+  return result?.meta?.changes ?? 0;
+}
+
 export async function onRequestPost(context: any) {
   const viewer = await getViewer(context);
   if (!viewer.verified) {
@@ -69,6 +91,7 @@ export async function onRequestPost(context: any) {
     leaguesChecked: 0,
     sessionsFound: 0,
     sessionsIngested: 0,
+    sessionsAttached: 0,
     sessionsRemaining: 0,
     failures: [] as Array<{ leagueId: string; subsessionId?: string; message: string }>,
     emptySearchSamples: [] as Array<{ leagueId: string; sample: string }>,
@@ -129,6 +152,7 @@ export async function onRequestPost(context: any) {
     const subsessionIds = Array.from(subsessionIdSet);
 
     summary.sessionsFound += subsessionIds.length;
+    summary.sessionsAttached += await attachAlreadyCompleteSubsessions(DB, subsessionIds, league.leagueId);
 
     const runStartedAt = new Date().toISOString();
     const pendingIds = await incompleteSubsessionIds(DB, subsessionIds);
