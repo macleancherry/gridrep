@@ -13,11 +13,16 @@ export type SimSessionInfo = {
   participants: { custId: string; teamId: string | null }[];
 };
 
-export type IncidentsRow = {
+export type ParticipantResultRow = {
   custId: string;
   simsessionNumber: number;
   type: "qualifying" | "race";
   incidents: number | null;
+  startPos: number | null;
+  finishPos: number | null;
+  carName: string | null;
+  carClass: string | null;
+  iratingChange: number | null;
 };
 
 /**
@@ -55,6 +60,38 @@ function pickRows(sr: any): any[] {
   if (Array.isArray(sr?.result_rows)) return sr.result_rows;
   if (Array.isArray(sr?.rows)) return sr.rows;
   return [];
+}
+
+/** Fallback field lookup when a row uses a field name this wrapper/version
+ * doesn't have an exact match for - same pattern already proven in
+ * functions/api/iracing/session/[subsessionId]/import.ts. Skips any key
+ * that looks like an id field, since e.g. "class_id" shouldn't match a
+ * ["class"] token search meant for "class_name". */
+function findNumberByTokens(row: Record<string, unknown>, tokenGroups: string[][]): number | undefined {
+  for (const [rawKey, rawValue] of Object.entries(row)) {
+    const key = rawKey.toLowerCase();
+    if (/(^|_)id($|_)/.test(key)) continue;
+    for (const tokens of tokenGroups) {
+      if (tokens.every((token) => key.includes(token))) {
+        const parsed = pickNumber(rawValue);
+        if (typeof parsed === "number") return parsed;
+      }
+    }
+  }
+  return undefined;
+}
+
+function findStringByTokens(row: Record<string, unknown>, tokenGroups: string[][]): string | undefined {
+  for (const [rawKey, rawValue] of Object.entries(row)) {
+    const key = rawKey.toLowerCase();
+    for (const tokens of tokenGroups) {
+      if (tokens.every((token) => key.includes(token))) {
+        const parsed = pickString(rawValue);
+        if (typeof parsed === "string") return parsed;
+      }
+    }
+  }
+  return undefined;
 }
 
 function classifySimSessionType(sr: any): "qualifying" | "race" | null {
@@ -138,17 +175,20 @@ export function extractDriverNames(resultPayload: any): Map<string, string> {
 }
 
 /**
- * Pull iRacing's own per-driver incident totals straight out of the same
+ * Pull iRacing's own per-driver result fields straight out of the same
  * result payload identifySimSessions/extractDriverNames already read - no
- * need to reconstruct an estimate from lap flags when iRacing reports the
- * real number directly on each result row (mirrors the "incidents" field
+ * need to reconstruct an incidents estimate from lap flags, or leave
+ * position/car/iRating unread, when iRacing reports them directly on each
+ * result row (mirrors the field set
  * functions/api/iracing/session/[subsessionId]/import.ts already trusts).
  * A team entry's driver_results rows don't reliably carry their own
- * incidents split, so those fall back to the team row's total.
+ * incidents/iRating split, so those fall back to the team row's own value;
+ * position/car/class are the same for every driver of a car, so they're
+ * always taken from the team row.
  */
-export function extractIncidents(resultPayload: any): IncidentsRow[] {
+export function extractParticipantResults(resultPayload: any): ParticipantResultRow[] {
   const blocks = Array.isArray(resultPayload?.session_results) ? resultPayload.session_results : [];
-  const out: IncidentsRow[] = [];
+  const out: ParticipantResultRow[] = [];
 
   for (const block of blocks) {
     const type = classifySimSessionType(block);
@@ -161,17 +201,72 @@ export function extractIncidents(resultPayload: any): IncidentsRow[] {
       const r = row as Record<string, unknown>;
       const rowIncidents = pickNumber(r?.incidents ?? r?.total_incidents) ?? null;
 
+      // iRacing positions appear 0-based in some payloads (winner = 0) -
+      // same +1 normalization import.ts's extractParticipants uses.
+      const rawFinishPos = pickNumber(r?.finish_position ?? r?.finish_pos ?? findNumberByTokens(r, [["finish", "pos"]]));
+      const rowFinishPos = typeof rawFinishPos === "number" ? rawFinishPos + 1 : null;
+
+      const rawStartPos = pickNumber(
+        r?.starting_position ?? r?.start_position ?? r?.start_pos ?? findNumberByTokens(r, [["start", "position"], ["grid", "position"]])
+      );
+      const rowStartPos = typeof rawStartPos === "number" ? rawStartPos + 1 : null;
+
+      const rowCarName = pickString(r?.car_name) ?? pickString(r?.car) ?? null;
+      const rowCarClass =
+        pickString(r?.car_class_short_name) ??
+        pickString(r?.car_class_name) ??
+        pickString(r?.car_class) ??
+        findStringByTokens(r, [["class", "short"], ["class", "name"]]) ??
+        null;
+
+      const rowIratingChange =
+        pickNumber(
+          r?.newi_rating != null && r?.oldi_rating != null ? (r.newi_rating as number) - (r.oldi_rating as number) : undefined
+        ) ??
+        pickNumber(r?.irating_change ?? r?.iratingChange) ??
+        null;
+
       const soloId = pickNumber(r?.cust_id ?? r?.id);
       if (soloId !== undefined) {
-        out.push({ custId: String(soloId), simsessionNumber, type, incidents: rowIncidents });
+        out.push({
+          custId: String(soloId),
+          simsessionNumber,
+          type,
+          incidents: rowIncidents,
+          startPos: rowStartPos,
+          finishPos: rowFinishPos,
+          carName: rowCarName,
+          carClass: rowCarClass,
+          iratingChange: rowIratingChange,
+        });
       }
 
       const driverResults = Array.isArray(r?.driver_results) ? (r.driver_results as Record<string, unknown>[]) : [];
       for (const dr of driverResults) {
         const teamMemberId = pickNumber(dr?.cust_id ?? dr?.id);
         if (teamMemberId === undefined) continue;
+
         const driverIncidents = pickNumber(dr?.incidents ?? dr?.total_incidents) ?? rowIncidents;
-        out.push({ custId: String(teamMemberId), simsessionNumber, type, incidents: driverIncidents });
+        const driverIratingChange =
+          pickNumber(
+            dr?.newi_rating != null && dr?.oldi_rating != null
+              ? (dr.newi_rating as number) - (dr.oldi_rating as number)
+              : undefined
+          ) ??
+          pickNumber(dr?.irating_change ?? dr?.iratingChange) ??
+          rowIratingChange;
+
+        out.push({
+          custId: String(teamMemberId),
+          simsessionNumber,
+          type,
+          incidents: driverIncidents,
+          startPos: rowStartPos,
+          finishPos: rowFinishPos,
+          carName: rowCarName,
+          carClass: rowCarClass,
+          iratingChange: driverIratingChange,
+        });
       }
     }
   }

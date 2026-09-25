@@ -1,4 +1,4 @@
-import { computeCleanPace, type StoredLap } from "../../../../_lib/cleanPace";
+import { computeCleanPace, stdDev, type StoredLap } from "../../../../_lib/cleanPace";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 function clampN(raw: string | null, fallback: number, max: number): number {
@@ -34,7 +34,9 @@ export async function onRequestGet(context: any) {
   const rows = await DB.prepare(
     `SELECT l.cust_id as custId, d.display_name as driverName, l.simsession_type as simsessionType,
             l.lap_time_ms as lapTimeMs, l.is_pit_lap as isPitLap, l.is_clean as isClean,
-            l.flags_decoded as flagsDecoded, pp.incidents as officialIncidents
+            l.flags_decoded as flagsDecoded, pp.incidents as officialIncidents,
+            pp.start_pos as startPos, pp.finish_pos as finishPos,
+            pp.car_name as carName, pp.car_class as carClass, pp.irating_change as iratingChange
      FROM pace_laps l
      LEFT JOIN drivers d ON d.iracing_member_id = l.cust_id
      LEFT JOIN pace_participants pp
@@ -47,7 +49,18 @@ export async function onRequestGet(context: any) {
   type Key = string;
   const groups = new Map<
     Key,
-    { custId: string; driverName: string; simsessionType: string; laps: StoredLap[]; officialIncidents: number | null }
+    {
+      custId: string;
+      driverName: string;
+      simsessionType: string;
+      laps: StoredLap[];
+      officialIncidents: number | null;
+      startPos: number | null;
+      finishPos: number | null;
+      carName: string | null;
+      carClass: string | null;
+      iratingChange: number | null;
+    }
   >();
   const flagStatsByDriver = new Map<string, { points: number; lapsAffected: number; types: Record<string, number> }>();
 
@@ -60,6 +73,11 @@ export async function onRequestGet(context: any) {
         simsessionType: row.simsessionType,
         laps: [],
         officialIncidents: row.officialIncidents === null || row.officialIncidents === undefined ? null : Number(row.officialIncidents),
+        startPos: row.startPos === null || row.startPos === undefined ? null : Number(row.startPos),
+        finishPos: row.finishPos === null || row.finishPos === undefined ? null : Number(row.finishPos),
+        carName: row.carName ?? null,
+        carClass: row.carClass ?? null,
+        iratingChange: row.iratingChange === null || row.iratingChange === undefined ? null : Number(row.iratingChange),
       });
     }
     groups.get(key)!.laps.push({
@@ -105,6 +123,36 @@ export async function onRequestGet(context: any) {
     }
   }
 
+  // Position/car/iRating are reported per result row, not per lap - the
+  // race block's own values are what matter (finishing position, the car
+  // actually raced), with qualifying's as a fallback for a driver who
+  // somehow has no race-block result row at all.
+  const resultInfoByDriver = new Map<
+    string,
+    { startPos: number | null; finishPos: number | null; carName: string | null; carClass: string | null; iratingChange: number | null }
+  >();
+  for (const g of groups.values()) {
+    const existingInfo = resultInfoByDriver.get(g.custId);
+    if (!existingInfo || g.simsessionType === "race") {
+      resultInfoByDriver.set(g.custId, {
+        startPos: g.startPos ?? existingInfo?.startPos ?? null,
+        finishPos: g.finishPos ?? existingInfo?.finishPos ?? null,
+        carName: g.carName ?? existingInfo?.carName ?? null,
+        carClass: g.carClass ?? existingInfo?.carClass ?? null,
+        iratingChange: g.iratingChange ?? existingInfo?.iratingChange ?? null,
+      });
+    }
+  }
+
+  // Hosted/league races don't carry meaningful iRating (no official field
+  // in the payload reliably says "hosted" vs "official" - see PR history),
+  // but a hosted race's irating_change is simply always absent/zero for
+  // everyone, so that's used as the signal instead: only show the column
+  // when at least one driver actually has a nonzero change to report.
+  const hasIratingData = Array.from(resultInfoByDriver.values()).some(
+    (info) => typeof info.iratingChange === "number" && info.iratingChange !== 0
+  );
+
   // "Best N" used to be capped at a flat 50 regardless of how long the
   // session actually was - for a long enduro that's well short of every
   // clean lap someone ran. Cap against whatever's actually there instead:
@@ -132,6 +180,10 @@ export async function onRequestGet(context: any) {
       race: unknown;
       average: unknown;
       incidents: { total: number; estimated: boolean; lapsAffected: number; types: Record<string, number> };
+      position: { start: number | null; finish: number | null };
+      car: { name: string | null; class: string | null };
+      iratingChange: number | null;
+      raceGapMs: number | null;
     }
   >();
 
@@ -139,6 +191,7 @@ export async function onRequestGet(context: any) {
     if (!byDriver.has(g.custId)) {
       const official = officialIncidentsByDriver.get(g.custId);
       const flagStats = flagStatsByDriver.get(g.custId) ?? { points: 0, lapsAffected: 0, types: {} };
+      const info = resultInfoByDriver.get(g.custId) ?? { startPos: null, finishPos: null, carName: null, carClass: null, iratingChange: null };
       byDriver.set(g.custId, {
         custId: g.custId,
         driverName: g.driverName,
@@ -148,6 +201,10 @@ export async function onRequestGet(context: any) {
         incidents: official?.found
           ? { total: official.sum, estimated: false, lapsAffected: flagStats.lapsAffected, types: flagStats.types }
           : { total: flagStats.points, estimated: true, lapsAffected: flagStats.lapsAffected, types: flagStats.types },
+        position: { start: info.startPos, finish: info.finishPos },
+        car: { name: info.carName, class: info.carClass },
+        iratingChange: hasIratingData ? info.iratingChange : null,
+        raceGapMs: null,
       });
     }
     const entry = byDriver.get(g.custId)!;
@@ -166,7 +223,22 @@ export async function onRequestGet(context: any) {
       entry.average = { ok: false, reason: "no_clean_laps" };
     } else {
       const paceMs = combinedLapTimesMs.reduce((sum, t) => sum + t, 0) / combinedLapTimesMs.length;
-      entry.average = { ok: true, paceMs, lapsUsed: combinedLapTimesMs.length };
+      entry.average = { ok: true, paceMs, lapsUsed: combinedLapTimesMs.length, stdDevMs: stdDev(combinedLapTimesMs) };
+    }
+  }
+
+  // Race pace reads more easily as "how far off the fastest driver" than as
+  // an absolute lap time alone - compute each driver's gap to whoever had
+  // the best race pace in this same subsession.
+  let fastestRacePaceMs: number | null = null;
+  for (const entry of byDriver.values()) {
+    const race = entry.race as ReturnType<typeof computeCleanPace>;
+    if (race?.ok && (fastestRacePaceMs === null || race.paceMs < fastestRacePaceMs)) fastestRacePaceMs = race.paceMs;
+  }
+  if (fastestRacePaceMs !== null) {
+    for (const entry of byDriver.values()) {
+      const race = entry.race as ReturnType<typeof computeCleanPace>;
+      if (race?.ok) entry.raceGapMs = race.paceMs - fastestRacePaceMs;
     }
   }
 
@@ -177,6 +249,7 @@ export async function onRequestGet(context: any) {
     raceLaps,
     qualLapsAvailable,
     raceLapsAvailable,
+    hasIratingData,
     drivers: Array.from(byDriver.values()),
   });
 }
