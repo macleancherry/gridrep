@@ -44,14 +44,18 @@ function PaceCell({ result, gapMs }: { result: PaceResult; gapMs?: number | null
       {typeof result.stdDevMs === "number" && result.lapsUsed > 1 && (
         <span
           className="pace-muted"
-          style={{ marginLeft: 4 }}
-          title="Standard deviation of the laps behind this pace — how consistent it was, lower is tighter"
+          style={{ marginLeft: 4, cursor: "help" }}
+          title="How consistent these laps were, in seconds — a smaller number means tighter, more repeatable lap times rather than one lucky lap dragging the average down."
         >
           ±{(result.stdDevMs / 1000).toFixed(3)}
         </span>
       )}
       {typeof gapMs === "number" && gapMs > 0 && (
-        <span className="pace-muted" style={{ marginLeft: 4 }} title="Gap to the fastest race pace in this subsession">
+        <span
+          className="pace-muted"
+          style={{ marginLeft: 4, cursor: "help" }}
+          title="How far behind the fastest driver's race pace this driver was."
+        >
           +{(gapMs / 1000).toFixed(3)}
         </span>
       )}
@@ -104,7 +108,7 @@ function PositionCell({ position }: { position: PositionInfo }) {
 
   return (
     <span
-      title={position.start != null ? `Started P${position.start}` : undefined}
+      title={position.start != null ? `Started P${position.start}, so ${delta && delta > 0 ? `gained ${delta}` : delta && delta < 0 ? `lost ${Math.abs(delta)}` : "finished where they started"}.` : undefined}
       style={position.start != null ? { cursor: "help" } : undefined}
     >
       {medal && <span style={{ marginRight: 4 }}>{medal}</span>}
@@ -150,8 +154,8 @@ function IncidentsCell({ incidents }: { incidents: IncidentStats }) {
     .join(", ");
 
   const title = incidents.estimated
-    ? `iRacing didn't report an official incident total for this session - estimated from ${incidents.lapsAffected} flagged lap(s) (1x off track, 2x contact/lost control): ${breakdown}`
-    : `iRacing's reported incident total, from ${incidents.lapsAffected} flagged lap(s): ${breakdown}`;
+    ? `iRacing didn't give us an official total for this race, so this is an estimate from ${incidents.lapsAffected} flagged lap(s) (1x off track, 2x contact/lost control): ${breakdown}`
+    : `iRacing's own incident-point total for this driver, from ${incidents.lapsAffected} flagged lap(s): ${breakdown}`;
 
   return (
     <span title={title} style={{ cursor: "help" }}>
@@ -240,13 +244,13 @@ export default function PaceSubsession() {
     document.querySelector(".pace-row-highlighted")?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [myDriverName, sorted]);
 
-  function SortHeader({ column, label }: { column: SortColumn; label: string }) {
+  function SortHeader({ column, label, hint }: { column: SortColumn; label: string; hint?: string }) {
     const active = sortColumn === column;
     return (
       <th
         onClick={() => toggleSort(column)}
         style={{ cursor: "pointer", userSelect: "none" }}
-        title="Click to sort"
+        title={hint ? `${hint} Click to sort.` : "Click to sort."}
       >
         {label}
         {active ? (sortAsc ? " ▲" : " ▼") : ""}
@@ -257,9 +261,18 @@ export default function PaceSubsession() {
   return (
     <>
       <p className="pace-hint pace-mono">Subsession #{subsessionId}</p>
+      <p className="pace-hint">
+        See who was fastest, most consistent, and how everyone's incidents stacked up — "clean" pace ignores laps
+        with a pit stop, off-track, or contact, so it's a fair way to compare drivers.
+      </p>
 
       <div className="pace-row" style={{ marginBottom: 24 }}>
-        <label className="pace-hint" htmlFor="qual-n-input" style={{ margin: 0 }}>
+        <label
+          className="pace-hint"
+          htmlFor="qual-n-input"
+          style={{ margin: 0, cursor: "help" }}
+          title="Average of this driver's fastest N clean qualifying laps. Lower N (like 1) rewards a single fast lap; higher N rewards being consistently quick."
+        >
           Qualifying best-N{qualLapsAvailable ? ` (max ${qualLapsAvailable})` : ""}
         </label>
         <input
@@ -274,7 +287,12 @@ export default function PaceSubsession() {
           }
         />
 
-        <label className="pace-hint" htmlFor="race-n-input" style={{ margin: 0 }}>
+        <label
+          className="pace-hint"
+          htmlFor="race-n-input"
+          style={{ margin: 0, cursor: "help" }}
+          title="Average of this driver's fastest N clean race laps. Raise it to smooth out one good or bad lap; lower it to focus on outright pace."
+        >
           Race best-N{raceLapsAvailable ? ` (max ${raceLapsAvailable})` : ""}
         </label>
         <input
@@ -290,7 +308,7 @@ export default function PaceSubsession() {
         />
       </div>
 
-      <div className="pace-row" style={{ marginBottom: 24 }}>
+      <div className="pace-row" style={{ marginBottom: 8 }}>
         <label className="pace-hint" htmlFor="my-driver-name-input" style={{ margin: 0 }}>
           Highlight my row
         </label>
@@ -303,6 +321,9 @@ export default function PaceSubsession() {
           onChange={(e) => setMyDriverName(e.target.value)}
         />
       </div>
+      <p className="pace-hint" style={{ marginTop: -16, marginBottom: 24, fontSize: "0.82rem" }}>
+        Saved on this device, so you won't need to type it again next time.
+      </p>
 
       {loading && <p className="pace-hint">Loading…</p>}
       {error && <p className="pace-error">{error}</p>}
@@ -317,13 +338,35 @@ export default function PaceSubsession() {
                 <thead>
                   <tr>
                     <th>Driver</th>
-                    <SortHeader column="car" label="Car" />
-                    <SortHeader column="position" label="Pos" />
-                    <SortHeader column="qualifying" label="Qualifying pace" />
-                    <SortHeader column="race" label="Race pace" />
-                    <SortHeader column="average" label="Average pace" />
-                    <SortHeader column="incidents" label="Incidents" />
-                    {hasIratingData && <SortHeader column="irating" label="iRating" />}
+                    <SortHeader column="car" label="Car" hint="The car and class this driver raced." />
+                    <SortHeader
+                      column="position"
+                      label="Pos"
+                      hint="Finish position. The arrow shows places gained (▲) or lost (▼) from the start."
+                    />
+                    <SortHeader
+                      column="qualifying"
+                      label="Qualifying pace"
+                      hint="Average of this driver's fastest clean qualifying lap(s)."
+                    />
+                    <SortHeader
+                      column="race"
+                      label="Race pace"
+                      hint="Average of this driver's fastest clean race laps, plus how far behind the fastest driver they were."
+                    />
+                    <SortHeader
+                      column="average"
+                      label="Average pace"
+                      hint="Average across both qualifying and race clean laps combined."
+                    />
+                    <SortHeader
+                      column="incidents"
+                      label="Incidents"
+                      hint="iRacing's incident-point total for this driver over the whole session."
+                    />
+                    {hasIratingData && (
+                      <SortHeader column="irating" label="iRating" hint="How much this driver's iRating changed from this race." />
+                    )}
                   </tr>
                 </thead>
                 <tbody>

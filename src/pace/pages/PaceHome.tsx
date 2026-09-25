@@ -50,7 +50,9 @@ function LeagueRaceList({ leagueId, brandKey }: { leagueId: string; brandKey: st
   return (
     <section className="pace-section">
       <h2>{leagueName ?? "Races"}</h2>
-      <p className="pace-hint">Pick a race to see clean pace, positions and incidents.</p>
+      <p className="pace-hint">
+        Click any race below to see who was fastest, most consistent, and how everyone's incidents stacked up.
+      </p>
       {error && <p className="pace-error">{error}</p>}
       {!races && !error && <p className="pace-hint">Loading…</p>}
       {races && (
