@@ -1,20 +1,16 @@
 import { computeCleanPace, type StoredLap } from "../../../../_lib/cleanPace";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
-function clampN(raw: string | null, fallback: number): number {
+function clampN(raw: string | null, fallback: number, max: number): number {
   const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.min(50, Math.trunc(n));
+  if (!Number.isFinite(n) || n <= 0) return Math.min(fallback, max);
+  return Math.min(max, Math.trunc(n));
 }
 
 export async function onRequestGet(context: any) {
   const subsessionId = context.params.subsessionId as string;
   const { DB } = context.env;
   const url = new URL(context.request.url);
-  // Qualifying is conventionally a single flying lap; race pace is an
-  // average of several - default each independently rather than sharing one N.
-  const qualLaps = clampN(url.searchParams.get("qualLaps") ?? url.searchParams.get("laps"), 1);
-  const raceLaps = clampN(url.searchParams.get("raceLaps") ?? url.searchParams.get("laps"), 5);
 
   const subsession = await DB.prepare(`SELECT subsession_id FROM pace_subsessions WHERE subsession_id = ?`)
     .bind(subsessionId)
@@ -77,6 +73,22 @@ export async function onRequestGet(context: any) {
     }
   }
 
+  // "Best N" used to be capped at a flat 50 regardless of how long the
+  // session actually was - for a long enduro that's well short of every
+  // clean lap someone ran. Cap against whatever's actually there instead:
+  // the most laps any one driver has recorded for that sim-session type.
+  let qualLapsAvailable = 1;
+  let raceLapsAvailable = 1;
+  for (const g of groups.values()) {
+    if (g.simsessionType === "qualifying") qualLapsAvailable = Math.max(qualLapsAvailable, g.laps.length);
+    else raceLapsAvailable = Math.max(raceLapsAvailable, g.laps.length);
+  }
+
+  // Qualifying is conventionally a single flying lap; race pace is an
+  // average of several - default each independently rather than sharing one N.
+  const qualLaps = clampN(url.searchParams.get("qualLaps") ?? url.searchParams.get("laps"), 1, qualLapsAvailable);
+  const raceLaps = clampN(url.searchParams.get("raceLaps") ?? url.searchParams.get("laps"), 5, raceLapsAvailable);
+
   // One row per driver, with qualifying and race pace side by side, plus an
   // overall average across whichever laps qualifying/race actually used.
   const byDriver = new Map<
@@ -122,5 +134,13 @@ export async function onRequestGet(context: any) {
     }
   }
 
-  return json({ ok: true, subsessionId, qualLaps, raceLaps, drivers: Array.from(byDriver.values()) });
+  return json({
+    ok: true,
+    subsessionId,
+    qualLaps,
+    raceLaps,
+    qualLapsAvailable,
+    raceLapsAvailable,
+    drivers: Array.from(byDriver.values()),
+  });
 }

@@ -70,6 +70,8 @@ export default function PaceSubsession() {
   const { subsessionId } = useParams<{ subsessionId: string }>();
   const [qualN, setQualN] = useState(1);
   const [raceN, setRaceN] = useState(5);
+  const [qualLapsAvailable, setQualLapsAvailable] = useState<number | null>(null);
+  const [raceLapsAvailable, setRaceLapsAvailable] = useState<number | null>(null);
   const [drivers, setDrivers] = useState<DriverPaceRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -95,6 +97,11 @@ export default function PaceSubsession() {
           setDrivers(null);
         } else {
           setDrivers(data.drivers ?? []);
+          // The server clamps best-N to however many laps that sim-session
+          // actually has - mirror that ceiling here so the inputs (and any
+          // value the user types) can't ask for more than really exists.
+          if (typeof data.qualLapsAvailable === "number") setQualLapsAvailable(data.qualLapsAvailable);
+          if (typeof data.raceLapsAvailable === "number") setRaceLapsAvailable(data.raceLapsAvailable);
         }
       } catch {
         if (!cancelled) setError("Network error.");
@@ -145,29 +152,33 @@ export default function PaceSubsession() {
 
       <div className="pace-row" style={{ marginBottom: 24 }}>
         <label className="pace-hint" htmlFor="qual-n-input" style={{ margin: 0 }}>
-          Qualifying best-N
+          Qualifying best-N{qualLapsAvailable ? ` (max ${qualLapsAvailable})` : ""}
         </label>
         <input
           id="qual-n-input"
           className="pace-input pace-input-sm"
           type="number"
           min={1}
-          max={50}
+          max={qualLapsAvailable ?? undefined}
           value={qualN}
-          onChange={(e) => setQualN(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+          onChange={(e) =>
+            setQualN(Math.max(1, Math.min(qualLapsAvailable ?? Infinity, Number(e.target.value) || 1)))
+          }
         />
 
         <label className="pace-hint" htmlFor="race-n-input" style={{ margin: 0 }}>
-          Race best-N
+          Race best-N{raceLapsAvailable ? ` (max ${raceLapsAvailable})` : ""}
         </label>
         <input
           id="race-n-input"
           className="pace-input pace-input-sm"
           type="number"
           min={1}
-          max={50}
+          max={raceLapsAvailable ?? undefined}
           value={raceN}
-          onChange={(e) => setRaceN(Math.max(1, Math.min(50, Number(e.target.value) || 5)))}
+          onChange={(e) =>
+            setRaceN(Math.max(1, Math.min(raceLapsAvailable ?? Infinity, Number(e.target.value) || 5)))
+          }
         />
       </div>
 
