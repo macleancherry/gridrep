@@ -7,13 +7,13 @@ function clampN(raw: string | null, fallback: number, max: number): number {
   return Math.min(max, Math.trunc(n));
 }
 
-// iRacing scores incidents in points, not one-per-flag: contact-type flags
-// count for 4, everything else (off track, spin/loss of control, etc.) for
-// 2. This is the community-reverse-engineered convention (iRacing doesn't
-// publish the weights), so the total here is a close estimate rather than
-// a guaranteed exact match to the in-sim incident count.
+// iRacing scores incidents in points, not one-per-flag: off track is 1x,
+// while car contact and losing control are 2x. iRacing doesn't publish an
+// API field for this, so it's applied here rather than read from the data.
 function pointsForFlag(flag: string): number {
-  return flag.toLowerCase().includes("contact") ? 4 : 2;
+  const f = flag.toLowerCase();
+  if (f.includes("contact") || f.includes("lost control")) return 2;
+  return 1;
 }
 
 export async function onRequestGet(context: any) {
