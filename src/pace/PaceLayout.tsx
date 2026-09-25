@@ -17,9 +17,9 @@ export default function PaceLayout({ children }: { children: ReactNode }) {
           <Link to="/pace" className="pace-brand">
             Pace
           </Link>
-          <a href="/" className="pace-back">
-            ← GridRep
-          </a>
+          <Link to="/pace" className="pace-back">
+            ← New search
+          </Link>
         </div>
 
         <div className="pace-status">
