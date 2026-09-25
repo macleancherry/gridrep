@@ -40,6 +40,12 @@
   --pace-badge-bg: var(--pace-border);
   --pace-badge-text: var(--pace-muted);
 
+  /* A light tint of the accent by default, so "this is me" reads clearly
+     without needing a brand to set anything - AES overrides it to their
+     own red tint in brands.ts purely for a closer color match. */
+  --pace-highlight-bg: rgba(31, 41, 55, 0.06);
+  --pace-highlight-border: var(--pace-accent);
+
   --pace-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --pace-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
 
@@ -245,6 +251,15 @@
 
 .pace-table tbody tr:nth-child(even) {
   background: var(--pace-row-alt);
+}
+
+.pace-table tbody tr.pace-row-highlighted {
+  background: var(--pace-highlight-bg);
+  box-shadow: inset 3px 0 0 var(--pace-highlight-border);
+}
+
+.pace-table tbody tr.pace-row-highlighted td:first-child {
+  font-weight: 700;
 }
 
 .pace-mono { font-family: var(--pace-mono); }

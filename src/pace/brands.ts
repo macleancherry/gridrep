@@ -37,6 +37,8 @@ export type PaceBrand = {
     "--pace-btn-tracking": string;
     "--pace-badge-bg": string;
     "--pace-badge-text": string;
+    "--pace-highlight-bg": string;
+    "--pace-highlight-border": string;
   }>;
 };
 
@@ -76,6 +78,7 @@ const PACE_BRANDS: Record<string, PaceBrand> = {
       "--pace-btn-tracking": "0.03em",
       "--pace-badge-bg": "#00021b",
       "--pace-badge-text": "#ffffff",
+      "--pace-highlight-bg": "rgba(225, 0, 0, 0.08)",
     },
   },
 };
