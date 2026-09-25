@@ -66,7 +66,7 @@ async function attachAlreadyCompleteSubsessions(DB: any, subsessionIds: string[]
   return result?.meta?.changes ?? 0;
 }
 
-export async function onRequestPost(context: any) {
+async function runSync(context: any) {
   const viewer = await getViewer(context);
   if (!viewer.verified) {
     return jsonError(401, { error: "not_verified", message: "Verification required to sync." });
@@ -207,4 +207,20 @@ export async function onRequestPost(context: any) {
   }
 
   return json({ ok: true, ...summary });
+}
+
+export async function onRequestPost(context: any) {
+  try {
+    return await runSync(context);
+  } catch (err: any) {
+    // Nothing before this point had a top-level catch, so any unhandled
+    // exception (e.g. exceeding Cloudflare's per-request subrequest budget
+    // once search stopped narrowing its window - see the comment above the
+    // search call) previously fell straight through to Cloudflare's own
+    // generic error page: not JSON, so the frontend's r.json() call threw
+    // too, surfacing only as "Network error" with zero information about
+    // what actually broke. Return a real JSON error instead.
+    console.error(JSON.stringify({ level: "error", msg: "pace.sync.unhandled", message: err?.message ?? String(err) }));
+    return jsonError(500, { error: "sync_failed", message: `Sync failed: ${err?.message ?? String(err)}` });
+  }
 }
