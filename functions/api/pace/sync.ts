@@ -82,9 +82,18 @@ export async function onRequestPost(context: any) {
     // Each host cust_id and each session-name filter is its own independent
     // search_hosted call (iRacing only accepts one of each at a time) -
     // union everything they find rather than requiring a single filter to
-    // catch every session this league has ever had.
+    // catch every session this league has ever had. The league's own
+    // iRacing name is always tried too, on top of whatever cust_ids/filters
+    // were explicitly configured - a free extra net that needs no input
+    // from whoever followed the league, for the (common) case where a host
+    // actually does put the league's name in the session title.
     const hostCustIds = parseMultiValue(league.hostCustId);
-    const sessionNameFilters = parseMultiValue(league.sessionNameFilter);
+    // league.name is one value, not a comma-separated list like the other
+    // two fields - added directly rather than through parseMultiValue so a
+    // comma in the league's actual name (rare, but possible) doesn't get
+    // wrongly split into multiple search terms.
+    const leagueName = typeof league.name === "string" ? league.name.trim() : "";
+    const sessionNameFilters = Array.from(new Set([...parseMultiValue(league.sessionNameFilter), ...(leagueName ? [leagueName] : [])]));
     const searchAttempts: Array<{ hostCustId?: string; sessionNameFilter?: string }> = [
       ...hostCustIds.map((hostCustId) => ({ hostCustId })),
       ...sessionNameFilters.map((sessionNameFilter) => ({ sessionNameFilter })),
