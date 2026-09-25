@@ -1,6 +1,81 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { usePaceBrand, withBrand } from "../brands";
+
+type LeagueRace = {
+  subsessionId: string;
+  trackName: string | null;
+  seriesName: string | null;
+  startTime: string | null;
+};
+
+function LeagueRaceList({ leagueId, brandKey }: { leagueId: string; brandKey: string | null }) {
+  const [races, setRaces] = useState<LeagueRace[] | null>(null);
+  const [leagueName, setLeagueName] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const r = await fetch(`/api/pace/leagues/${encodeURIComponent(leagueId)}`);
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (r.status === 404) {
+          // Not an end-user-facing problem - it means this league hasn't
+          // been followed from the admin (unbranded) /pace page yet, not
+          // that anything is actually broken. Don't surface backend wording.
+          setError("Races aren't set up here yet — check back soon.");
+          return;
+        }
+        if (!r.ok || !data.ok) {
+          setError(data.message ?? "Could not load races.");
+          return;
+        }
+        setLeagueName(data.league?.name ?? null);
+        setRaces(data.races ?? []);
+      } catch {
+        if (!cancelled) setError("Network error.");
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [leagueId]);
+
+  return (
+    <section className="pace-section">
+      <h2>{leagueName ?? "Races"}</h2>
+      <p className="pace-hint">Pick a race to see clean pace, positions and incidents.</p>
+      {error && <p className="pace-error">{error}</p>}
+      {!races && !error && <p className="pace-hint">Loading…</p>}
+      {races && (
+        <div className="pace-list">
+          {races.length === 0 && <div className="pace-list-empty">No races synced yet — check back after the next race weekend.</div>}
+          {races.map((race) => (
+            <Link
+              key={race.subsessionId}
+              to={withBrand(`/pace/s/${race.subsessionId}`, brandKey)}
+              className="pace-list-item"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <span>
+                {race.seriesName ?? race.trackName ?? `Subsession #${race.subsessionId}`}
+                {race.trackName && race.seriesName && <span className="pace-muted"> — {race.trackName}</span>}
+              </span>
+              <span className="pace-muted">
+                {race.startTime ? new Date(race.startTime).toLocaleDateString(undefined, { dateStyle: "medium" }) : ""}
+              </span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
 type IngestResponse = {
   ok: boolean;
@@ -42,7 +117,7 @@ type SyncSummary = {
 
 export default function PaceHome() {
   const navigate = useNavigate();
-  const { brandKey } = usePaceBrand();
+  const { brand, brandKey } = usePaceBrand();
 
   const [subsessionInput, setSubsessionInput] = useState("");
   const [pulling, setPulling] = useState(false);
@@ -67,8 +142,10 @@ export default function PaceHome() {
   }
 
   useEffect(() => {
-    loadLeagues();
-  }, []);
+    // The admin "followed leagues" list isn't shown (or needed) on a
+    // branded single-league view - skip fetching it for that public visitor.
+    if (!brand?.leagueId) loadLeagues();
+  }, [brand?.leagueId]);
 
   async function pullSubsession() {
     const id = subsessionInput.trim();
@@ -227,6 +304,10 @@ export default function PaceHome() {
       setSyncing(false);
       setSyncProgress(null);
     }
+  }
+
+  if (brand?.leagueId) {
+    return <LeagueRaceList leagueId={brand.leagueId} brandKey={brandKey} />;
   }
 
   return (
