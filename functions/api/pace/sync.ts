@@ -5,9 +5,16 @@ import { json, jsonError } from "../../_lib/httpJson";
 
 // Cloudflare Workers caps subrequests per invocation, and a single
 // subsession's own lap ingestion can already use most of that budget for a
-// large field - so this only fully attempts one subsession per call, same
-// as the per-subsession batching in paceIngest.ts. The frontend loops this
-// endpoint (mirroring the Pull flow) until nothing's left.
+// large field - so this only fully *ingests* one subsession per call, same
+// as the per-subsession batching in paceIngest.ts. Searching is cheap by
+// comparison (one iRacing call per league), so every followed league is
+// still searched every call regardless of this cap - only the ingest step
+// is rationed. This matters: if search stopped early too, a league further
+// down the list could sit with a real backlog the frontend never finds out
+// about, because its own "remaining" count would never be reported (see
+// the loop below - no break after a league is done, only after ingesting).
+// The frontend loops this endpoint (mirroring the Pull flow) until nothing
+// reported here is left.
 const MAX_SESSIONS_ATTEMPTED_PER_RUN = 1;
 
 async function incompleteSubsessionIds(DB: any, subsessionIds: string[]): Promise<string[]> {
@@ -109,7 +116,9 @@ export async function onRequestPost(context: any) {
         .run();
     }
 
-    if (attemptedThisRun >= MAX_SESSIONS_ATTEMPTED_PER_RUN) break;
+    // No break here - every league still gets searched and its pending
+    // count added to the summary this call, even once the ingest budget
+    // above is spent. Only the ingest loop itself rations attempts.
   }
 
   return json({ ok: true, ...summary });
