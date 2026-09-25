@@ -229,6 +229,17 @@ export default function PaceSubsession() {
     return sortAsc ? withSort : withSort.reverse();
   }, [drivers, sortColumn, sortAsc]);
 
+  // Jump straight to the row once the name narrows to exactly one driver -
+  // no need to scroll and hunt once it's unambiguous who "me" is. Left
+  // alone while it still matches several rows (or none), so typing a short
+  // prefix like "Mac" doesn't yank the page around mid-keystroke.
+  useEffect(() => {
+    if (!sorted) return;
+    const matches = sorted.filter((d) => matchesMyDriverName(d.driverName, myDriverName));
+    if (matches.length !== 1) return;
+    document.querySelector(".pace-row-highlighted")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [myDriverName, sorted]);
+
   function SortHeader({ column, label }: { column: SortColumn; label: string }) {
     const active = sortColumn === column;
     return (
