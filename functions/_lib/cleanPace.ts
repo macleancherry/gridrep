@@ -14,8 +14,20 @@ export type CleanPaceResult =
   // partial=true means fewer than n clean laps were available, so paceMs is
   // an average over whatever was there rather than a full best-N sample -
   // still shown, just flagged, per Mac's request rather than hidden outright.
-  | { ok: true; paceMs: number; lapsUsed: number; n: number; partial: boolean; lapTimesMs: number[] }
+  | { ok: true; paceMs: number; lapsUsed: number; n: number; partial: boolean; lapTimesMs: number[]; stdDevMs: number }
   | { ok: false; reason: "no_clean_laps"; n: number };
+
+// Population standard deviation (divide by n, not n-1) - same choice and
+// reasoning as functions/_lib/whatIfStandings.ts's stdDev(): describes the
+// spread of exactly the laps in hand, not an inference about a wider
+// population, so a single-lap sample is well-defined (0) rather than
+// undefined.
+export function stdDev(nums: number[]): number {
+  if (nums.length === 0) return 0;
+  const mean = nums.reduce((sum, n) => sum + n, 0) / nums.length;
+  const variance = nums.reduce((sum, n) => sum + (n - mean) ** 2, 0) / nums.length;
+  return Math.sqrt(variance);
+}
 
 export function computeCleanPace(laps: StoredLap[], n = 5): CleanPaceResult {
   const cleanTimes = laps
@@ -30,7 +42,7 @@ export function computeCleanPace(laps: StoredLap[], n = 5): CleanPaceResult {
   const bestN = cleanTimes.slice(0, Math.min(n, cleanTimes.length));
   const paceMs = bestN.reduce((sum, t) => sum + t, 0) / bestN.length;
 
-  return { ok: true, paceMs, lapsUsed: bestN.length, n, partial: bestN.length < n, lapTimesMs: bestN };
+  return { ok: true, paceMs, lapsUsed: bestN.length, n, partial: bestN.length < n, lapTimesMs: bestN, stdDevMs: stdDev(bestN) };
 }
 
 const UNCLEAN_KEYWORDS = [

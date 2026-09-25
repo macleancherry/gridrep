@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
 type PaceResult =
-  | { ok: true; paceMs: number; lapsUsed: number; n?: number; partial?: boolean }
+  | { ok: true; paceMs: number; lapsUsed: number; n?: number; partial?: boolean; stdDevMs?: number }
   | { ok: false; reason: string }
   | null;
 
 type IncidentStats = { total: number; estimated: boolean; lapsAffected: number; types: Record<string, number> };
+type PositionInfo = { start: number | null; finish: number | null };
+type CarInfo = { name: string | null; class: string | null };
 
 type DriverPaceRow = {
   custId: string;
@@ -15,9 +17,13 @@ type DriverPaceRow = {
   race: PaceResult;
   average: PaceResult;
   incidents: IncidentStats;
+  position: PositionInfo;
+  car: CarInfo;
+  iratingChange: number | null;
+  raceGapMs: number | null;
 };
 
-type SortColumn = "qualifying" | "race" | "average" | "incidents";
+type SortColumn = "position" | "car" | "qualifying" | "race" | "average" | "incidents" | "irating";
 
 function formatMs(ms: number): string {
   const totalMs = Math.round(ms);
@@ -27,13 +33,27 @@ function formatMs(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 }
 
-function PaceCell({ result }: { result: PaceResult }) {
+function PaceCell({ result, gapMs }: { result: PaceResult; gapMs?: number | null }) {
   if (!result || !result.ok) return <span className="pace-muted">—</span>;
 
   return (
     <>
       <span className="pace-mono">{formatMs(result.paceMs)}</span>{" "}
       <span className="pace-muted">({result.lapsUsed}{result.n ? `/${result.n}` : ""})</span>
+      {typeof result.stdDevMs === "number" && result.lapsUsed > 1 && (
+        <span
+          className="pace-muted"
+          style={{ marginLeft: 4 }}
+          title="Standard deviation of the laps behind this pace — how consistent it was, lower is tighter"
+        >
+          ±{(result.stdDevMs / 1000).toFixed(3)}
+        </span>
+      )}
+      {typeof gapMs === "number" && gapMs > 0 && (
+        <span className="pace-muted" style={{ marginLeft: 4 }} title="Gap to the fastest race pace in this subsession">
+          +{(gapMs / 1000).toFixed(3)}
+        </span>
+      )}
       {result.partial && (
         <span
           className="pace-error"
@@ -49,6 +69,66 @@ function PaceCell({ result }: { result: PaceResult }) {
 
 function sortValue(result: PaceResult): number {
   return result?.ok ? result.paceMs : Infinity;
+}
+
+function compareByColumn(a: DriverPaceRow, b: DriverPaceRow, column: SortColumn): number {
+  switch (column) {
+    case "position":
+      return (a.position.finish ?? Infinity) - (b.position.finish ?? Infinity);
+    case "car":
+      return `${a.car.class ?? ""} ${a.car.name ?? ""}`.trim().localeCompare(`${b.car.class ?? ""} ${b.car.name ?? ""}`.trim());
+    case "incidents":
+      return a.incidents.total - b.incidents.total;
+    case "irating":
+      return (a.iratingChange ?? -Infinity) - (b.iratingChange ?? -Infinity);
+    default:
+      return sortValue(a[column]) - sortValue(b[column]);
+  }
+}
+
+function PositionCell({ position }: { position: PositionInfo }) {
+  if (position.finish == null) return <span className="pace-muted">—</span>;
+
+  const medal = position.finish === 1 ? "🥇" : position.finish === 2 ? "🥈" : position.finish === 3 ? "🥉" : null;
+  const delta = position.start != null ? position.start - position.finish : null; // positive = gained positions
+
+  return (
+    <span
+      title={position.start != null ? `Started P${position.start}` : undefined}
+      style={position.start != null ? { cursor: "help" } : undefined}
+    >
+      {medal && <span style={{ marginRight: 4 }}>{medal}</span>}
+      {`P${position.finish}`}
+      {delta !== null && delta !== 0 && (
+        <span className={delta > 0 ? "pace-positive" : "pace-negative"} style={{ marginLeft: 4 }}>
+          {delta > 0 ? "▲" : "▼"}
+          {Math.abs(delta)}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function CarCell({ car }: { car: CarInfo }) {
+  if (!car.name && !car.class) return <span className="pace-muted">—</span>;
+
+  return (
+    <span>
+      {car.name}
+      {car.class && (
+        <span className="pace-badge" style={car.name ? { marginLeft: 6 } : undefined}>
+          {car.class}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function IRatingCell({ change }: { change: number | null }) {
+  if (change === null) return <span className="pace-muted">—</span>;
+  if (change === 0) return <span className="pace-muted">0</span>;
+
+  return <span className={change > 0 ? "pace-positive" : "pace-negative"}>{change > 0 ? `+${change}` : change}</span>;
 }
 
 function IncidentsCell({ incidents }: { incidents: IncidentStats }) {
@@ -78,6 +158,7 @@ export default function PaceSubsession() {
   const [qualLapsAvailable, setQualLapsAvailable] = useState<number | null>(null);
   const [raceLapsAvailable, setRaceLapsAvailable] = useState<number | null>(null);
   const [drivers, setDrivers] = useState<DriverPaceRow[] | null>(null);
+  const [hasIratingData, setHasIratingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sortColumn, setSortColumn] = useState<SortColumn>("race");
@@ -102,6 +183,7 @@ export default function PaceSubsession() {
           setDrivers(null);
         } else {
           setDrivers(data.drivers ?? []);
+          setHasIratingData(Boolean(data.hasIratingData));
           // The server clamps best-N to however many laps that sim-session
           // actually has - mirror that ceiling here so the inputs (and any
           // value the user types) can't ask for more than really exists.
@@ -132,8 +214,7 @@ export default function PaceSubsession() {
 
   const sorted = useMemo(() => {
     if (!drivers) return null;
-    const valueOf = (d: DriverPaceRow) => (sortColumn === "incidents" ? d.incidents.total : sortValue(d[sortColumn]));
-    const withSort = [...drivers].sort((a, b) => valueOf(a) - valueOf(b));
+    const withSort = [...drivers].sort((a, b) => compareByColumn(a, b, sortColumn));
     return sortAsc ? withSort : withSort.reverse();
   }, [drivers, sortColumn, sortAsc]);
 
@@ -200,10 +281,13 @@ export default function PaceSubsession() {
                 <thead>
                   <tr>
                     <th>Driver</th>
+                    <SortHeader column="car" label="Car" />
+                    <SortHeader column="position" label="Pos" />
                     <SortHeader column="qualifying" label="Qualifying pace" />
                     <SortHeader column="race" label="Race pace" />
                     <SortHeader column="average" label="Average pace" />
                     <SortHeader column="incidents" label="Incidents" />
+                    {hasIratingData && <SortHeader column="irating" label="iRating" />}
                   </tr>
                 </thead>
                 <tbody>
@@ -211,10 +295,16 @@ export default function PaceSubsession() {
                     <tr key={d.custId}>
                       <td>{d.driverName}</td>
                       <td>
+                        <CarCell car={d.car} />
+                      </td>
+                      <td>
+                        <PositionCell position={d.position} />
+                      </td>
+                      <td>
                         <PaceCell result={d.qualifying} />
                       </td>
                       <td>
-                        <PaceCell result={d.race} />
+                        <PaceCell result={d.race} gapMs={d.raceGapMs} />
                       </td>
                       <td>
                         <PaceCell result={d.average} />
@@ -222,6 +312,11 @@ export default function PaceSubsession() {
                       <td>
                         <IncidentsCell incidents={d.incidents} />
                       </td>
+                      {hasIratingData && (
+                        <td>
+                          <IRatingCell change={d.iratingChange} />
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

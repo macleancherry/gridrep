@@ -5,14 +5,14 @@ import {
   buildLapDataPath,
   identifySimSessions,
   extractDriverNames,
-  extractIncidents,
+  extractParticipantResults,
   extractSessionHeader,
   extractLapRows,
   extractLapNumber,
   normalizeLapTimeMs,
   describeIracingError,
   describeSimSessionBlocks,
-  type IncidentsRow,
+  type ParticipantResultRow,
 } from "./paceIracing";
 import { classifyLap } from "./cleanPace";
 import { runWithConcurrency, sleep } from "./concurrency";
@@ -21,17 +21,37 @@ function safeLog(level: "log" | "warn" | "error", debugId: string, msg: string, 
   console[level](JSON.stringify({ level, debugId, msg, ...extra }));
 }
 
-async function upsertIncidents(DB: any, subsessionId: string, rows: IncidentsRow[], now: string) {
+async function upsertParticipantResults(DB: any, subsessionId: string, rows: ParticipantResultRow[], now: string) {
   if (rows.length === 0) return;
   const statements = rows.map((r) =>
     DB.prepare(
-      `INSERT INTO pace_participants (subsession_id, cust_id, simsession_number, simsession_type, incidents, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO pace_participants (
+         subsession_id, cust_id, simsession_number, simsession_type,
+         incidents, start_pos, finish_pos, car_name, car_class, irating_change, created_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(subsession_id, cust_id, simsession_number) DO UPDATE SET
          simsession_type = excluded.simsession_type,
          incidents = excluded.incidents,
+         start_pos = excluded.start_pos,
+         finish_pos = excluded.finish_pos,
+         car_name = excluded.car_name,
+         car_class = excluded.car_class,
+         irating_change = excluded.irating_change,
          created_at = excluded.created_at`
-    ).bind(subsessionId, r.custId, r.simsessionNumber, r.type, r.incidents, now)
+    ).bind(
+      subsessionId,
+      r.custId,
+      r.simsessionNumber,
+      r.type,
+      r.incidents,
+      r.startPos,
+      r.finishPos,
+      r.carName,
+      r.carClass,
+      r.iratingChange,
+      now
+    )
   );
   await DB.batch(statements);
 }
@@ -108,18 +128,18 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
 
   if (existing?.laps_complete) {
     // This subsession's laps were already ingested before pace_participants
-    // existed (or before an official-incidents fetch failed) - backfill it
-    // with one extra result call rather than leaving incidents estimated
-    // forever, but only when it's actually missing.
-    const hasIncidents = await DB.prepare(`SELECT 1 FROM pace_participants WHERE subsession_id = ? LIMIT 1`)
+    // existed (or before a prior result-payload fetch failed) - backfill it
+    // with one extra result call rather than leaving incidents/position/car/
+    // iRating unavailable forever, but only when it's actually missing.
+    const hasParticipantResults = await DB.prepare(`SELECT 1 FROM pace_participants WHERE subsession_id = ? LIMIT 1`)
       .bind(subsessionId)
       .first<any>();
-    if (!hasIncidents) {
+    if (!hasParticipantResults) {
       try {
         const resultPayload = await fetchSubsessionResult(subsessionId, accessToken);
-        await upsertIncidents(DB, subsessionId, extractIncidents(resultPayload), new Date().toISOString());
+        await upsertParticipantResults(DB, subsessionId, extractParticipantResults(resultPayload), new Date().toISOString());
       } catch (err: any) {
-        safeLog("warn", debugId, "pace.ingest.incidents_backfill_failed", {
+        safeLog("warn", debugId, "pace.ingest.participant_results_backfill_failed", {
           subsessionId,
           message: err?.message ?? String(err),
         });
@@ -164,7 +184,7 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
   const header = extractSessionHeader(resultPayload);
   const simSessions = identifySimSessions(resultPayload);
   const driverNames = extractDriverNames(resultPayload);
-  const incidentsRows = extractIncidents(resultPayload);
+  const participantResults = extractParticipantResults(resultPayload);
 
   if (simSessions.length === 0) {
     throw new PaceIngestError(
@@ -188,7 +208,7 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
     .bind(subsessionId, opts.leagueId ?? null, header.track_name ?? null, header.series_name ?? null, header.start_time ?? null, now)
     .run();
 
-  await upsertIncidents(DB, subsessionId, incidentsRows, now);
+  await upsertParticipantResults(DB, subsessionId, participantResults, now);
 
   for (const [custId, name] of driverNames) {
     await DB.prepare(

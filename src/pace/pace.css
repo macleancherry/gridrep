@@ -9,6 +9,7 @@
   --pace-border: #e5e7eb;
   --pace-accent: #1f2937;
   --pace-danger: #b3261e;
+  --pace-positive: #15803d;
 
   --pace-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --pace-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
@@ -203,6 +204,23 @@
 }
 
 .pace-muted { color: var(--pace-muted); }
+
+.pace-positive { color: var(--pace-positive); font-weight: 500; }
+.pace-negative { color: var(--pace-danger); font-weight: 500; }
+
+/* Small car-class pill - text-based since no manufacturer/class logo assets
+   exist in this app; keeps the table scannable without pulling in images. */
+.pace-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--pace-border);
+  color: var(--pace-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
 
 @media (max-width: 560px) {
   .pace-header {
