@@ -346,7 +346,8 @@ export default function PaceHome() {
         <h2>Followed leagues</h2>
         <p className="pace-hint">
           iRacing requires a host cust_id and/or a session-name filter to search a league's hosted sessions — enter
-          at least one.
+          at least one. If the league rotates who hosts each round, enter several cust_ids separated by commas —
+          otherwise sessions hosted by anyone else silently never get found.
         </p>
         <div className="pace-row" style={{ marginBottom: 8 }}>
           <input
@@ -357,13 +358,13 @@ export default function PaceHome() {
           />
           <input
             className="pace-input"
-            placeholder="Host cust_id (optional)"
+            placeholder="Host cust_id(s), comma-separated (optional)"
             value={hostCustIdInput}
             onChange={(e) => setHostCustIdInput(e.target.value)}
           />
           <input
             className="pace-input"
-            placeholder="Session name filter (optional)"
+            placeholder="Session name filter(s), comma-separated (optional)"
             value={sessionNameInput}
             onChange={(e) => setSessionNameInput(e.target.value)}
           />

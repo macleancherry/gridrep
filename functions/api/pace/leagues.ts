@@ -38,7 +38,7 @@ export async function onRequestPost(context: any) {
     return jsonError(400, {
       error: "filter_required",
       message:
-        "iRacing requires a host cust_id or a session-name filter to search hosted sessions for a league - provide at least one.",
+        "iRacing requires a host cust_id or a session-name filter to search hosted sessions for a league - provide at least one. If the league rotates hosts between rounds, enter several cust_ids separated by commas.",
     });
   }
 

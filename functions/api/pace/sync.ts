@@ -17,6 +17,21 @@ import { json, jsonError } from "../../_lib/httpJson";
 // reported here is left.
 const MAX_SESSIONS_ATTEMPTED_PER_RUN = 1;
 
+// A league that rotates who hosts each round (common - one person schedules
+// week 1, someone else week 3, etc.) can't be caught by a single
+// host_cust_id: iRacing's search_hosted only ever matches sessions that
+// exact person hosted. Storing a comma-separated list lets a league be
+// followed under several hosts at once - each gets its own search_hosted
+// call below, unioned together, rather than requiring one host to have
+// created every session.
+function parseMultiValue(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+}
+
 async function incompleteSubsessionIds(DB: any, subsessionIds: string[]): Promise<string[]> {
   if (subsessionIds.length === 0) return [];
   const placeholders = subsessionIds.map(() => "?").join(",");
@@ -64,20 +79,45 @@ export async function onRequestPost(context: any) {
   for (const league of leagues.results ?? []) {
     summary.leaguesChecked += 1;
 
-    let subsessionIds: string[] = [];
-    try {
-      const searchPayload = await searchHostedSessionsForLeague(league.leagueId, league.lastSyncedAt ?? undefined, accessToken, {
-        hostCustId: league.hostCustId,
-        sessionNameFilter: league.sessionNameFilter,
-      });
-      subsessionIds = await extractSubsessionIds(searchPayload);
-      if (subsessionIds.length === 0) {
-        summary.emptySearchSamples.push({ leagueId: league.leagueId, sample: JSON.stringify(searchPayload).slice(0, 800) });
+    // Each host cust_id and each session-name filter is its own independent
+    // search_hosted call (iRacing only accepts one of each at a time) -
+    // union everything they find rather than requiring a single filter to
+    // catch every session this league has ever had.
+    const hostCustIds = parseMultiValue(league.hostCustId);
+    const sessionNameFilters = parseMultiValue(league.sessionNameFilter);
+    const searchAttempts: Array<{ hostCustId?: string; sessionNameFilter?: string }> = [
+      ...hostCustIds.map((hostCustId) => ({ hostCustId })),
+      ...sessionNameFilters.map((sessionNameFilter) => ({ sessionNameFilter })),
+    ];
+
+    const subsessionIdSet = new Set<string>();
+    let anySearchSucceeded = false;
+    for (const filter of searchAttempts) {
+      try {
+        const searchPayload = await searchHostedSessionsForLeague(league.leagueId, league.lastSyncedAt ?? undefined, accessToken, filter);
+        anySearchSucceeded = true;
+        const ids = await extractSubsessionIds(searchPayload);
+        ids.forEach((id) => subsessionIdSet.add(id));
+        if (ids.length === 0) {
+          summary.emptySearchSamples.push({
+            leagueId: league.leagueId,
+            sample: `${filter.hostCustId ? `host_cust_id=${filter.hostCustId}` : `session_name=${filter.sessionNameFilter}`}: ${JSON.stringify(searchPayload).slice(0, 600)}`,
+          });
+        }
+      } catch (err: any) {
+        summary.failures.push({
+          leagueId: league.leagueId,
+          message: `Search failed (${filter.hostCustId ? `host_cust_id=${filter.hostCustId}` : `session_name=${filter.sessionNameFilter}`}): ${describeIracingError(err)}`,
+        });
       }
-    } catch (err: any) {
-      summary.failures.push({ leagueId: league.leagueId, message: `Search failed: ${describeIracingError(err)}` });
-      continue;
     }
+
+    // Only skip this league's ingest step entirely if every search attempt
+    // failed outright - a partial failure (one host's search errored but
+    // another succeeded) should still process whatever was actually found.
+    if (!anySearchSucceeded) continue;
+
+    const subsessionIds = Array.from(subsessionIdSet);
 
     summary.sessionsFound += subsessionIds.length;
 
