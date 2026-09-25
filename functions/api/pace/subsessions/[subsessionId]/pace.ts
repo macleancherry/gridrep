@@ -7,9 +7,11 @@ function clampN(raw: string | null, fallback: number, max: number): number {
   return Math.min(max, Math.trunc(n));
 }
 
-// iRacing scores incidents in points, not one-per-flag: off track is 1x,
-// while car contact and losing control are 2x. iRacing doesn't publish an
-// API field for this, so it's applied here rather than read from the data.
+// Fallback only: used when iRacing's own per-driver incident total (synced
+// into pace_participants, see paceIngest.ts) isn't available for this
+// subsession yet. Off track is 1x, car contact and losing control are 2x -
+// iRacing doesn't publish this weighting as an API field, so it's an
+// estimate, not a guaranteed match to iRacing's real total.
 function pointsForFlag(flag: string): number {
   const f = flag.toLowerCase();
   if (f.includes("contact") || f.includes("lost control")) return 2;
@@ -32,17 +34,22 @@ export async function onRequestGet(context: any) {
   const rows = await DB.prepare(
     `SELECT l.cust_id as custId, d.display_name as driverName, l.simsession_type as simsessionType,
             l.lap_time_ms as lapTimeMs, l.is_pit_lap as isPitLap, l.is_clean as isClean,
-            l.flags_decoded as flagsDecoded
+            l.flags_decoded as flagsDecoded, pp.incidents as officialIncidents
      FROM pace_laps l
      LEFT JOIN drivers d ON d.iracing_member_id = l.cust_id
+     LEFT JOIN pace_participants pp
+       ON pp.subsession_id = l.subsession_id AND pp.cust_id = l.cust_id AND pp.simsession_type = l.simsession_type
      WHERE l.subsession_id = ?`
   )
     .bind(subsessionId)
     .all<any>();
 
   type Key = string;
-  const groups = new Map<Key, { custId: string; driverName: string; simsessionType: string; laps: StoredLap[] }>();
-  const incidentsByDriver = new Map<string, { points: number; lapsAffected: number; types: Record<string, number> }>();
+  const groups = new Map<
+    Key,
+    { custId: string; driverName: string; simsessionType: string; laps: StoredLap[]; officialIncidents: number | null }
+  >();
+  const flagStatsByDriver = new Map<string, { points: number; lapsAffected: number; types: Record<string, number> }>();
 
   for (const row of rows.results ?? []) {
     const key = `${row.simsessionType}:${row.custId}`;
@@ -52,6 +59,7 @@ export async function onRequestGet(context: any) {
         driverName: row.driverName ?? `Driver ${row.custId}`,
         simsessionType: row.simsessionType,
         laps: [],
+        officialIncidents: row.officialIncidents === null || row.officialIncidents === undefined ? null : Number(row.officialIncidents),
       });
     }
     groups.get(key)!.laps.push({
@@ -72,14 +80,28 @@ export async function onRequestGet(context: any) {
         flags = [];
       }
       if (flags.length > 0) {
-        if (!incidentsByDriver.has(row.custId)) incidentsByDriver.set(row.custId, { points: 0, lapsAffected: 0, types: {} });
-        const stats = incidentsByDriver.get(row.custId)!;
+        if (!flagStatsByDriver.has(row.custId)) flagStatsByDriver.set(row.custId, { points: 0, lapsAffected: 0, types: {} });
+        const stats = flagStatsByDriver.get(row.custId)!;
         stats.lapsAffected += 1;
         for (const flag of flags) {
           stats.points += pointsForFlag(flag);
           stats.types[flag] = (stats.types[flag] ?? 0) + 1;
         }
       }
+    }
+  }
+
+  // iRacing reports a real per-(driver, sim-session) incident total in its
+  // own result payload (synced into pace_participants) - prefer summing
+  // that across qualifying+race over the flag-weighted estimate whenever
+  // it's actually present.
+  const officialIncidentsByDriver = new Map<string, { sum: number; found: boolean }>();
+  for (const g of groups.values()) {
+    if (!officialIncidentsByDriver.has(g.custId)) officialIncidentsByDriver.set(g.custId, { sum: 0, found: false });
+    const acc = officialIncidentsByDriver.get(g.custId)!;
+    if (g.officialIncidents !== null) {
+      acc.sum += g.officialIncidents;
+      acc.found = true;
     }
   }
 
@@ -109,19 +131,23 @@ export async function onRequestGet(context: any) {
       qualifying: unknown;
       race: unknown;
       average: unknown;
-      incidents: { points: number; lapsAffected: number; types: Record<string, number> };
+      incidents: { total: number; estimated: boolean; lapsAffected: number; types: Record<string, number> };
     }
   >();
 
   for (const g of groups.values()) {
     if (!byDriver.has(g.custId)) {
+      const official = officialIncidentsByDriver.get(g.custId);
+      const flagStats = flagStatsByDriver.get(g.custId) ?? { points: 0, lapsAffected: 0, types: {} };
       byDriver.set(g.custId, {
         custId: g.custId,
         driverName: g.driverName,
         qualifying: null,
         race: null,
         average: null,
-        incidents: incidentsByDriver.get(g.custId) ?? { points: 0, lapsAffected: 0, types: {} },
+        incidents: official?.found
+          ? { total: official.sum, estimated: false, lapsAffected: flagStats.lapsAffected, types: flagStats.types }
+          : { total: flagStats.points, estimated: true, lapsAffected: flagStats.lapsAffected, types: flagStats.types },
       });
     }
     const entry = byDriver.get(g.custId)!;
