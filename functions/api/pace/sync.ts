@@ -126,7 +126,19 @@ export async function onRequestPost(context: any) {
     let anySearchSucceeded = false;
     for (const filter of searchAttempts) {
       try {
-        const searchPayload = await searchHostedSessionsForLeague(league.leagueId, league.lastSyncedAt ?? undefined, accessToken, filter);
+        // Deliberately NOT using league.lastSyncedAt as the window start:
+        // it advances even on a run that found nothing (a bad filter, or a
+        // host that turned out to be wrong), and once it's past a real
+        // race's finish time that race is excluded from every future
+        // search forever - correcting the filter afterward wouldn't help,
+        // since the window itself no longer covers when the race happened
+        // (confirmed live: a previously-advanced marker produced a
+        // ~22-minute search window that obviously missed everything).
+        // Search is cheap (a single iRacing call), and anything already
+        // ingested is skipped by incompleteSubsessionIds/
+        // attachAlreadyCompleteSubsessions below regardless, so there's no
+        // real cost to always re-scanning the full default window.
+        const searchPayload = await searchHostedSessionsForLeague(league.leagueId, undefined, accessToken, filter);
         anySearchSucceeded = true;
         const ids = await extractSubsessionIds(searchPayload);
         ids.forEach((id) => subsessionIdSet.add(id));
