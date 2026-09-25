@@ -90,9 +90,25 @@ export function withBrand(path: string, brandKey: string | null): string {
   return `${path}${separator}brand=${encodeURIComponent(brandKey)}`;
 }
 
+/** Appends ?embed=1 (if currently set) onto an internal Pace path, so an iframe embed stays headerless across navigation too. */
+export function withEmbed(path: string, embed: boolean): string {
+  if (!embed) return path;
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}embed=1`;
+}
+
 export function usePaceBrand(): { brand: PaceBrand | null; brandKey: string | null } {
   const location = useLocation();
   const brandKey = new URLSearchParams(location.search).get("brand");
   const brand = brandKey ? (PACE_BRANDS[brandKey.toUpperCase()] ?? null) : null;
   return { brand, brandKey: brand ? brandKey : null };
+}
+
+/** ?embed=1 (or =true) drops Pace's own header entirely - for a partner
+ * iframing a page (their site already has navigation/branding of its
+ * own), Pace's header is redundant chrome rather than useful navigation. */
+export function usePaceEmbed(): boolean {
+  const location = useLocation();
+  const value = new URLSearchParams(location.search).get("embed");
+  return value === "1" || value === "true";
 }

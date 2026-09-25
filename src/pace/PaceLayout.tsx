@@ -1,7 +1,7 @@
 import { useEffect, type CSSProperties, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { usePaceViewer } from "./usePaceViewer";
-import { usePaceBrand, withBrand } from "./brands";
+import { usePaceBrand, usePaceEmbed, withBrand, withEmbed } from "./brands";
 import "./pace.css";
 
 /** Loads a brand's Google Font stylesheet on demand rather than bundling
@@ -24,6 +24,7 @@ export default function PaceLayout({ children }: { children: ReactNode }) {
   const viewer = usePaceViewer();
   const location = useLocation();
   const { brand, brandKey } = usePaceBrand();
+  const embed = usePaceEmbed();
 
   useBrandFont(brand?.googleFontHref);
 
@@ -37,37 +38,42 @@ export default function PaceLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="pace-shell" style={shellStyle}>
-      <header className="pace-header">
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {brand ? (
-            <a href={brand.homeUrl} className="pace-brand">
-              {brand.logoUrl ? <img src={brand.logoUrl} alt={brand.name} className="pace-brand-logo" /> : brand.name}
-            </a>
-          ) : (
-            <Link to="/pace" className="pace-brand">
-              Pace
+      {/* ?embed=1 drops the header entirely - a partner iframing this page
+          already has their own navigation/branding around it, so Pace's
+          header is redundant chrome rather than something worth showing. */}
+      {!embed && (
+        <header className="pace-header">
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {brand ? (
+              <a href={brand.homeUrl} className="pace-brand">
+                {brand.logoUrl ? <img src={brand.logoUrl} alt={brand.name} className="pace-brand-logo" /> : brand.name}
+              </a>
+            ) : (
+              <Link to="/pace" className="pace-brand">
+                Pace
+              </Link>
+            )}
+            <Link to={withEmbed(withBrand("/pace", brandKey), embed)} className="pace-back">
+              ← New search
             </Link>
-          )}
-          <Link to={withBrand("/pace", brandKey)} className="pace-back">
-            ← New search
-          </Link>
-          {brand && (
-            <span className="pace-hint" style={{ margin: 0, fontSize: "0.75rem" }}>
-              Pace by GridRep
-            </span>
-          )}
-        </div>
-
-        {/* Sign-in is an admin affordance (following/syncing leagues,
-            pulling a subsession) - a branded view has none of those
-            controls, so there's nothing for a public visitor to sign in
-            for. Hidden there rather than shown with no purpose. */}
-        {!brand && (
-          <div className="pace-status">
-            {viewer.verified ? statusText : <a href={verifyHref}>Sign in with iRacing</a>}
+            {brand && (
+              <span className="pace-hint" style={{ margin: 0, fontSize: "0.75rem" }}>
+                Pace by GridRep
+              </span>
+            )}
           </div>
-        )}
-      </header>
+
+          {/* Sign-in is an admin affordance (following/syncing leagues,
+              pulling a subsession) - a branded view has none of those
+              controls, so there's nothing for a public visitor to sign in
+              for. Hidden there rather than shown with no purpose. */}
+          {!brand && (
+            <div className="pace-status">
+              {viewer.verified ? statusText : <a href={verifyHref}>Sign in with iRacing</a>}
+            </div>
+          )}
+        </header>
+      )}
 
       <main className="pace-main">{children}</main>
     </div>

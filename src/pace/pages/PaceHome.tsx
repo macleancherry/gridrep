@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { usePaceBrand, withBrand } from "../brands";
+import { usePaceBrand, usePaceEmbed, withBrand, withEmbed } from "../brands";
 
 type LeagueRace = {
   subsessionId: string;
@@ -10,6 +10,7 @@ type LeagueRace = {
 };
 
 function LeagueRaceList({ leagueId, brandKey }: { leagueId: string; brandKey: string | null }) {
+  const embed = usePaceEmbed();
   const [races, setRaces] = useState<LeagueRace[] | null>(null);
   const [leagueName, setLeagueName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +59,7 @@ function LeagueRaceList({ leagueId, brandKey }: { leagueId: string; brandKey: st
           {races.map((race) => (
             <Link
               key={race.subsessionId}
-              to={withBrand(`/pace/s/${race.subsessionId}`, brandKey)}
+              to={withEmbed(withBrand(`/pace/s/${race.subsessionId}`, brandKey), embed)}
               className="pace-list-item"
               style={{ textDecoration: "none", color: "inherit" }}
             >
@@ -120,6 +121,7 @@ type SyncSummary = {
 export default function PaceHome() {
   const navigate = useNavigate();
   const { brand, brandKey } = usePaceBrand();
+  const embed = usePaceEmbed();
 
   const [subsessionInput, setSubsessionInput] = useState("");
   const [pulling, setPulling] = useState(false);
@@ -217,7 +219,7 @@ export default function PaceHome() {
         return;
       }
 
-      navigate(withBrand(`/pace/s/${encodeURIComponent(id)}`, brandKey));
+      navigate(withEmbed(withBrand(`/pace/s/${encodeURIComponent(id)}`, brandKey), embed));
     } catch {
       setPullError("Network error. Please try again.");
     } finally {
