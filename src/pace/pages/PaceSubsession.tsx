@@ -72,6 +72,15 @@ function sortValue(result: PaceResult): number {
   return result?.ok ? result.paceMs : Infinity;
 }
 
+// Partial match ("Mac" or "Cherry" should still find "Mac Cherry") rather
+// than requiring the exact full name - but a 1-character query would match
+// almost every row, so require enough of a name to actually mean something.
+function matchesMyDriverName(driverName: string, myDriverName: string): boolean {
+  const query = myDriverName.trim().toLowerCase();
+  if (query.length < 2) return false;
+  return driverName.toLowerCase().includes(query);
+}
+
 function compareByColumn(a: DriverPaceRow, b: DriverPaceRow, column: SortColumn): number {
   switch (column) {
     case "position":
@@ -310,11 +319,7 @@ export default function PaceSubsession() {
                   {sorted.map((d) => (
                     <tr
                       key={d.custId}
-                      className={
-                        myDriverName.trim() && d.driverName.trim().toLowerCase() === myDriverName.trim().toLowerCase()
-                          ? "pace-row-highlighted"
-                          : undefined
-                      }
+                      className={matchesMyDriverName(d.driverName, myDriverName) ? "pace-row-highlighted" : undefined}
                     >
                       <td>{d.driverName}</td>
                       <td>
