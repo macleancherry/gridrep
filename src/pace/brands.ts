@@ -5,6 +5,10 @@ export type PaceBrand = {
   homeUrl: string;
   logoUrl?: string;
   googleFontHref?: string;
+  /** When set, Pace's home page shows this league's synced races to pick
+   * from instead of the raw subsession-pull / league-management tools -
+   * meant for a single-league partner's own audience, not an admin. */
+  leagueId?: string;
   /** Every value here maps straight onto a `--pace-*` custom property on
    * .pace-shell (see pace.css) - each one already has a light/neutral
    * default that reproduces today's plain Pace look, so a brand only needs
@@ -47,6 +51,7 @@ const PACE_BRANDS: Record<string, PaceBrand> = {
     name: "Aussie Endurance Series",
     homeUrl: "https://aesleague.org/",
     logoUrl: "/brand/aes-logo.png",
+    leagueId: "11090",
     googleFontHref: "https://fonts.googleapis.com/css2?family=DM+Sans:wght@500;700;800;900&display=swap",
     vars: {
       "--pace-sans": "'DM Sans', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
