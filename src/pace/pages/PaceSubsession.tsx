@@ -347,6 +347,11 @@ export default function PaceSubsession() {
                         hint="Finish position. The arrow shows places gained (▲) or lost (▼) from the start."
                       />
                       <SortHeader
+                        column="average"
+                        label="Average pace"
+                        hint="Average across both qualifying and race clean laps combined."
+                      />
+                      <SortHeader
                         column="qualifying"
                         label="Qualifying pace"
                         hint="Average of this driver's fastest clean qualifying lap(s)."
@@ -355,11 +360,6 @@ export default function PaceSubsession() {
                         column="race"
                         label="Race pace"
                         hint="Average of this driver's fastest clean race laps, plus how far behind the fastest driver they were."
-                      />
-                      <SortHeader
-                        column="average"
-                        label="Average pace"
-                        hint="Average across both qualifying and race clean laps combined."
                       />
                       <SortHeader
                         column="incidents"
@@ -385,13 +385,13 @@ export default function PaceSubsession() {
                           <PositionCell position={d.position} />
                         </td>
                         <td>
+                          <PaceCell result={d.average} />
+                        </td>
+                        <td>
                           <PaceCell result={d.qualifying} />
                         </td>
                         <td>
                           <PaceCell result={d.race} gapMs={d.raceGapMs} />
-                        </td>
-                        <td>
-                          <PaceCell result={d.average} />
                         </td>
                         <td>
                           <IncidentsCell incidents={d.incidents} />
