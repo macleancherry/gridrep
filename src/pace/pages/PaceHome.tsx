@@ -103,6 +103,7 @@ type SyncResponse = {
   leaguesChecked: number;
   sessionsFound: number;
   sessionsIngested: number;
+  sessionsAttached: number;
   sessionsRemaining: number;
   failures: Array<{ leagueId: string; subsessionId?: string; message: string }>;
   emptySearchSamples: Array<{ leagueId: string; sample: string }>;
@@ -111,6 +112,7 @@ type SyncResponse = {
 type SyncSummary = {
   sessionsFound: number;
   sessionsIngested: number;
+  sessionsAttached: number;
   failures: Array<{ leagueId: string; subsessionId?: string; message: string }>;
   emptySearchSamples: Array<{ leagueId: string; sample: string }>;
 };
@@ -283,7 +285,7 @@ export default function PaceHome() {
     // subrequest-budget reason the Pull flow batches, so loop it here too
     // until nothing's left, showing live progress along the way.
     const MAX_ITERATIONS = 500;
-    const summary: SyncSummary = { sessionsFound: 0, sessionsIngested: 0, failures: [], emptySearchSamples: [] };
+    const summary: SyncSummary = { sessionsFound: 0, sessionsIngested: 0, sessionsAttached: 0, failures: [], emptySearchSamples: [] };
 
     try {
       for (let i = 0; i < MAX_ITERATIONS; i++) {
@@ -296,6 +298,7 @@ export default function PaceHome() {
 
         summary.sessionsFound = Math.max(summary.sessionsFound, data.sessionsFound ?? 0);
         summary.sessionsIngested += data.sessionsIngested ?? 0;
+        summary.sessionsAttached += data.sessionsAttached ?? 0;
         summary.failures.push(...(data.failures ?? []));
         summary.emptySearchSamples.push(...(data.emptySearchSamples ?? []));
 
@@ -414,6 +417,9 @@ export default function PaceHome() {
           <>
             <p className="pace-hint" style={{ marginTop: 12 }}>
               Found {syncSummary.sessionsFound} session(s), ingested {syncSummary.sessionsIngested}.
+              {syncSummary.sessionsAttached > 0
+                ? ` ${syncSummary.sessionsAttached} already-pulled session(s) linked to this league.`
+                : ""}
               {syncSummary.failures.length > 0 ? ` ${syncSummary.failures.length} failure(s).` : ""}
             </p>
             {syncSummary.failures.length > 0 && (
