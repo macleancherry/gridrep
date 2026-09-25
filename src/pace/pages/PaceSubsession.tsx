@@ -59,7 +59,7 @@ function IncidentsCell({ incidents }: { incidents: IncidentStats }) {
     .map(([type, n]) => `${type}: ${n}`)
     .join(", ");
 
-  const title = `Estimated iRacing incident points (2x off-track/spin, 4x contact) from ${
+  const title = `Estimated iRacing incident points (1x off track, 2x contact/lost control) from ${
     incidents.lapsAffected
   } flagged lap(s): ${breakdown}`;
 
