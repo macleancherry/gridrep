@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+import { useMyDriverName } from "../useMyDriverName";
 
 type PaceResult =
   | { ok: true; paceMs: number; lapsUsed: number; n?: number; partial?: boolean; stdDevMs?: number }
@@ -163,6 +164,7 @@ export default function PaceSubsession() {
   const [loading, setLoading] = useState(true);
   const [sortColumn, setSortColumn] = useState<SortColumn>("race");
   const [sortAsc, setSortAsc] = useState(true);
+  const [myDriverName, setMyDriverName] = useMyDriverName();
 
   useEffect(() => {
     let cancelled = false;
@@ -268,6 +270,20 @@ export default function PaceSubsession() {
         />
       </div>
 
+      <div className="pace-row" style={{ marginBottom: 24 }}>
+        <label className="pace-hint" htmlFor="my-driver-name-input" style={{ margin: 0 }}>
+          Highlight my row
+        </label>
+        <input
+          id="my-driver-name-input"
+          className="pace-input"
+          style={{ flex: "1 1 220px" }}
+          placeholder="Your driver name"
+          value={myDriverName}
+          onChange={(e) => setMyDriverName(e.target.value)}
+        />
+      </div>
+
       {loading && <p className="pace-hint">Loading…</p>}
       {error && <p className="pace-error">{error}</p>}
 
@@ -292,7 +308,14 @@ export default function PaceSubsession() {
                 </thead>
                 <tbody>
                   {sorted.map((d) => (
-                    <tr key={d.custId}>
+                    <tr
+                      key={d.custId}
+                      className={
+                        myDriverName.trim() && d.driverName.trim().toLowerCase() === myDriverName.trim().toLowerCase()
+                          ? "pace-row-highlighted"
+                          : undefined
+                      }
+                    >
                       <td>{d.driverName}</td>
                       <td>
                         <CarCell car={d.car} />
