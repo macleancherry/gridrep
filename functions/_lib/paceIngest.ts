@@ -128,10 +128,17 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
 
   if (existing?.laps_complete) {
     // This subsession's laps were already ingested before pace_participants
-    // existed (or before a prior result-payload fetch failed) - backfill it
-    // with one extra result call rather than leaving incidents/position/car/
-    // iRating unavailable forever, but only when it's actually missing.
-    const hasParticipantResults = await DB.prepare(`SELECT 1 FROM pace_participants WHERE subsession_id = ? LIMIT 1`)
+    // existed, before position/car/iRating columns existed on it, or before
+    // a prior result-payload fetch failed - backfill it with one extra
+    // result call rather than leaving any of that unavailable forever, but
+    // only when it's actually missing. Checking for a row with finish_pos
+    // set (not just row existence) matters: a subsession synced between the
+    // incidents-only backfill and this one already has pace_participants
+    // rows, just without these columns populated - a bare existence check
+    // would wrongly treat those as already backfilled and skip them.
+    const hasParticipantResults = await DB.prepare(
+      `SELECT 1 FROM pace_participants WHERE subsession_id = ? AND finish_pos IS NOT NULL LIMIT 1`
+    )
       .bind(subsessionId)
       .first<any>();
     if (!hasParticipantResults) {
