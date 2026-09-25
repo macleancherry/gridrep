@@ -58,9 +58,15 @@ export default function PaceLayout({ children }: { children: ReactNode }) {
           )}
         </div>
 
-        <div className="pace-status">
-          {viewer.verified ? statusText : <a href={verifyHref}>Sign in with iRacing</a>}
-        </div>
+        {/* Sign-in is an admin affordance (following/syncing leagues,
+            pulling a subsession) - a branded view has none of those
+            controls, so there's nothing for a public visitor to sign in
+            for. Hidden there rather than shown with no purpose. */}
+        {!brand && (
+          <div className="pace-status">
+            {viewer.verified ? statusText : <a href={verifyHref}>Sign in with iRacing</a>}
+          </div>
+        )}
       </header>
 
       <main className="pace-main">{children}</main>
