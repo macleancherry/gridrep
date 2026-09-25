@@ -333,77 +333,80 @@ export default function PaceSubsession() {
           {sorted.length === 0 ? (
             <p className="pace-hint">No drivers found for this subsession.</p>
           ) : (
-            <div className="pace-table-wrap">
-              <table className="pace-table">
-                <thead>
-                  <tr>
-                    <th>Driver</th>
-                    <SortHeader column="car" label="Car" hint="The car and class this driver raced." />
-                    <SortHeader
-                      column="position"
-                      label="Pos"
-                      hint="Finish position. The arrow shows places gained (▲) or lost (▼) from the start."
-                    />
-                    <SortHeader
-                      column="qualifying"
-                      label="Qualifying pace"
-                      hint="Average of this driver's fastest clean qualifying lap(s)."
-                    />
-                    <SortHeader
-                      column="race"
-                      label="Race pace"
-                      hint="Average of this driver's fastest clean race laps, plus how far behind the fastest driver they were."
-                    />
-                    <SortHeader
-                      column="average"
-                      label="Average pace"
-                      hint="Average across both qualifying and race clean laps combined."
-                    />
-                    <SortHeader
-                      column="incidents"
-                      label="Incidents"
-                      hint="iRacing's incident-point total for this driver over the whole session."
-                    />
-                    {hasIratingData && (
-                      <SortHeader column="irating" label="iRating" hint="How much this driver's iRating changed from this race." />
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map((d) => (
-                    <tr
-                      key={d.custId}
-                      className={matchesMyDriverName(d.driverName, myDriverName) ? "pace-row-highlighted" : undefined}
-                    >
-                      <td>{d.driverName}</td>
-                      <td>
-                        <CarCell car={d.car} />
-                      </td>
-                      <td>
-                        <PositionCell position={d.position} />
-                      </td>
-                      <td>
-                        <PaceCell result={d.qualifying} />
-                      </td>
-                      <td>
-                        <PaceCell result={d.race} gapMs={d.raceGapMs} />
-                      </td>
-                      <td>
-                        <PaceCell result={d.average} />
-                      </td>
-                      <td>
-                        <IncidentsCell incidents={d.incidents} />
-                      </td>
+            <>
+              <p className="pace-scroll-hint">↔ Swipe sideways to see more columns</p>
+              <div className="pace-table-wrap">
+                <table className="pace-table">
+                  <thead>
+                    <tr>
+                      <th>Driver</th>
+                      <SortHeader column="car" label="Car" hint="The car and class this driver raced." />
+                      <SortHeader
+                        column="position"
+                        label="Pos"
+                        hint="Finish position. The arrow shows places gained (▲) or lost (▼) from the start."
+                      />
+                      <SortHeader
+                        column="qualifying"
+                        label="Qualifying pace"
+                        hint="Average of this driver's fastest clean qualifying lap(s)."
+                      />
+                      <SortHeader
+                        column="race"
+                        label="Race pace"
+                        hint="Average of this driver's fastest clean race laps, plus how far behind the fastest driver they were."
+                      />
+                      <SortHeader
+                        column="average"
+                        label="Average pace"
+                        hint="Average across both qualifying and race clean laps combined."
+                      />
+                      <SortHeader
+                        column="incidents"
+                        label="Incidents"
+                        hint="iRacing's incident-point total for this driver over the whole session."
+                      />
                       {hasIratingData && (
-                        <td>
-                          <IRatingCell change={d.iratingChange} />
-                        </td>
+                        <SortHeader column="irating" label="iRating" hint="How much this driver's iRating changed from this race." />
                       )}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {sorted.map((d) => (
+                      <tr
+                        key={d.custId}
+                        className={matchesMyDriverName(d.driverName, myDriverName) ? "pace-row-highlighted" : undefined}
+                      >
+                        <td>{d.driverName}</td>
+                        <td>
+                          <CarCell car={d.car} />
+                        </td>
+                        <td>
+                          <PositionCell position={d.position} />
+                        </td>
+                        <td>
+                          <PaceCell result={d.qualifying} />
+                        </td>
+                        <td>
+                          <PaceCell result={d.race} gapMs={d.raceGapMs} />
+                        </td>
+                        <td>
+                          <PaceCell result={d.average} />
+                        </td>
+                        <td>
+                          <IncidentsCell incidents={d.incidents} />
+                        </td>
+                        {hasIratingData && (
+                          <td>
+                            <IRatingCell change={d.iratingChange} />
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}
