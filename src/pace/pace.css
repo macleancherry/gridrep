@@ -220,6 +220,15 @@
   -webkit-overflow-scrolling: touch;
   border: 1px solid var(--pace-border);
   border-radius: 8px;
+  position: relative;
+}
+
+/* On a phone the table is reliably wider than the screen (min-width:560px
+   above), and an auto-hiding mobile scrollbar gives no visual clue that
+   more columns exist off to the right - so say so outright rather than
+   relying on the browser's own (often invisible) scroll affordance. */
+.pace-scroll-hint {
+  display: none;
 }
 
 .pace-table {
@@ -299,5 +308,13 @@
 
   .pace-section {
     margin-bottom: 32px;
+  }
+
+  .pace-scroll-hint {
+    display: block;
+    color: var(--pace-text);
+    font-size: 0.82rem;
+    font-weight: 600;
+    margin: -8px 0 8px;
   }
 }
