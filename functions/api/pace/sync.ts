@@ -1,6 +1,7 @@
 import { getViewer, getValidAccessToken } from "../../_lib/auth";
 import { searchHostedSessionsForLeague, extractSubsessionIds, describeIracingError } from "../../_lib/paceIracing";
 import { ingestPaceSubsession, PaceIngestError } from "../../_lib/paceIngest";
+import { currentSeasonStart } from "../../_lib/iracingSeasons";
 import { json, jsonError } from "../../_lib/httpJson";
 
 // Cloudflare Workers caps subrequests per invocation, and a single
@@ -134,11 +135,17 @@ async function runSync(context: any) {
         // since the window itself no longer covers when the race happened
         // (confirmed live: a previously-advanced marker produced a
         // ~22-minute search window that obviously missed everything).
-        // Search is cheap (a single iRacing call), and anything already
-        // ingested is skipped by incompleteSubsessionIds/
-        // attachAlreadyCompleteSubsessions below regardless, so there's no
-        // real cost to always re-scanning the full default window.
-        const searchPayload = await searchHostedSessionsForLeague(league.leagueId, undefined, accessToken, filter);
+        // Scoped to the current iRacing season instead - only current-
+        // season races are wanted anyway (a prior season is a different
+        // competition), and it's a real, stateless boundary rather than a
+        // ratcheting cursor, so it can never suffer the same "permanently
+        // excludes real history" failure a stored marker did.
+        const searchPayload = await searchHostedSessionsForLeague(
+          league.leagueId,
+          currentSeasonStart().toISOString(),
+          accessToken,
+          filter
+        );
         anySearchSucceeded = true;
         const ids = await extractSubsessionIds(searchPayload);
         ids.forEach((id) => subsessionIdSet.add(id));
