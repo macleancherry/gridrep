@@ -155,12 +155,12 @@ function IncidentsCell({ incidents }: { incidents: IncidentStats }) {
 
   const title = incidents.estimated
     ? `iRacing didn't give us an official total for this race, so this is an estimate from ${incidents.lapsAffected} flagged lap(s) (1x off track, 2x contact/lost control): ${breakdown}`
-    : `iRacing's own incident-point total for this driver, from ${incidents.lapsAffected} flagged lap(s): ${breakdown}`;
+    : `iRacing's own incident-point total for this driver. For reference, ${incidents.lapsAffected} lap(s) were flagged: ${breakdown} - a lap can carry more than one flag and flags aren't weighted evenly, so these counts won't necessarily add up to the total above.`;
 
   return (
     <span title={title} style={{ cursor: "help" }}>
       {incidents.total}
-      {incidents.estimated && <span className="pace-muted"> (est.)</span>} <span className="pace-muted">({breakdown})</span>
+      {incidents.estimated && <span className="pace-muted"> (est.)</span>}
     </span>
   );
 }
