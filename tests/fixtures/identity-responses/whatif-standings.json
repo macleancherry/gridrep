@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "subsessionId": "88970988",
+  "fromLap": 10,
+  "excludePitLaps": false,
+  "referenceDriver": { "driverId": "3f29b6e2-1c3a-4a9e-9b2a-9b7e6f1d2c10", "driverName": "Mac Cherry" },
+  "cutoffTimeMs": 950000,
+  "standings": [
+    { "driverId": "3f29b6e2-1c3a-4a9e-9b2a-9b7e6f1d2c10", "driverName": "Mac Cherry", "position": 1, "status": "classified", "nearReference": true },
+    { "driverId": "af13c9d0-6e21-4a77-9a1a-2b8e5f0c7d44", "driverName": null, "position": 2, "status": "classified", "nearReference": true }
+  ]
+}

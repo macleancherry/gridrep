@@ -1,6 +1,7 @@
 import { getViewer } from "../../../_lib/auth";
 import { isTeamMember, isTeamCoordinator } from "../../../_lib/plannerTeams";
 import { cascadeDeleteRaceWeekend } from "../../../_lib/plannerRacePlan";
+import { ensureDriverIds, displayDrivers } from "../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../_lib/httpJson";
 
 /** Team detail + roster - only visible to the team's own members, never to an outsider
@@ -27,14 +28,25 @@ export async function onRequestGet(context: any) {
   }
 
   const rosterRows = await DB.prepare(
-    `SELECT m.cust_id as custId, m.user_id as userId, d.display_name as driverName, m.role, m.status,
+    `SELECT m.cust_id as custId, m.user_id as userId, m.role, m.status,
             m.invited_at as invitedAt, m.joined_at as joinedAt
-     FROM team_members m LEFT JOIN drivers d ON d.iracing_member_id = m.cust_id
+     FROM team_members m
      WHERE m.team_id = ?
      ORDER BY m.role = 'coordinator' DESC, m.status = 'active' DESC, m.invited_at`
   )
     .bind(teamId)
     .all<any>();
+  const rosterDriverIdByCustId = await ensureDriverIds(DB, (rosterRows.results ?? []).map((r: any) => r.custId));
+  const rosterDisplay = await displayDrivers(DB, [...rosterDriverIdByCustId.values()]);
+  const roster = (rosterRows.results ?? []).map((r: any) => ({
+    driverId: rosterDriverIdByCustId.get(r.custId),
+    userId: r.userId,
+    driverName: rosterDisplay.get(rosterDriverIdByCustId.get(r.custId)!)?.name ?? null,
+    role: r.role,
+    status: r.status,
+    invitedAt: r.invitedAt,
+    joinedAt: r.joinedAt,
+  }));
 
   const coordinator = await isTeamCoordinator(DB, teamId, viewer.user!.id);
   let inviteToken: string | null = null;
@@ -97,7 +109,7 @@ export async function onRequestGet(context: any) {
   return json({
     ok: true,
     team,
-    roster: rosterRows.results ?? [],
+    roster,
     isCoordinator: coordinator,
     inviteToken,
     weekends,

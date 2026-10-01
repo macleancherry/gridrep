@@ -1,5 +1,6 @@
 import { getViewer } from "../../../../../../_lib/auth";
 import { canManagePlan } from "../../../../../../_lib/plannerRacePlan";
+import { custIdForDriverId } from "../../../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../../../_lib/httpJson";
 
 /**
@@ -11,6 +12,9 @@ import { json, jsonError } from "../../../../../../_lib/httpJson";
  * Deliberately NOT written to the shared driver_track_profiles cache - a lock here never
  * affects a different race reusing the same driver+track+car, per the coordinator's own
  * choice of what "stop syncing for that race" means.
+ *
+ * Identified by driverId (the only thing the client has) - race_plan_lineup is still
+ * keyed by real custid internally, resolved here server-side only (see driverIdentity.ts).
  */
 export async function onRequestPut(context: any) {
   const viewer = await getViewer(context);
@@ -19,10 +23,13 @@ export async function onRequestPut(context: any) {
   }
 
   const planId = context.params.planId as string;
-  const custId = context.params.custId as string;
+  const driverId = context.params.driverId as string;
   const { DB } = context.env;
 
-  const lineupRow = await DB.prepare(`SELECT 1 FROM race_plan_lineup WHERE race_plan_id = ? AND cust_id = ?`).bind(planId, custId).first<any>();
+  const custId = await custIdForDriverId(DB, driverId);
+  const lineupRow = custId
+    ? await DB.prepare(`SELECT 1 FROM race_plan_lineup WHERE race_plan_id = ? AND cust_id = ?`).bind(planId, custId).first<any>()
+    : null;
   if (!lineupRow) {
     return jsonError(404, { error: "not_found", message: "That driver isn't on this plan's lineup." });
   }
@@ -46,7 +53,7 @@ export async function onRequestPut(context: any) {
     .bind(paceMs, fuelPerLap, now, planId, custId)
     .run();
 
-  return json({ ok: true, custId, lockedPaceMs: paceMs, lockedFuelPerLap: fuelPerLap, lockedAt: now });
+  return json({ ok: true, driverId, lockedPaceMs: paceMs, lockedFuelPerLap: fuelPerLap, lockedAt: now });
 }
 
 export async function onRequestDelete(context: any) {
@@ -56,10 +63,13 @@ export async function onRequestDelete(context: any) {
   }
 
   const planId = context.params.planId as string;
-  const custId = context.params.custId as string;
+  const driverId = context.params.driverId as string;
   const { DB } = context.env;
 
-  const lineupRow = await DB.prepare(`SELECT 1 FROM race_plan_lineup WHERE race_plan_id = ? AND cust_id = ?`).bind(planId, custId).first<any>();
+  const custId = await custIdForDriverId(DB, driverId);
+  const lineupRow = custId
+    ? await DB.prepare(`SELECT 1 FROM race_plan_lineup WHERE race_plan_id = ? AND cust_id = ?`).bind(planId, custId).first<any>()
+    : null;
   if (!lineupRow) {
     return jsonError(404, { error: "not_found", message: "That driver isn't on this plan's lineup." });
   }
@@ -73,5 +83,5 @@ export async function onRequestDelete(context: any) {
     .bind(planId, custId)
     .run();
 
-  return json({ ok: true, custId });
+  return json({ ok: true, driverId });
 }

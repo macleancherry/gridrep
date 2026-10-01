@@ -3,8 +3,8 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { useLoadingMessage } from "../loadingMessages";
 
 type StandingRow = {
-  custId: string;
-  driverName: string;
+  driverId: string;
+  driverName: string | null;
   position: number | null;
   status: "classified" | "no_timed_laps" | "dnf_before_cutoff";
   totalTimeMs: number | null;
@@ -26,7 +26,7 @@ type StandingRow = {
 
 type DisplayRow = StandingRow & { metricGapMs: number | null };
 
-type ReferenceDriver = { custId: string; driverName: string };
+type ReferenceDriver = { driverId: string; driverName: string | null };
 type OrderMode = "avgLap" | "bestAdjusted" | "cleanPace" | "laps";
 
 const PACE_MODES: Record<Exclude<OrderMode, "laps">, { label: string; field: keyof StandingRow; name: string }> = {
@@ -266,10 +266,10 @@ export default function WhatIfSubsession() {
           ) : (
             <>
               <p className="whatif-hint">
-                Anchored to the exact moment <strong>{referenceDriver.driverName}</strong> reached lap {fromLap} -
+                Anchored to the exact moment <strong>{referenceDriver.driverName ?? "that driver"}</strong> reached lap {fromLap} -
                 every driver below is compared from that same real moment, not from their own lap {fromLap}.{" "}
                 {orderMode !== "laps"
-                  ? `Positions are ranked by ${PACE_MODES[orderMode].name} among drivers within 2 laps of ${referenceDriver.driverName}'s own distance; anyone further off keeps its normal order at the end, since their race in this window isn't really comparable.`
+                  ? `Positions are ranked by ${PACE_MODES[orderMode].name} among drivers within 2 laps of ${referenceDriver.driverName ?? "that driver"}'s own distance; anyone further off keeps its normal order at the end, since their race in this window isn't really comparable.`
                   : "Positions are ranked by laps completed first, then total time - not by raw total time alone, which would otherwise favor whoever simply drove fewer laps (e.g. a driver who retired early)."}
               </p>
               <div className="whatif-table-wrap">
@@ -302,13 +302,13 @@ export default function WhatIfSubsession() {
                   <tbody>
                     {displayRows.map((r) => (
                       <tr
-                        key={r.custId}
-                        style={r.custId === referenceDriver.custId ? { background: "#eff6ff" } : undefined}
+                        key={r.driverId}
+                        style={r.driverId === referenceDriver.driverId ? { background: "#eff6ff" } : undefined}
                       >
                         <td>{r.position ?? "—"}</td>
                         <td>
-                          {r.driverName}
-                          {r.custId === referenceDriver.custId && <span className="whatif-muted"> ★</span>}
+                          {r.driverName ?? "This driver"}
+                          {r.driverId === referenceDriver.driverId && <span className="whatif-muted"> ★</span>}
                         </td>
                         <td className={r.nearReference ? undefined : "whatif-muted"}>
                           {r.avgLapMs !== null ? (

@@ -3,6 +3,7 @@ import { json, jsonError } from "../../../../_lib/httpJson";
 import { buildAvailabilityBlocks, type ConditionWindow, type AvailabilityBlock } from "../../../../_lib/plannerAvailability";
 import { computeStintProjections, computeDutyWarnings, isPlanVisible, type StintInput, type SpottingAssignment } from "../../../../_lib/plannerRacePlan";
 import { driverProfileRowId } from "../../../../_lib/plannerDriverProfile";
+import { ensureDriverIds, displayDrivers } from "../../../../_lib/driverIdentity";
 
 type Pref = "prefer" | "neutral" | "avoid";
 
@@ -98,17 +99,21 @@ export async function onRequestPost(context: any) {
   const conditionProfileId: string | null = typeof body?.conditionProfileId === "string" && body.conditionProfileId ? body.conditionProfileId : null;
 
   const lineupRows = await DB.prepare(
-    `SELECT l.cust_id as custId, d.display_name as driverName, l.locked_pace_ms as lockedPaceMs,
-            l.locked_fuel_per_lap as lockedFuelPerLap, l.locked_at as lockedAt
-     FROM race_plan_lineup l LEFT JOIN drivers d ON d.iracing_member_id = l.cust_id WHERE l.race_plan_id = ?`
+    `SELECT l.cust_id as custId, l.locked_pace_ms as lockedPaceMs, l.locked_fuel_per_lap as lockedFuelPerLap, l.locked_at as lockedAt
+     FROM race_plan_lineup l WHERE l.race_plan_id = ?`
   )
     .bind(planId)
     .all<any>();
-  const lineup: { custId: string; driverName: string; lockedPaceMs: number | null; lockedFuelPerLap: number | null; lockedAt: string | null }[] =
-    lineupRows.results ?? [];
-  if (lineup.length === 0) {
+  const lineupRaw: { custId: string; lockedPaceMs: number | null; lockedFuelPerLap: number | null; lockedAt: string | null }[] = lineupRows.results ?? [];
+  if (lineupRaw.length === 0) {
     return jsonError(400, { error: "no_lineup", message: "Add drivers to the lineup before generating a stint plan." });
   }
+
+  const driverIdByCustId = await ensureDriverIds(DB, lineupRaw.map((r) => r.custId));
+  const display = await displayDrivers(DB, [...driverIdByCustId.values()]);
+  // name is null for a driver without active consent - callers below fall back to a
+  // generic label rather than ever putting a raw name in a note/response.
+  const lineup = lineupRaw.map((r) => ({ ...r, driverName: display.get(driverIdByCustId.get(r.custId)!)?.name ?? null }));
 
   if (!plan.trackName) {
     return jsonError(400, { error: "no_track", message: "This event has no track set yet, so no driver profiles can be found." });
@@ -148,7 +153,7 @@ export async function onRequestPost(context: any) {
 
     candidates.push({
       custId: driver.custId,
-      driverName: driver.driverName ?? `Driver ${driver.custId}`,
+      driverName: driver.driverName ?? "This driver",
       paceMs,
       fuelPerLap,
       nightPreference: prefRow?.nightPreference ?? "neutral",
@@ -297,7 +302,7 @@ export async function onRequestPost(context: any) {
   // building spotting entirely by hand first. Anyone on the roster can spot regardless of
   // whether they have a computed pace/fuel profile - it doesn't take driving data - so the
   // pool here is the full lineup, not just `candidates`.
-  const spotterPool = lineup.map((d) => ({ custId: d.custId, driverName: d.driverName ?? `Driver ${d.custId}` }));
+  const spotterPool = lineup.map((d) => ({ custId: d.custId, driverName: d.driverName ?? "This driver" }));
   const generatedSpotting: SpottingAssignment[] = [];
   if (spotterPool.length > 1) {
     const spotCountByCustId: Record<string, number> = {};
@@ -327,15 +332,26 @@ export async function onRequestPost(context: any) {
 
   const warnings = computeDutyWarnings(stints, generatedSpotting, fatigueThresholdMinutes);
 
-  const driverNameByCustId = new Map(lineup.map((d) => [d.custId, d.driverName ?? `Driver ${d.custId}`]));
+  const driverNameByCustId = new Map(lineup.map((d) => [d.custId, d.driverName]));
+  const nameFor = (custId: string) => driverNameByCustId.get(custId) ?? null;
+  const idFor = (custId: string) => driverIdByCustId.get(custId);
 
   return json({
     ok: true,
     planId,
-    stints: stints.map((s) => ({ ...s, driverName: driverNameByCustId.get(s.custId) ?? `Driver ${s.custId}` })),
+    stints: stints.map((s) => ({ ...s, driverId: idFor(s.custId), driverName: nameFor(s.custId), custId: undefined })),
     totals,
-    warnings,
+    warnings: {
+      ...warnings,
+      extendedStretches: warnings.extendedStretches.map((e) => ({
+        driverId: idFor(e.custId),
+        driverName: nameFor(e.custId),
+        startOffsetMinutes: e.startOffsetMinutes,
+        endOffsetMinutes: e.endOffsetMinutes,
+        durationMinutes: e.durationMinutes,
+      })),
+    },
     notes,
-    spotting: generatedSpotting.map((s) => ({ ...s, driverName: driverNameByCustId.get(s.custId) ?? `Driver ${s.custId}` })),
+    spotting: generatedSpotting.map((s) => ({ driverId: idFor(s.custId), driverName: nameFor(s.custId), startOffsetMinutes: s.startOffsetMinutes, endOffsetMinutes: s.endOffsetMinutes })),
   });
 }

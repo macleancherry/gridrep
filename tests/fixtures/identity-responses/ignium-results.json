@@ -1,0 +1,24 @@
+{
+  "results": [
+    {
+      "driverId": "3f29b6e2-1c3a-4a9e-9b2a-9b7e6f1d2c10",
+      "driverName": "Mac Cherry",
+      "subsessionId": "88970988",
+      "sessionName": "Hosted iRacing",
+      "series": "Hosted iRacing",
+      "track": "Road Atlanta",
+      "car": "GT3",
+      "carClass": "GT3",
+      "finishPosition": 1,
+      "incidents": 4,
+      "resultUrl": "https://members.iracing.com/membersite/member/EventResult.do?subsessionid=88970988"
+    }
+  ],
+  "refresh": {
+    "mode": "recent",
+    "limit": 20,
+    "diagnostics": [
+      { "customerId": "__CALLER_SUPPLIED_INPUT_ECHO__", "ok": true, "imported": 2 }
+    ]
+  }
+}

@@ -1,7 +1,8 @@
 import { getViewer } from "../../../../_lib/auth";
 import { json, jsonError } from "../../../../_lib/httpJson";
 import { computeStintProjections, isPlanVisible, isPlanVisibleToTeam, type StintInput } from "../../../../_lib/plannerRacePlan";
-import { computeLiveDeviation, type LiveRow } from "../../../../_lib/plannerLive";
+import { computeLiveDeviation, type LiveRow, type GatedLiveRow } from "../../../../_lib/plannerLive";
+import { resolveDriverIds, displayDrivers } from "../../../../_lib/driverIdentity";
 
 /**
  * Live plan-vs-actual tracking (PRD §12, vision step 7). iRacing only assigns a real
@@ -74,15 +75,41 @@ export async function onRequestGet(context: any) {
   const ourRows = rows.filter((r) => lineupCustIds.includes(String(r.customerId)));
   const deviation = fetchError ? null : computeLiveDeviation(stints, lineupCustIds, rows, plan.fuelTankCapacityLiters);
 
+  // Every other car in this live session is an "everyone else" opponent, never consented
+  // (PRD) - raw customerId/driverName from the external live-tracking worker never leaves
+  // this Worker. Driver identity is still recorded server-side (driver_identities is fine
+  // to populate from any source - it's *display* that's gated), so a driver who later
+  // joins Ignium and consents will show their name retroactively on every future poll.
+  const driverIdByCustId = await resolveDriverIds(
+    DB,
+    rows.map((r) => ({ custId: String(r.customerId), displayName: r.driverName || null }))
+  );
+  const display = await displayDrivers(DB, [...driverIdByCustId.values()]);
+  const gateRow = (r: LiveRow): GatedLiveRow => {
+    const { customerId, driverName, ...rest } = r;
+    const driverId = driverIdByCustId.get(String(customerId))!;
+    return { ...rest, driverId, name: display.get(driverId)?.name ?? null };
+  };
+
+  let gatedDeviation: Record<string, unknown> | null = null;
+  if (deviation?.ok) {
+    const currentDriverId = driverIdByCustId.get(deviation.currentDriverCustId)!;
+    const expectedDriverId = deviation.expectedCustId ? driverIdByCustId.get(deviation.expectedCustId) ?? null : null;
+    const { currentDriverCustId, currentDriverName, expectedCustId, ...rest } = deviation;
+    gatedDeviation = { ...rest, currentDriverId, currentDriverName: display.get(currentDriverId)?.name ?? null, expectedDriverId };
+  } else if (deviation) {
+    gatedDeviation = deviation; // { ok: false, reason } - no identity fields at all
+  }
+
   return json({
     ok: true,
     linked: true,
     subsessionId: plan.liveSubsessionId,
     fetchError,
     fieldSize: rows.length,
-    standings: rows.slice(0, 40),
-    ourRows,
-    deviation,
+    standings: rows.slice(0, 40).map(gateRow),
+    ourRows: ourRows.map(gateRow),
+    deviation: gatedDeviation,
     generatedAt: new Date().toISOString(),
   });
 }

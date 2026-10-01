@@ -13,8 +13,8 @@ type Car = {
   scheduledStartTime: string | null;
   driverCount: number;
 };
-type RosterMember = { custId: string; driverName: string | null };
-type Assignment = { carId: string; custId: string; driverName: string | null; availableMinutes: number };
+type RosterMember = { driverId: string; driverName: string | null };
+type Assignment = { carId: string; driverId: string; driverName: string | null; availableMinutes: number };
 
 /**
  * Race Weekend checklist hub (coordinator navigation rebuild, 2026-07-22): a weekend's
@@ -76,7 +76,7 @@ export default function RaceWeekendPage() {
       .then((data) => {
         if (data.ok) {
           setRoster(data.roster ?? []);
-          setParticipantIds(new Set(data.participantCustIds ?? []));
+          setParticipantIds(new Set(data.participantDriverIds ?? []));
         }
       })
       .catch(() => {});
@@ -93,10 +93,10 @@ export default function RaceWeekendPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekendId]);
 
-  function toggleParticipant(custId: string) {
+  function toggleParticipant(driverId: string) {
     const next = new Set(participantIds);
-    if (next.has(custId)) next.delete(custId);
-    else next.add(custId);
+    if (next.has(driverId)) next.delete(driverId);
+    else next.add(driverId);
     setParticipantIds(next);
     saveParticipants(next);
   }
@@ -109,7 +109,7 @@ export default function RaceWeekendPage() {
         method: "PUT",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ custIds: [...next] }),
+        body: JSON.stringify({ driverIds: [...next] }),
       });
     } finally {
       setSavingParticipants(false);
@@ -160,9 +160,9 @@ export default function RaceWeekendPage() {
     }
   }
 
-  function moveDriver(custId: string, direction: -1 | 1) {
+  function moveDriver(driverId: string, direction: -1 | 1) {
     if (!assignments) return;
-    const idx = assignments.findIndex((a) => a.custId === custId);
+    const idx = assignments.findIndex((a) => a.driverId === driverId);
     if (idx === -1) return;
     const carIds = cars.map((c) => c.carId);
     const currentCarIndex = carIds.indexOf(assignments[idx].carId);
@@ -180,7 +180,7 @@ export default function RaceWeekendPage() {
     try {
       const byCarId: Record<string, string[]> = {};
       for (const car of cars) byCarId[car.carId] = [];
-      for (const a of assignments) byCarId[a.carId]?.push(a.custId);
+      for (const a of assignments) byCarId[a.carId]?.push(a.driverId);
 
       const r = await fetch(`/api/planner/race-weekends/${encodeURIComponent(weekendId)}/distribution`, {
         method: "POST",
@@ -231,7 +231,7 @@ export default function RaceWeekendPage() {
   if (loading) return <p className="rp-section-sub">Loading…</p>;
 
   const unassignedParticipants = assignments
-    ? [...participantIds].filter((id) => !assignments.some((a) => a.custId === id))
+    ? [...participantIds].filter((id) => !assignments.some((a) => a.driverId === id))
     : [];
 
   // The pooled/suggest-split convenience only makes sense when 2+ cars genuinely share one
@@ -358,10 +358,10 @@ export default function RaceWeekendPage() {
             </p>
             <div className="rp-row" style={{ flexWrap: "wrap", gap: 8 }}>
               {roster.map((m) => {
-                const checked = participantIds.has(m.custId);
+                const checked = participantIds.has(m.driverId);
                 return (
                   <label
-                    key={m.custId}
+                    key={m.driverId}
                     className="rp-badge"
                     style={{ cursor: isCoordinator ? "pointer" : "default", borderColor: checked ? "var(--rp-green)" : undefined }}
                   >
@@ -369,10 +369,10 @@ export default function RaceWeekendPage() {
                       type="checkbox"
                       checked={checked}
                       disabled={!isCoordinator}
-                      onChange={() => toggleParticipant(m.custId)}
+                      onChange={() => toggleParticipant(m.driverId)}
                       style={{ marginRight: 6 }}
                     />
-                    {m.driverName ?? `Driver ${m.custId}`}
+                    {m.driverName ?? "This driver"}
                   </label>
                 );
               })}
@@ -405,9 +405,9 @@ export default function RaceWeekendPage() {
                           {assignments
                             .filter((a) => a.carId === car.carId)
                             .map((a) => (
-                              <div className="rp-row" key={a.custId} style={{ justifyContent: "space-between", marginBottom: 6 }}>
+                              <div className="rp-row" key={a.driverId} style={{ justifyContent: "space-between", marginBottom: 6 }}>
                                 <span style={{ fontSize: 13 }}>
-                                  {a.driverName ?? `Driver ${a.custId}`}{" "}
+                                  {a.driverName ?? "This driver"}{" "}
                                   <span className="rp-text-faint" style={{ fontSize: 11 }}>
                                     ({Math.round(a.availableMinutes / 60)}h available)
                                   </span>
@@ -416,7 +416,7 @@ export default function RaceWeekendPage() {
                                   <button
                                     className="rp-btn"
                                     style={{ padding: "2px 8px" }}
-                                    onClick={() => moveDriver(a.custId, -1)}
+                                    onClick={() => moveDriver(a.driverId, -1)}
                                     disabled={carIndex === 0}
                                     aria-label="Move to previous car"
                                   >
@@ -425,7 +425,7 @@ export default function RaceWeekendPage() {
                                   <button
                                     className="rp-btn"
                                     style={{ padding: "2px 8px" }}
-                                    onClick={() => moveDriver(a.custId, 1)}
+                                    onClick={() => moveDriver(a.driverId, 1)}
                                     disabled={carIndex === cars.length - 1}
                                     aria-label="Move to next car"
                                   >

@@ -1,6 +1,7 @@
 import { getViewer } from "../../../../_lib/auth";
 import { isTeamCoordinator, getWeekendTeamId } from "../../../../_lib/plannerTeams";
 import { suggestDistribution, type WeekendAvailabilityBlock, type CarEntry } from "../../../../_lib/plannerDistribution";
+import { ensureDriverIds, displayDrivers } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /** GET: a proposed driver-to-car split for this race weekend (PRD phase 6) - a draft, not
@@ -29,14 +30,13 @@ export async function onRequestGet(context: any) {
   const blockMinutes = carsRows.results?.[0]?.blockMinutes ?? 60;
   const carIds: string[] = (carsRows.results ?? []).map((r: any) => r.carId);
 
-  const participantRows = await DB.prepare(
-    `SELECT p.cust_id as custId, d.display_name as driverName
-     FROM race_weekend_participants p LEFT JOIN drivers d ON d.iracing_member_id = p.cust_id
-     WHERE p.race_weekend_id = ?`
-  )
+  const participantRows = await DB.prepare(`SELECT cust_id as custId FROM race_weekend_participants WHERE race_weekend_id = ?`)
     .bind(weekendId)
     .all<any>();
-  const participants = (participantRows.results ?? []).map((r: any) => ({ custId: r.custId, driverName: r.driverName }));
+  const participantCustIds: string[] = (participantRows.results ?? []).map((r: any) => r.custId);
+  const driverIdByCustId = await ensureDriverIds(DB, participantCustIds);
+  const display = await displayDrivers(DB, [...driverIdByCustId.values()]);
+  const participants = participantCustIds.map((custId) => ({ custId, driverName: display.get(driverIdByCustId.get(custId)!)?.name ?? null }));
 
   // Availability is scoped per Car Entry, not the weekend as a whole - this suggestion only
   // makes sense for cars sharing one real-world race (RaceWeekendPage.tsx only shows it in
@@ -58,13 +58,24 @@ export async function onRequestGet(context: any) {
   }
 
   const result = suggestDistribution(participants, availabilityByCustId, cars, blockMinutes);
+  const gatedResult = {
+    ...result,
+    assignments: result.assignments.map((a) => ({
+      carId: a.carId,
+      driverId: driverIdByCustId.get(a.custId),
+      driverName: display.get(driverIdByCustId.get(a.custId)!)?.name ?? null,
+      availableMinutes: a.availableMinutes,
+    })),
+    unassignedDriverIds: result.unassignedCustIds.map((custId) => driverIdByCustId.get(custId)),
+    unassignedCustIds: undefined,
+  };
 
-  return json({ ok: true, weekendId, ...result });
+  return json({ ok: true, weekendId, ...gatedResult });
 }
 
 /** POST: writes the (possibly coordinator-edited) final assignments into each car's real
  *  lineup - replacing race_plan_lineup wholesale per car, same pattern lineup.ts already
- *  uses for a single Car Entry. Body: { assignments: { [carId]: custId[] } }. */
+ *  uses for a single Car Entry. Body: { assignments: { [carId]: driverId[] } }. */
 export async function onRequestPost(context: any) {
   const viewer = await getViewer(context);
   if (!viewer.verified) {
@@ -87,10 +98,19 @@ export async function onRequestPost(context: any) {
   const carsRows = await DB.prepare(`SELECT id FROM race_plans WHERE race_weekend_id = ?`).bind(weekendId).all<any>();
   const validCarIds = new Set((carsRows.results ?? []).map((r: any) => r.id));
 
+  // driverId is all the client has - resolved to real custid here, server-side only,
+  // since race_plan_lineup is still keyed by real custid internally (driverIdentity.ts).
+  const allDriverIds = Object.values(assignments).flatMap((ids) => (Array.isArray(ids) ? ids : [])) as string[];
+  const custIdByDriverId = await custIdsForDriverIds(DB, allDriverIds);
+
   const statements: any[] = [];
-  for (const [carId, custIds] of Object.entries(assignments)) {
-    if (!validCarIds.has(carId) || !Array.isArray(custIds)) continue;
+  for (const [carId, driverIds] of Object.entries(assignments)) {
+    if (!validCarIds.has(carId) || !Array.isArray(driverIds)) continue;
     statements.push(DB.prepare(`DELETE FROM race_plan_lineup WHERE race_plan_id = ?`).bind(carId));
+    const custIds = (driverIds as unknown[])
+      .filter((v): v is string => typeof v === "string")
+      .map((driverId) => custIdByDriverId.get(driverId))
+      .filter((v): v is string => Boolean(v));
     for (const custId of custIds as unknown[]) {
       if (typeof custId === "string" && custId) {
         statements.push(DB.prepare(`INSERT OR IGNORE INTO race_plan_lineup (race_plan_id, cust_id) VALUES (?, ?)`).bind(carId, custId));

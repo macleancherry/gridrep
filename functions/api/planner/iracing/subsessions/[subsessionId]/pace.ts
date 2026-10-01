@@ -1,4 +1,5 @@
 import { computeCleanPace, type StoredLap } from "../../../../../_lib/plannerCleanPace";
+import { ensureDriverIds, displayDrivers } from "../../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../../_lib/httpJson";
 
 function clampN(raw: string | null, fallback: number): number {
@@ -23,18 +24,20 @@ export async function onRequestGet(context: any) {
   }
 
   const rows = await DB.prepare(
-    `SELECT l.cust_id as custId, d.display_name as driverName, l.simsession_type as simsessionType,
+    `SELECT l.cust_id as custId, l.simsession_type as simsessionType,
             l.lap_time_ms as lapTimeMs, l.is_pit_lap as isPitLap, l.is_clean as isClean,
             l.flags_decoded as flagsDecoded
      FROM planner_iracing_laps l
-     LEFT JOIN drivers d ON d.iracing_member_id = l.cust_id
      WHERE l.subsession_id = ?`
   )
     .bind(subsessionId)
     .all<any>();
 
+  const driverIdByCustId = await ensureDriverIds(DB, (rows.results ?? []).map((r: any) => r.custId));
+  const display = await displayDrivers(DB, [...driverIdByCustId.values()]);
+
   type Key = string;
-  const groups = new Map<Key, { custId: string; driverName: string; simsessionType: string; laps: StoredLap[] }>();
+  const groups = new Map<Key, { custId: string; simsessionType: string; laps: StoredLap[] }>();
   const incidentsByDriver = new Map<string, { count: number; types: Record<string, number> }>();
 
   for (const row of rows.results ?? []) {
@@ -42,7 +45,6 @@ export async function onRequestGet(context: any) {
     if (!groups.has(key)) {
       groups.set(key, {
         custId: row.custId,
-        driverName: row.driverName ?? `Driver ${row.custId}`,
         simsessionType: row.simsessionType,
         laps: [],
       });
@@ -75,7 +77,6 @@ export async function onRequestGet(context: any) {
     string,
     {
       custId: string;
-      driverName: string;
       qualifying: unknown;
       race: unknown;
       average: unknown;
@@ -87,7 +88,6 @@ export async function onRequestGet(context: any) {
     if (!byDriver.has(g.custId)) {
       byDriver.set(g.custId, {
         custId: g.custId,
-        driverName: g.driverName,
         qualifying: null,
         race: null,
         average: null,
@@ -114,5 +114,11 @@ export async function onRequestGet(context: any) {
     }
   }
 
-  return json({ ok: true, subsessionId, qualLaps, raceLaps, drivers: Array.from(byDriver.values()) });
+  const drivers = Array.from(byDriver.values()).map(({ custId, ...rest }) => ({
+    driverId: driverIdByCustId.get(custId),
+    driverName: display.get(driverIdByCustId.get(custId)!)?.name ?? null,
+    ...rest,
+  }));
+
+  return json({ ok: true, subsessionId, qualLaps, raceLaps, drivers });
 }

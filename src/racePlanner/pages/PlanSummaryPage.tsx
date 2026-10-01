@@ -5,8 +5,8 @@ import { usePlanContext } from "../PlanContext";
 type EventRecord = { id: string; name: string; track_name: string | null; scheduled_start_time: string | null };
 
 type Stint = {
-  custId: string;
-  driverName: string;
+  driverId: string;
+  driverName: string | null;
   order: number;
   lapCount: number;
   startOffsetMinutes: number;
@@ -15,7 +15,7 @@ type Stint = {
   fuelWarning: boolean;
 };
 
-type Spotting = { custId: string; driverName: string; startOffsetMinutes: number; endOffsetMinutes: number };
+type Spotting = { driverId: string; driverName: string | null; startOffsetMinutes: number; endOffsetMinutes: number };
 
 type Totals = {
   totalStops: number;
@@ -51,7 +51,7 @@ export default function PlanSummaryPage() {
   const [stints, setStints] = useState<Stint[]>([]);
   const [spotting, setSpotting] = useState<Spotting[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
-  const [driverNames, setDriverNames] = useState<Record<string, string>>({});
+  const [driverNames, setDriverNames] = useState<Record<string, string | null>>({});
   const [canDelete, setCanDelete] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,8 +75,8 @@ export default function PlanSummaryPage() {
       setSpotting(planData.spotting ?? []);
       setTotals(planData.totals ?? null);
 
-      const names: Record<string, string> = {};
-      for (const s of planData.stints ?? []) names[s.custId] = s.driverName;
+      const names: Record<string, string | null> = {};
+      for (const s of planData.stints ?? []) names[s.driverId] = s.driverName;
       setDriverNames(names);
 
       setEventId(planData.eventId ?? null);
@@ -156,7 +156,7 @@ export default function PlanSummaryPage() {
     );
   }
 
-  const uniqueDriverIds = Array.from(new Set(stints.map((s) => s.custId)));
+  const uniqueDriverIds = Array.from(new Set(stints.map((s) => s.driverId)));
   const colorByDriver: Record<string, string> = {};
   uniqueDriverIds.forEach((id, i) => (colorByDriver[id] = DRIVER_COLORS[i % DRIVER_COLORS.length]));
 
@@ -195,15 +195,15 @@ export default function PlanSummaryPage() {
                   </td>
                   <td style={{ padding: "10px 14px" }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-                      <span style={{ width: 9, height: 9, borderRadius: "50%", background: colorByDriver[s.custId], display: "inline-block" }} />
-                      {s.driverName}
+                      <span style={{ width: 9, height: 9, borderRadius: "50%", background: colorByDriver[s.driverId], display: "inline-block" }} />
+                      {s.driverName ?? "This driver"}
                     </span>
                   </td>
                   <td style={{ padding: "10px 14px" }}>
                     {spotter ? (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-                        <span style={{ width: 9, height: 9, borderRadius: "50%", background: colorByDriver[spotter.custId] ?? "var(--rp-text-faint)", display: "inline-block" }} />
-                        {spotter.driverName}
+                        <span style={{ width: 9, height: 9, borderRadius: "50%", background: colorByDriver[spotter.driverId] ?? "var(--rp-text-faint)", display: "inline-block" }} />
+                        {spotter.driverName ?? "This driver"}
                       </span>
                     ) : (
                       <span style={{ color: "var(--rp-red)" }}>No spotter</span>
@@ -249,10 +249,10 @@ export default function PlanSummaryPage() {
               {totals.totalFuelLiters.toFixed(1)}L
             </div>
           </div>
-          {Object.entries(totals.seatTimeMinutesByDriver).map(([custId, minutes]) => (
-            <div className="rp-card" style={{ minWidth: 140 }} key={custId}>
+          {Object.entries(totals.seatTimeMinutesByDriver).map(([driverId, minutes]) => (
+            <div className="rp-card" style={{ minWidth: 140 }} key={driverId}>
               <div className="rp-form-field">
-                <label>Seat time · {driverNames[custId] ?? custId}</label>
+                <label>Seat time · {driverNames[driverId] ?? "This driver"}</label>
               </div>
               <div className="rp-mono" style={{ fontSize: 20 }}>
                 {formatHours(minutes)}h

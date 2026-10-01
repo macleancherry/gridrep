@@ -1,4 +1,5 @@
 import { refreshRecentRacesForMember } from "../../../_lib/recent";
+import { ensureDriverIds, displayDrivers } from "../../../_lib/driverIdentity";
 
 type Context = {
   request: Request;
@@ -40,8 +41,8 @@ function hasAllowedOrigin(request: Request, allowedOrigin: string | undefined): 
 }
 
 type DriverStat = {
-  iracing_customer_id: number;
-  display_name: string;
+  driver_id: string;
+  display_name: string | null;
   last_seen_at: string | null;
   total_sessions: number;
   avg_finish_position: number | null;
@@ -171,8 +172,7 @@ export async function onRequestGet(context: Context) {
         WHERE rn = 1
       )
       SELECT
-        CAST(t.member_id AS INTEGER) as iracing_customer_id,
-        COALESCE(d.display_name, 'Driver ' || t.member_id) as display_name,
+        t.member_id as memberId,
         d.last_seen_at,
         COALESCE(a.total_sessions, 0) as total_sessions,
         a.avg_finish_position,
@@ -195,17 +195,28 @@ export async function onRequestGet(context: Context) {
       LEFT JOIN latest_one l ON l.iracing_member_id = t.member_id
       LEFT JOIN favorite_track_one ft ON ft.iracing_member_id = t.member_id
       LEFT JOIN favorite_series_one fs ON fs.iracing_member_id = t.member_id
-      GROUP BY t.member_id, d.display_name, d.last_seen_at, a.total_sessions, a.avg_finish_position,
+      GROUP BY t.member_id, d.last_seen_at, a.total_sessions, a.avg_finish_position,
                a.wins, a.podiums, a.top_fives, l.iracing_session_id, l.series_name, l.track_name,
                l.finish_pos, a.best_finish_position, ft.track_name, fs.series_name, a.total_results
       `
     )
       .bind(JSON.stringify(customerIds.map((id) => String(id))))
-      .all();
+      .all<Record<string, unknown>>();
 
-    return json({ 
-      ok: true, 
-      drivers: (stats.results ?? []) as DriverStat[] 
+    const rawRows = stats.results ?? [];
+    const memberIds = rawRows.map((r) => String(r.memberId));
+    const driverIdByCustId = await ensureDriverIds(context.env.DB, memberIds);
+    const display = await displayDrivers(context.env.DB, [...driverIdByCustId.values()]);
+
+    const drivers: DriverStat[] = rawRows.map((row) => {
+      const { memberId, ...rest } = row as any;
+      const driverId = driverIdByCustId.get(String(memberId));
+      return { ...rest, driver_id: driverId, display_name: driverId ? display.get(driverId)?.name ?? null : null } as DriverStat;
+    });
+
+    return json({
+      ok: true,
+      drivers,
     });
   } catch (err) {
     return json(

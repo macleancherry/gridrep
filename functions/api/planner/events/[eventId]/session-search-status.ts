@@ -1,4 +1,5 @@
 import { getViewer } from "../../../../_lib/auth";
+import { custIdsForDriverIds } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
@@ -18,15 +19,26 @@ export async function onRequestGet(context: any) {
   const eventId = context.params.eventId as string;
   const { DB } = context.env;
   const url = new URL(context.request.url);
-  const custIds = (url.searchParams.get("custIds") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const driverIds = (url.searchParams.get("driverIds") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+
+  if (driverIds.length === 0) {
+    return json({ ok: true, eventId, results: [] });
+  }
+
+  // driverId is all the client has - resolved to the real custid here, server-side
+  // only, since planner_iracing_laps/driver_recent_session_search are still keyed by
+  // real custid internally (see driverIdentity.ts).
+  const custIdByDriverId = await custIdsForDriverIds(DB, driverIds);
+  const driverIdByCustId = new Map([...custIdByDriverId.entries()].map(([driverId, custId]) => [custId, driverId]));
+  const custIds = driverIds.map((id) => custIdByDriverId.get(id)).filter((id): id is string => Boolean(id));
 
   if (custIds.length === 0) {
-    return json({ ok: true, eventId, results: [] });
+    return json({ ok: true, eventId, results: driverIds.map((driverId) => ({ driverId, status: "none" as const })) });
   }
 
   const event = await DB.prepare(`SELECT track_name as trackName FROM iracing_events WHERE id = ?`).bind(eventId).first<any>();
   if (!event?.trackName) {
-    return json({ ok: true, eventId, results: custIds.map((custId) => ({ custId, status: "none" as const })) });
+    return json({ ok: true, eventId, results: driverIds.map((driverId) => ({ driverId, status: "none" as const })) });
   }
   const trackName = event.trackName as string;
 
@@ -50,18 +62,19 @@ export async function onRequestGet(context: any) {
   const searchByCustId = new Map((searchRows.results ?? []).map((r: any) => [r.custId, r]));
 
   const results = custIds.map((custId) => {
+    const driverId = driverIdByCustId.get(custId)!;
     if (hasLaps.has(custId)) {
       const search = searchByCustId.get(custId);
       return {
-        custId,
+        driverId,
         status: "found" as const,
         message: search?.message ?? "Real laps already available at this track.",
         updatedAt: search?.updatedAt ?? null,
       };
     }
     const search = searchByCustId.get(custId);
-    if (!search) return { custId, status: "none" as const };
-    return { custId, status: search.status, message: search.message ?? null, updatedAt: search.updatedAt };
+    if (!search) return { driverId, status: "none" as const };
+    return { driverId, status: search.status, message: search.message ?? null, updatedAt: search.updatedAt };
   });
 
   return json({ ok: true, eventId, trackName, results });

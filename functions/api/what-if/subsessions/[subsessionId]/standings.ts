@@ -1,4 +1,5 @@
 import { computeWhatIfStandings, computeCutoffTimeMs, type WhatIfDriverInput } from "../../../../_lib/whatIfStandings";
+import { ensureDriverIds, displayDrivers } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 function clampFromLap(raw: string | null): number {
@@ -69,6 +70,10 @@ export async function onRequestGet(context: any) {
     });
   }
 
+  // Matching itself still compares the raw name internally (an opponent's real name is
+  // fine to use server-side) - it's only what goes back in the *response* that's gated,
+  // so a non-consented opponent can still be picked as the reference driver by typing
+  // their name, they just won't see their own name echoed back in the result.
   const driverQueryLower = driverQuery.toLowerCase();
   const matches = Array.from(byDriver.values()).filter((d) => d.driverName.toLowerCase().includes(driverQueryLower));
 
@@ -81,17 +86,24 @@ export async function onRequestGet(context: any) {
   if (matches.length > 1) {
     return jsonError(400, {
       error: "driver_ambiguous",
-      message: `"${driverQuery}" matches more than one driver - be more specific: ${matches.map((d) => d.driverName).join(", ")}.`,
+      message: `"${driverQuery}" matches more than one driver in this subsession - try typing more of their name.`,
     });
   }
 
   const referenceDriver = matches[0];
   const cutoffTimeMs = computeCutoffTimeMs(referenceDriver.laps, fromLap);
 
+  const allCustIds = Array.from(byDriver.keys());
+  const driverIdByCustId = await ensureDriverIds(DB, allCustIds);
+  const display = await displayDrivers(DB, [...driverIdByCustId.values()]);
+  const nameFor = (custId: string) => display.get(driverIdByCustId.get(custId)!)?.name ?? null;
+  const referenceDriverId = driverIdByCustId.get(referenceDriver.custId)!;
+  const referenceDisplayName = nameFor(referenceDriver.custId) ?? "That driver";
+
   if (cutoffTimeMs === null) {
     return jsonError(400, {
       error: "reference_driver_dnf_before_cutoff",
-      message: `${referenceDriver.driverName} never reached lap ${fromLap} in this race - pick an earlier lap.`,
+      message: `${referenceDisplayName} never reached lap ${fromLap} in this race - pick an earlier lap.`,
     });
   }
 
@@ -104,17 +116,22 @@ export async function onRequestGet(context: any) {
   // meaningful the way it is between two drivers who ran a comparable stretch.
   const referenceRow = standings.find((r) => r.custId === referenceDriver.custId);
   const referenceDistance = referenceRow?.lapsInRange ?? 0;
-  const standingsWithProximity = standings.map((r) => ({
-    ...r,
-    nearReference: r.status === "classified" && Math.abs(r.lapsInRange - referenceDistance) <= 2,
-  }));
+  const standingsWithProximity = standings.map((r) => {
+    const { custId, driverName, ...rest } = r;
+    return {
+      ...rest,
+      driverId: driverIdByCustId.get(custId),
+      driverName: nameFor(custId),
+      nearReference: r.status === "classified" && Math.abs(r.lapsInRange - referenceDistance) <= 2,
+    };
+  });
 
   return json({
     ok: true,
     subsessionId,
     fromLap,
     excludePitLaps,
-    referenceDriver: { custId: referenceDriver.custId, driverName: referenceDriver.driverName },
+    referenceDriver: { driverId: referenceDriverId, driverName: nameFor(referenceDriver.custId) },
     cutoffTimeMs,
     standings: standingsWithProximity,
   });

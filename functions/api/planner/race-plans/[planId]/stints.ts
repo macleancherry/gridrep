@@ -1,6 +1,7 @@
 import { getViewer } from "../../../../_lib/auth";
 import { json, jsonError } from "../../../../_lib/httpJson";
 import { computeStintProjections, isPlanVisible, type StintInput } from "../../../../_lib/plannerRacePlan";
+import { ensureDriverIds, displayDrivers, custIdsForDriverIds } from "../../../../_lib/driverIdentity";
 
 /**
  * Set/update the full stint assignment list (PRD §8) - replaces the plan's stints
@@ -29,9 +30,16 @@ export async function onRequestPut(context: any) {
   const body = await context.request.json().catch(() => null);
   const rawStints = Array.isArray(body?.stints) ? body.stints : [];
 
+  // Each stint's driver is identified by driverId (the only thing the client has -
+  // race_plan_stints is still keyed by real custid internally, so it's resolved here,
+  // server-side only, never round-tripped to the client; see driverIdentity.ts).
+  const driverIds = [...new Set(rawStints.map((s: any) => s?.driverId).filter((v: unknown): v is string => typeof v === "string"))];
+  const custIdByDriverId = await custIdsForDriverIds(DB, driverIds);
+
   const stintInputs: StintInput[] = [];
   for (const s of rawStints) {
-    const custId = typeof s?.custId === "string" ? s.custId : null;
+    const driverId = typeof s?.driverId === "string" ? s.driverId : null;
+    const custId = driverId ? custIdByDriverId.get(driverId) ?? null : null;
     const lapCount = typeof s?.lapCount === "number" && s.lapCount > 0 ? Math.trunc(s.lapCount) : null;
     const paceMs = typeof s?.paceMs === "number" && s.paceMs > 0 ? s.paceMs : null;
     const fuelPerLap = typeof s?.fuelPerLap === "number" && s.fuelPerLap > 0 ? s.fuelPerLap : null;
@@ -39,7 +47,7 @@ export async function onRequestPut(context: any) {
     if (!custId || !lapCount || !paceMs || !fuelPerLap) {
       return jsonError(400, {
         error: "invalid_stint",
-        message: "Each stint needs custId, lapCount, paceMs, and fuelPerLap (from a computed driver profile).",
+        message: "Each stint needs driverId, lapCount, paceMs, and fuelPerLap (from a computed driver profile).",
       });
     }
 
@@ -78,19 +86,18 @@ export async function onRequestPut(context: any) {
 
   await DB.prepare(`UPDATE race_plans SET updated_at = ? WHERE id = ?`).bind(new Date().toISOString(), planId).run();
 
-  const driverRows = await DB.prepare(
-    `SELECT iracing_member_id as custId, display_name as driverName FROM drivers WHERE iracing_member_id IN (${stintInputs
-      .map(() => "?")
-      .join(",") || "''"})`
-  )
-    .bind(...stintInputs.map((s) => s.custId))
-    .all<any>();
-  const driverNameByCustId = new Map((driverRows.results ?? []).map((r: any) => [r.custId, r.driverName]));
+  const driverIdByCustId = await ensureDriverIds(DB, stintInputs.map((s) => s.custId));
+  const display = await displayDrivers(DB, [...driverIdByCustId.values()]);
 
   return json({
     ok: true,
     planId,
-    stints: stints.map((s) => ({ ...s, driverName: driverNameByCustId.get(s.custId) ?? `Driver ${s.custId}` })),
+    stints: stints.map((s) => ({
+      ...s,
+      driverId: driverIdByCustId.get(s.custId),
+      driverName: display.get(driverIdByCustId.get(s.custId)!)?.name ?? null,
+      custId: undefined,
+    })),
     totals,
   });
 }

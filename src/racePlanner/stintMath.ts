@@ -8,7 +8,7 @@
  */
 
 export type StintInput = {
-  custId: string;
+  driverId: string;
   lapCount: number;
   paceMs: number;
   fuelPerLap: number;
@@ -66,8 +66,8 @@ export function computeStintProjections(
   let totalFuelLiters = 0;
 
   for (const s of computed) {
-    seatTimeMinutesByDriver[s.custId] = (seatTimeMinutesByDriver[s.custId] ?? 0) + s.durationMinutes;
-    stintCountByDriver[s.custId] = (stintCountByDriver[s.custId] ?? 0) + 1;
+    seatTimeMinutesByDriver[s.driverId] = (seatTimeMinutesByDriver[s.driverId] ?? 0) + s.durationMinutes;
+    stintCountByDriver[s.driverId] = (stintCountByDriver[s.driverId] ?? 0) + 1;
     totalFuelLiters += s.fuelLoadLiters;
   }
 
@@ -83,10 +83,10 @@ export function computeStintProjections(
   };
 }
 
-export type SpottingAssignment = { custId: string; startOffsetMinutes: number; endOffsetMinutes: number };
+export type SpottingAssignment = { driverId: string; startOffsetMinutes: number; endOffsetMinutes: number };
 
 export type SpotterGap = { startOffsetMinutes: number; endOffsetMinutes: number };
-export type ExtendedStretch = { custId: string; startOffsetMinutes: number; endOffsetMinutes: number; durationMinutes: number };
+export type ExtendedStretch = { driverId: string; startOffsetMinutes: number; endOffsetMinutes: number; durationMinutes: number };
 
 type Interval = { start: number; end: number };
 
@@ -136,20 +136,20 @@ export function computeDutyWarnings(
   }
 
   const extendedStretches: ExtendedStretch[] = [];
-  let run: { custId: string; start: number; end: number } | null = null;
+  let run: { driverId: string; start: number; end: number } | null = null;
 
   const flushRun = () => {
     if (run && run.end - run.start > fatigueThresholdMinutes) {
-      extendedStretches.push({ custId: run.custId, startOffsetMinutes: run.start, endOffsetMinutes: run.end, durationMinutes: run.end - run.start });
+      extendedStretches.push({ driverId: run.driverId, startOffsetMinutes: run.start, endOffsetMinutes: run.end, durationMinutes: run.end - run.start });
     }
   };
 
   for (const s of stints) {
-    if (run && run.custId === s.custId) {
+    if (run && run.driverId === s.driverId) {
       run.end = s.pitTargetOffsetMinutes;
     } else {
       flushRun();
-      run = { custId: s.custId, start: s.startOffsetMinutes, end: s.pitTargetOffsetMinutes };
+      run = { driverId: s.driverId, start: s.startOffsetMinutes, end: s.pitTargetOffsetMinutes };
     }
   }
   flushRun();

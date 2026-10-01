@@ -1,5 +1,6 @@
 import { getViewer } from "../../../../_lib/auth";
 import { isPlanVisible } from "../../../../_lib/plannerRacePlan";
+import { custIdsForDriverIds } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
@@ -29,15 +30,22 @@ export async function onRequestPut(context: any) {
   const body = await context.request.json().catch(() => null);
   const rawAssignments = Array.isArray(body?.assignments) ? body.assignments : [];
 
-  const assignments: Array<{ custId: string; startOffsetMinutes: number; endOffsetMinutes: number }> = [];
+  // Identified by driverId (the only thing the client has) - race_plan_duty_assignments
+  // is still keyed by real custid internally, resolved here server-side only, same
+  // pattern as stints.ts's PUT (see driverIdentity.ts).
+  const driverIds = [...new Set(rawAssignments.map((a: any) => a?.driverId).filter((v: unknown): v is string => typeof v === "string"))];
+  const custIdByDriverId = await custIdsForDriverIds(DB, driverIds);
+
+  const assignments: Array<{ driverId: string; custId: string; startOffsetMinutes: number; endOffsetMinutes: number }> = [];
   for (const a of rawAssignments) {
-    const custId = typeof a?.custId === "string" ? a.custId : null;
+    const driverId = typeof a?.driverId === "string" ? a.driverId : null;
+    const custId = driverId ? custIdByDriverId.get(driverId) ?? null : null;
     const start = typeof a?.startOffsetMinutes === "number" ? a.startOffsetMinutes : null;
     const end = typeof a?.endOffsetMinutes === "number" ? a.endOffsetMinutes : null;
-    if (!custId || start === null || end === null || end <= start) {
-      return jsonError(400, { error: "invalid_assignment", message: "Each assignment needs custId, startOffsetMinutes, and endOffsetMinutes > start." });
+    if (!driverId || !custId || start === null || end === null || end <= start) {
+      return jsonError(400, { error: "invalid_assignment", message: "Each assignment needs driverId, startOffsetMinutes, and endOffsetMinutes > start." });
     }
-    assignments.push({ custId, startOffsetMinutes: start, endOffsetMinutes: end });
+    assignments.push({ driverId, custId, startOffsetMinutes: start, endOffsetMinutes: end });
   }
 
   await DB.prepare(`DELETE FROM race_plan_duty_assignments WHERE race_plan_id = ? AND role = 'spotting'`).bind(planId).run();
@@ -50,5 +58,9 @@ export async function onRequestPut(context: any) {
   );
   if (statements.length > 0) await DB.batch(statements);
 
-  return json({ ok: true, planId, assignments });
+  return json({
+    ok: true,
+    planId,
+    assignments: assignments.map(({ driverId, startOffsetMinutes, endOffsetMinutes }) => ({ driverId, startOffsetMinutes, endOffsetMinutes })),
+  });
 }

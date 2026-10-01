@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "roster": [
+    {
+      "driverId": "3f29b6e2-1c3a-4a9e-9b2a-9b7e6f1d2c10",
+      "custId": "__REDACTED__",
+      "displayName": "Mac Cherry",
+      "role": "coordinator",
+      "status": "active",
+      "invitedAt": "2026-09-01T00:00:00Z",
+      "joinedAt": "2026-09-01T00:00:00Z",
+      "consentStatus": "granted",
+      "grantedAt": "2026-09-02T00:00:00Z",
+      "revokedAt": null,
+      "evidenceRef": "form-2026-09-02-mac"
+    },
+    {
+      "driverId": "9a7c1e44-2b5d-4f3a-8e10-7d4b6c2a9f55",
+      "custId": "__REDACTED__",
+      "displayName": null,
+      "role": "driver",
+      "status": "invited",
+      "invitedAt": "2026-09-10T00:00:00Z",
+      "joinedAt": null,
+      "consentStatus": null,
+      "grantedAt": null,
+      "revokedAt": null,
+      "evidenceRef": null
+    }
+  ]
+}

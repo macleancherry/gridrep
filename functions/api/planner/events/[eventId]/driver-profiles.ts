@@ -1,6 +1,7 @@
 import { getViewer, getValidAccessToken } from "../../../../_lib/auth";
 import { computeAndStoreOneDriverProfile, driverProfileRowId } from "../../../../_lib/plannerDriverProfile";
 import { getCachedCarCatalog, carIdsInSameClass } from "../../../../_lib/plannerIracing";
+import { ensureDriverIds, displayDrivers, custIdsForDriverIds } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
@@ -45,13 +46,26 @@ export async function onRequestPost(context: any) {
   }
 
   const body = await context.request.json().catch(() => null);
-  const custIds: string[] = Array.isArray(body?.custIds) ? body.custIds.map(String).filter(Boolean) : [];
-  if (custIds.length === 0) {
-    return jsonError(400, { error: "invalid_cust_ids", message: "custIds (array) is required." });
+  // driverId is all the client has (team-roster/lineup identity is now opaque) -
+  // resolved to the real custid here, server-side only, since driver_track_profiles/
+  // planner_iracing_laps/Garage 61 matching are still keyed by real custid internally.
+  const driverIds: string[] = Array.isArray(body?.driverIds) ? body.driverIds.map(String).filter(Boolean) : [];
+  if (driverIds.length === 0) {
+    return jsonError(400, { error: "invalid_driver_ids", message: "driverIds (array) is required." });
   }
+  const custIdByDriverId = await custIdsForDriverIds(DB, driverIds);
+  const custIds = driverIds.map((id) => custIdByDriverId.get(id)).filter((id): id is string => Boolean(id));
   const conditionProfileId: string | null = typeof body?.conditionProfileId === "string" ? body.conditionProfileId : null;
-  const fuelOverrides: Record<string, number> = body?.fuelOverrides && typeof body.fuelOverrides === "object" ? body.fuelOverrides : {};
-  const paceOverridesMs: Record<string, number> = body?.paceOverrides && typeof body.paceOverrides === "object" ? body.paceOverrides : {};
+  const rawFuelOverrides: Record<string, number> = body?.fuelOverrides && typeof body.fuelOverrides === "object" ? body.fuelOverrides : {};
+  const rawPaceOverridesMs: Record<string, number> = body?.paceOverrides && typeof body.paceOverrides === "object" ? body.paceOverrides : {};
+  // Overrides come in keyed by driverId (same reason as above) - re-keyed to custId to
+  // match how the rest of this function already looks them up.
+  const fuelOverrides: Record<string, number> = {};
+  const paceOverridesMs: Record<string, number> = {};
+  for (const [driverId, custId] of custIdByDriverId.entries()) {
+    if (typeof rawFuelOverrides[driverId] === "number") fuelOverrides[custId] = rawFuelOverrides[driverId];
+    if (typeof rawPaceOverridesMs[driverId] === "number") paceOverridesMs[custId] = rawPaceOverridesMs[driverId];
+  }
 
   // Optional: the gridrep team this plan belongs to, if any - lets the Garage 61 fuel
   // fallback (plannerGarage61Fuel.ts) scope its lap search to that team's own Garage 61
@@ -133,7 +147,7 @@ export async function onRequestGet(context: any) {
   const eventId = context.params.eventId as string;
   const { DB } = context.env;
   const url = new URL(context.request.url);
-  const custIdsParam = url.searchParams.get("custIds");
+  const driverIdsParam = url.searchParams.get("driverIds");
   const conditionProfileId = url.searchParams.get("conditionProfileId");
   const planId = url.searchParams.get("planId");
 
@@ -142,7 +156,14 @@ export async function onRequestGet(context: any) {
     return json({ ok: true, eventId, profiles: [] });
   }
 
-  const custIds = custIdsParam ? custIdsParam.split(",").map((s) => s.trim()).filter(Boolean) : [];
+  const driverIds = driverIdsParam ? driverIdsParam.split(",").map((s) => s.trim()).filter(Boolean) : [];
+  if (driverIds.length === 0) {
+    return json({ ok: true, eventId, profiles: [] });
+  }
+  // driverId is all the client has - resolved to the real custid here, server-side
+  // only (see the POST handler above for why).
+  const custIdByDriverId = await custIdsForDriverIds(DB, driverIds);
+  const custIds = driverIds.map((id) => custIdByDriverId.get(id)).filter((id): id is string => Boolean(id));
   if (custIds.length === 0) {
     return json({ ok: true, eventId, profiles: [] });
   }
@@ -176,13 +197,12 @@ export async function onRequestGet(context: any) {
   const placeholders = ids.map(() => "?").join(",");
 
   const rows = await DB.prepare(
-    `SELECT p.cust_id as custId, d.display_name as driverName, p.track_name as trackName,
+    `SELECT p.cust_id as custId, p.track_name as trackName,
             p.condition_profile_id as conditionProfileId, p.pace_ms as paceMs, p.pace_source as paceSource,
             p.laps_used as lapsUsed, p.sample_size as sampleSize, p.widened_band as widenedBand,
             p.fuel_per_lap as fuelPerLap, p.fuel_source as fuelSource, p.pit_time_seconds as pitTimeSeconds,
             p.pit_time_source as pitTimeSource, p.computed_at as computedAt
      FROM driver_track_profiles p
-     LEFT JOIN drivers d ON d.iracing_member_id = p.cust_id
      WHERE p.id IN (${placeholders})`
   )
     .bind(...ids)
@@ -190,28 +210,20 @@ export async function onRequestGet(context: any) {
 
   const rowsByCustId = new Map((rows.results ?? []).map((r: any) => [r.custId, r]));
 
-  const hasAnyOverlay = locksByCustId.size > 0 || defaultPaceMs !== null || defaultFuelPerLap !== null;
-  let driverNameMap = new Map<string, string>();
-  if (hasAnyOverlay) {
-    const needsName = custIds.filter((id) => !rowsByCustId.has(id) && (locksByCustId.get(id)?.lockedAt || defaultPaceMs !== null || defaultFuelPerLap !== null));
-    if (needsName.length > 0) {
-      const namePlaceholders = needsName.map(() => "?").join(",");
-      const nameRows = await DB.prepare(`SELECT iracing_member_id as custId, display_name as driverName FROM drivers WHERE iracing_member_id IN (${namePlaceholders})`)
-        .bind(...needsName)
-        .all<any>();
-      driverNameMap = new Map((nameRows.results ?? []).map((r: any) => [r.custId, r.driverName]));
-    }
-  }
+  const driverIdByCustId = await ensureDriverIds(DB, custIds);
+  const display = await displayDrivers(DB, [...driverIdByCustId.values()]);
+  const nameFor = (custId: string) => display.get(driverIdByCustId.get(custId)!)?.name ?? null;
 
   const profiles: any[] = [];
   for (const custId of custIds) {
     const existingRow = rowsByCustId.get(custId);
     const lock = locksByCustId.get(custId);
+    const driverId = driverIdByCustId.get(custId);
 
     if (lock?.lockedAt) {
       profiles.push({
-        custId,
-        driverName: existingRow?.driverName ?? driverNameMap.get(custId) ?? `Driver ${custId}`,
+        driverId,
+        driverName: nameFor(custId),
         trackName: event.trackName,
         conditionProfileId,
         paceMs: lock.lockedPaceMs,
@@ -242,14 +254,25 @@ export async function onRequestGet(context: any) {
         fuelPerLap = defaultFuelPerLap;
         fuelSource = "race_default";
       }
-      profiles.push({ ...existingRow, widenedBand: Boolean(existingRow.widenedBand), paceMs, paceSource, fuelPerLap, fuelSource, locked: false });
+      profiles.push({
+        ...existingRow,
+        custId: undefined,
+        driverId,
+        driverName: nameFor(custId),
+        widenedBand: Boolean(existingRow.widenedBand),
+        paceMs,
+        paceSource,
+        fuelPerLap,
+        fuelSource,
+        locked: false,
+      });
       continue;
     }
 
     if (defaultPaceMs !== null || defaultFuelPerLap !== null) {
       profiles.push({
-        custId,
-        driverName: driverNameMap.get(custId) ?? `Driver ${custId}`,
+        driverId,
+        driverName: nameFor(custId),
         trackName: event.trackName,
         conditionProfileId,
         paceMs: defaultPaceMs,
