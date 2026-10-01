@@ -3,6 +3,7 @@ import { isPlanVisible } from "../../../../_lib/plannerRacePlan";
 import { discoverAndSyncRecentSessionAtTrack } from "../../../../_lib/plannerLapDiscovery";
 import { computeAndStoreOneDriverProfile } from "../../../../_lib/plannerDriverProfile";
 import { getCachedCarCatalog, carIdsInSameClass } from "../../../../_lib/plannerIracing";
+import { resolveDriverIds, ensureDriverIds, displayDrivers } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
@@ -64,6 +65,10 @@ export async function onRequestPut(context: any) {
       .bind(custId, name.trim(), now)
       .run();
   }
+  // Seeds driver_identities too (names are stored server-only regardless of consent -
+  // see driverIdentity.ts), so a newly-added driver's name is there the moment
+  // someone on the roster screen goes to grant consent.
+  await resolveDriverIds(DB, custIds.map((custId) => ({ custId, displayName: driverNames[custId]?.trim() || null })));
 
   // Diff rather than delete-all-then-reinsert - a driver who stays on the lineup keeps
   // their locked_pace_ms/locked_fuel_per_lap/locked_at untouched (a delete would silently
@@ -106,15 +111,17 @@ export async function onRequestPut(context: any) {
     await kickOffLapDiscovery(context, DB, plan.trackName, plan.trackConfig ?? null, carId, carClassCarIds, garage61TeamSlug, newlyAddedCustIds, viewer.user!.id);
   }
 
-  const rows = await DB.prepare(
-    `SELECT l.cust_id as custId, d.display_name as driverName
-     FROM race_plan_lineup l LEFT JOIN drivers d ON d.iracing_member_id = l.cust_id
-     WHERE l.race_plan_id = ?`
-  )
-    .bind(planId)
-    .all<any>();
+  const lineupRows = await DB.prepare(`SELECT cust_id as custId FROM race_plan_lineup WHERE race_plan_id = ?`).bind(planId).all<any>();
+  const lineupCustIds: string[] = (lineupRows.results ?? []).map((r: any) => r.custId);
+  const driverIdByCustId = await ensureDriverIds(DB, lineupCustIds);
+  const display = await displayDrivers(DB, [...driverIdByCustId.values()]);
 
-  return json({ ok: true, planId, lineup: rows.results ?? [] });
+  const lineup = lineupCustIds.map((custId) => {
+    const driverId = driverIdByCustId.get(custId)!;
+    return { driverId, driverName: display.get(driverId)?.name ?? null };
+  });
+
+  return json({ ok: true, planId, lineup });
 }
 
 async function kickOffLapDiscovery(

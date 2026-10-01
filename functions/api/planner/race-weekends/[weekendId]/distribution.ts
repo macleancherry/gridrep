@@ -1,6 +1,7 @@
 import { getViewer } from "../../../../_lib/auth";
 import { isTeamCoordinator, getWeekendTeamId } from "../../../../_lib/plannerTeams";
 import { suggestDistribution, type WeekendAvailabilityBlock, type CarEntry } from "../../../../_lib/plannerDistribution";
+import { ensureDriverIds, displayDrivers } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /** GET: a proposed driver-to-car split for this race weekend (PRD phase 6) - a draft, not
@@ -29,14 +30,13 @@ export async function onRequestGet(context: any) {
   const blockMinutes = carsRows.results?.[0]?.blockMinutes ?? 60;
   const carIds: string[] = (carsRows.results ?? []).map((r: any) => r.carId);
 
-  const participantRows = await DB.prepare(
-    `SELECT p.cust_id as custId, d.display_name as driverName
-     FROM race_weekend_participants p LEFT JOIN drivers d ON d.iracing_member_id = p.cust_id
-     WHERE p.race_weekend_id = ?`
-  )
+  const participantRows = await DB.prepare(`SELECT cust_id as custId FROM race_weekend_participants WHERE race_weekend_id = ?`)
     .bind(weekendId)
     .all<any>();
-  const participants = (participantRows.results ?? []).map((r: any) => ({ custId: r.custId, driverName: r.driverName }));
+  const participantCustIds: string[] = (participantRows.results ?? []).map((r: any) => r.custId);
+  const driverIdByCustId = await ensureDriverIds(DB, participantCustIds);
+  const display = await displayDrivers(DB, [...driverIdByCustId.values()]);
+  const participants = participantCustIds.map((custId) => ({ custId, driverName: display.get(driverIdByCustId.get(custId)!)?.name ?? null }));
 
   // Availability is scoped per Car Entry, not the weekend as a whole - this suggestion only
   // makes sense for cars sharing one real-world race (RaceWeekendPage.tsx only shows it in
@@ -58,8 +58,19 @@ export async function onRequestGet(context: any) {
   }
 
   const result = suggestDistribution(participants, availabilityByCustId, cars, blockMinutes);
+  const gatedResult = {
+    ...result,
+    assignments: result.assignments.map((a) => ({
+      carId: a.carId,
+      driverId: driverIdByCustId.get(a.custId),
+      driverName: display.get(driverIdByCustId.get(a.custId)!)?.name ?? null,
+      availableMinutes: a.availableMinutes,
+    })),
+    unassignedDriverIds: result.unassignedCustIds.map((custId) => driverIdByCustId.get(custId)),
+    unassignedCustIds: undefined,
+  };
 
-  return json({ ok: true, weekendId, ...result });
+  return json({ ok: true, weekendId, ...gatedResult });
 }
 
 /** POST: writes the (possibly coordinator-edited) final assignments into each car's real

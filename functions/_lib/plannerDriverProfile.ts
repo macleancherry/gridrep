@@ -1,6 +1,7 @@
 import { computeCleanPace, type StoredLap } from "./plannerCleanPace";
 import { resolveGarage61Fuel } from "./plannerGarage61Fuel";
 import { resolveGarage61PitTime } from "./plannerGarage61PitTime";
+import { ensureDriverId, displayDriver } from "./driverIdentity";
 
 /**
  * "Closest conditions" matching (PRD §6): filter a driver's laps at a track to those run
@@ -153,8 +154,8 @@ export type ComputeAndStoreOpts = {
 };
 
 export type StoredDriverProfileResult = {
-  custId: string;
-  driverName: string;
+  driverId: string;
+  driverName: string | null;
   trackName: string;
   conditionProfileId: string | null;
   ok: boolean;
@@ -327,11 +328,12 @@ export async function computeAndStoreOneDriverProfile(context: any, DB: any, opt
     )
     .run();
 
-  const driver = await DB.prepare(`SELECT display_name as driverName FROM drivers WHERE iracing_member_id = ?`).bind(custId).first<any>();
+  const driverId = await ensureDriverId(DB, custId);
+  const display = await displayDriver(DB, driverId);
 
   return {
-    custId,
-    driverName: driver?.driverName ?? `Driver ${custId}`,
+    driverId,
+    driverName: display.name,
     trackName,
     conditionProfileId,
     ok: computed.ok,

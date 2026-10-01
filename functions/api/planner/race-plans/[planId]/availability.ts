@@ -1,5 +1,6 @@
 import { getViewer } from "../../../../_lib/auth";
 import { isPlanVisibleToTeam } from "../../../../_lib/plannerRacePlan";
+import { ensureDriverIds, displayDrivers } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 const VALID_STATUSES = new Set(["available", "maybe", "unavailable"]);
@@ -25,13 +26,21 @@ export async function onRequestGet(context: any) {
   // now run a completely different race/session than another car in the same weekend, so
   // one shared weekend-level availability row would be ambiguous the moment that happens.
   const rows = await DB.prepare(
-    `SELECT a.cust_id as custId, d.display_name as driverName, a.block_start_offset_minutes as blockStartOffsetMinutes,
-            a.status, a.updated_at as updatedAt
-     FROM driver_availability a LEFT JOIN drivers d ON d.iracing_member_id = a.cust_id
-     WHERE a.race_plan_id = ? ORDER BY a.cust_id, a.block_start_offset_minutes`
+    `SELECT a.cust_id as custId, a.block_start_offset_minutes as blockStartOffsetMinutes, a.status, a.updated_at as updatedAt
+     FROM driver_availability a WHERE a.race_plan_id = ? ORDER BY a.cust_id, a.block_start_offset_minutes`
   )
     .bind(planId)
     .all<any>();
+
+  const driverIdByCustId = await ensureDriverIds(DB, (rows.results ?? []).map((r: any) => r.custId));
+  const display = await displayDrivers(DB, [...driverIdByCustId.values()]);
+  const gatedRows = (rows.results ?? []).map((r: any) => ({
+    driverId: driverIdByCustId.get(r.custId),
+    driverName: display.get(driverIdByCustId.get(r.custId)!)?.name ?? null,
+    blockStartOffsetMinutes: r.blockStartOffsetMinutes,
+    status: r.status,
+    updatedAt: r.updatedAt,
+  }));
 
   // Roster condition preferences (night/wet/start) - joined through users.iracing_member_id
   // since driver_condition_preferences is keyed by our internal user id, not cust_id.
@@ -47,8 +56,15 @@ export async function onRequestGet(context: any) {
   )
     .bind(planId)
     .all<any>();
+  const preferenceDriverIdByCustId = await ensureDriverIds(DB, (preferenceRows.results ?? []).map((r: any) => r.custId));
+  const preferences = (preferenceRows.results ?? []).map((r: any) => ({
+    driverId: preferenceDriverIdByCustId.get(r.custId),
+    nightPreference: r.nightPreference,
+    wetPreference: r.wetPreference,
+    startPreference: r.startPreference,
+  }));
 
-  return json({ ok: true, planId, availability: rows.results ?? [], preferences: preferenceRows.results ?? [] });
+  return json({ ok: true, planId, availability: gatedRows, preferences });
 }
 
 /** Submit/update the authenticated driver's own availability (PRD §13.2/§13.5). */

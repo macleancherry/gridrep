@@ -1,5 +1,6 @@
 import { getViewer } from "../../../../_lib/auth";
 import { isTeamCoordinator } from "../../../../_lib/plannerTeams";
+import { resolveDriverId, displayDriver } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
@@ -46,6 +47,12 @@ export async function onRequestPost(context: any) {
       .run();
   }
 
+  // Seeds driver_identities with whatever name was just picked, so the roster screen
+  // doesn't start from a blank name while waiting for consent (PRD: raw identity is
+  // fine to store server-only the moment a driver is known; it's *display* that's
+  // gated, not storage).
+  const driverId = await resolveDriverId(DB, custId, name || null);
+
   const existingUser = await DB.prepare(`SELECT id FROM users WHERE iracing_member_id = ?`).bind(custId).first<any>();
 
   await DB.prepare(
@@ -64,13 +71,13 @@ export async function onRequestPost(context: any) {
     .run();
 
   const row = await DB.prepare(
-    `SELECT m.cust_id as custId, d.display_name as driverName, m.role, m.status,
-            m.invited_at as invitedAt, m.joined_at as joinedAt
-     FROM team_members m LEFT JOIN drivers d ON d.iracing_member_id = m.cust_id
-     WHERE m.team_id = ? AND m.cust_id = ?`
+    `SELECT m.role, m.status, m.invited_at as invitedAt, m.joined_at as joinedAt
+     FROM team_members m WHERE m.team_id = ? AND m.cust_id = ?`
   )
     .bind(teamId, custId)
     .first<any>();
 
-  return json({ ok: true, member: row });
+  const display = await displayDriver(DB, driverId);
+
+  return json({ ok: true, member: { ...row, driverId, driverName: display.name } });
 }

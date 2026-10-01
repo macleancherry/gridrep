@@ -1,6 +1,7 @@
 import { getViewer, getValidAccessToken } from "../../../../_lib/auth";
 import { computeAndStoreOneDriverProfile, driverProfileRowId } from "../../../../_lib/plannerDriverProfile";
 import { getCachedCarCatalog, carIdsInSameClass } from "../../../../_lib/plannerIracing";
+import { ensureDriverIds, displayDrivers } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
@@ -176,13 +177,12 @@ export async function onRequestGet(context: any) {
   const placeholders = ids.map(() => "?").join(",");
 
   const rows = await DB.prepare(
-    `SELECT p.cust_id as custId, d.display_name as driverName, p.track_name as trackName,
+    `SELECT p.cust_id as custId, p.track_name as trackName,
             p.condition_profile_id as conditionProfileId, p.pace_ms as paceMs, p.pace_source as paceSource,
             p.laps_used as lapsUsed, p.sample_size as sampleSize, p.widened_band as widenedBand,
             p.fuel_per_lap as fuelPerLap, p.fuel_source as fuelSource, p.pit_time_seconds as pitTimeSeconds,
             p.pit_time_source as pitTimeSource, p.computed_at as computedAt
      FROM driver_track_profiles p
-     LEFT JOIN drivers d ON d.iracing_member_id = p.cust_id
      WHERE p.id IN (${placeholders})`
   )
     .bind(...ids)
@@ -190,28 +190,20 @@ export async function onRequestGet(context: any) {
 
   const rowsByCustId = new Map((rows.results ?? []).map((r: any) => [r.custId, r]));
 
-  const hasAnyOverlay = locksByCustId.size > 0 || defaultPaceMs !== null || defaultFuelPerLap !== null;
-  let driverNameMap = new Map<string, string>();
-  if (hasAnyOverlay) {
-    const needsName = custIds.filter((id) => !rowsByCustId.has(id) && (locksByCustId.get(id)?.lockedAt || defaultPaceMs !== null || defaultFuelPerLap !== null));
-    if (needsName.length > 0) {
-      const namePlaceholders = needsName.map(() => "?").join(",");
-      const nameRows = await DB.prepare(`SELECT iracing_member_id as custId, display_name as driverName FROM drivers WHERE iracing_member_id IN (${namePlaceholders})`)
-        .bind(...needsName)
-        .all<any>();
-      driverNameMap = new Map((nameRows.results ?? []).map((r: any) => [r.custId, r.driverName]));
-    }
-  }
+  const driverIdByCustId = await ensureDriverIds(DB, custIds);
+  const display = await displayDrivers(DB, [...driverIdByCustId.values()]);
+  const nameFor = (custId: string) => display.get(driverIdByCustId.get(custId)!)?.name ?? null;
 
   const profiles: any[] = [];
   for (const custId of custIds) {
     const existingRow = rowsByCustId.get(custId);
     const lock = locksByCustId.get(custId);
+    const driverId = driverIdByCustId.get(custId);
 
     if (lock?.lockedAt) {
       profiles.push({
-        custId,
-        driverName: existingRow?.driverName ?? driverNameMap.get(custId) ?? `Driver ${custId}`,
+        driverId,
+        driverName: nameFor(custId),
         trackName: event.trackName,
         conditionProfileId,
         paceMs: lock.lockedPaceMs,
@@ -242,14 +234,25 @@ export async function onRequestGet(context: any) {
         fuelPerLap = defaultFuelPerLap;
         fuelSource = "race_default";
       }
-      profiles.push({ ...existingRow, widenedBand: Boolean(existingRow.widenedBand), paceMs, paceSource, fuelPerLap, fuelSource, locked: false });
+      profiles.push({
+        ...existingRow,
+        custId: undefined,
+        driverId,
+        driverName: nameFor(custId),
+        widenedBand: Boolean(existingRow.widenedBand),
+        paceMs,
+        paceSource,
+        fuelPerLap,
+        fuelSource,
+        locked: false,
+      });
       continue;
     }
 
     if (defaultPaceMs !== null || defaultFuelPerLap !== null) {
       profiles.push({
-        custId,
-        driverName: driverNameMap.get(custId) ?? `Driver ${custId}`,
+        driverId,
+        driverName: nameFor(custId),
         trackName: event.trackName,
         conditionProfileId,
         paceMs: defaultPaceMs,

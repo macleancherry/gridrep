@@ -1,5 +1,6 @@
 import { getViewer } from "../../../../_lib/auth";
 import { isTeamCoordinator, isTeamMember, getWeekendTeamId } from "../../../../_lib/plannerTeams";
+import { ensureDriverIds, displayDrivers } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /** The pool of team-roster drivers in scope for this race weekend, picked before splitting
@@ -19,23 +20,25 @@ export async function onRequestGet(context: any) {
     return jsonError(403, { error: "forbidden", message: "You don't have access to this race weekend." });
   }
 
-  const rosterRows = await DB.prepare(
-    `SELECT m.cust_id as custId, d.display_name as driverName
-     FROM team_members m LEFT JOIN drivers d ON d.iracing_member_id = m.cust_id
-     WHERE m.team_id = ? ORDER BY d.display_name`
-  )
-    .bind(teamId)
-    .all<any>();
+  const rosterRows = await DB.prepare(`SELECT cust_id as custId FROM team_members WHERE team_id = ?`).bind(teamId).all<any>();
+  const rosterCustIds: string[] = (rosterRows.results ?? []).map((r: any) => r.custId);
 
   const participantRows = await DB.prepare(`SELECT cust_id as custId FROM race_weekend_participants WHERE race_weekend_id = ?`)
     .bind(weekendId)
     .all<any>();
-  const participantIds = new Set((participantRows.results ?? []).map((r: any) => r.custId));
+  const participantCustIds = new Set((participantRows.results ?? []).map((r: any) => r.custId));
+
+  const driverIdByCustId = await ensureDriverIds(DB, [...new Set([...rosterCustIds, ...participantCustIds])]);
+  const display = await displayDrivers(DB, [...driverIdByCustId.values()]);
+
+  const roster = rosterCustIds
+    .map((custId) => ({ driverId: driverIdByCustId.get(custId)!, driverName: display.get(driverIdByCustId.get(custId)!)?.name ?? null }))
+    .sort((a, b) => (a.driverName ?? "").localeCompare(b.driverName ?? ""));
 
   return json({
     ok: true,
-    roster: rosterRows.results ?? [],
-    participantCustIds: [...participantIds],
+    roster,
+    participantDriverIds: [...participantCustIds].map((custId) => driverIdByCustId.get(custId)),
   });
 }
 

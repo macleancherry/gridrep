@@ -10,6 +10,8 @@
  * fraction and scaled up, anything larger is assumed already a 0-100 percent.
  */
 
+/** Raw shape from the external live-tracking worker - never serialized to a client as-is
+ * (see live.ts, which gates every row through driverIdentity.ts before it leaves this Worker). */
 export type LiveRow = {
   customerId: number;
   driverName: string;
@@ -22,6 +24,11 @@ export type LiveRow = {
   fuelLevelPct: number | null; // raw, unnormalized
   updatedAt: string;
 };
+
+/** Gated shape actually sent to a client - driverId/name replace customerId/driverName,
+ * name is null without active consent (everyone not on the plan's own, consented lineup,
+ * per the PRD: "Everyone else is never consented and is always anonymised"). */
+export type GatedLiveRow = Omit<LiveRow, "customerId" | "driverName"> & { driverId: string; name: string | null };
 
 export type PlannedStint = {
   order: number;

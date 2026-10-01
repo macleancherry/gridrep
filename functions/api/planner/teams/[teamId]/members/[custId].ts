@@ -1,5 +1,6 @@
 import { getViewer } from "../../../../../_lib/auth";
 import { isTeamCoordinator } from "../../../../../_lib/plannerTeams";
+import { ensureDriverId } from "../../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../../_lib/httpJson";
 
 /** Promotes a roster member to coordinator, or demotes a coordinator back to driver.
@@ -48,7 +49,8 @@ export async function onRequestPut(context: any) {
 
   await DB.prepare(`UPDATE team_members SET role = ? WHERE team_id = ? AND cust_id = ?`).bind(role, teamId, custId).run();
 
-  return json({ ok: true, custId, role });
+  const driverId = await ensureDriverId(DB, custId);
+  return json({ ok: true, driverId, role });
 }
 
 /** Removes one driver from a team's roster. Coordinator-only. The team's creator can't be

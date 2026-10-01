@@ -1,6 +1,7 @@
 import { getViewer } from "../../../../_lib/auth";
 import { json, jsonError } from "../../../../_lib/httpJson";
 import { computeStintProjections, isPlanVisible, type StintInput } from "../../../../_lib/plannerRacePlan";
+import { ensureDriverIds, displayDrivers } from "../../../../_lib/driverIdentity";
 
 /**
  * Set/update the full stint assignment list (PRD §8) - replaces the plan's stints
@@ -78,19 +79,18 @@ export async function onRequestPut(context: any) {
 
   await DB.prepare(`UPDATE race_plans SET updated_at = ? WHERE id = ?`).bind(new Date().toISOString(), planId).run();
 
-  const driverRows = await DB.prepare(
-    `SELECT iracing_member_id as custId, display_name as driverName FROM drivers WHERE iracing_member_id IN (${stintInputs
-      .map(() => "?")
-      .join(",") || "''"})`
-  )
-    .bind(...stintInputs.map((s) => s.custId))
-    .all<any>();
-  const driverNameByCustId = new Map((driverRows.results ?? []).map((r: any) => [r.custId, r.driverName]));
+  const driverIdByCustId = await ensureDriverIds(DB, stintInputs.map((s) => s.custId));
+  const display = await displayDrivers(DB, [...driverIdByCustId.values()]);
 
   return json({
     ok: true,
     planId,
-    stints: stints.map((s) => ({ ...s, driverName: driverNameByCustId.get(s.custId) ?? `Driver ${s.custId}` })),
+    stints: stints.map((s) => ({
+      ...s,
+      driverId: driverIdByCustId.get(s.custId),
+      driverName: display.get(driverIdByCustId.get(s.custId)!)?.name ?? null,
+      custId: undefined,
+    })),
     totals,
   });
 }

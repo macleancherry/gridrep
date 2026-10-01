@@ -1,4 +1,5 @@
 import { refreshRecentRacesForMember } from "../../../_lib/recent";
+import { ensureDriverIds, displayDrivers } from "../../../_lib/driverIdentity";
 
 type Context = {
   request: Request;
@@ -11,7 +12,7 @@ type Context = {
 };
 
 type IntegrationResult = {
-  customerId: number | null;
+  driverId: string | null;
   driverName: string | null;
   subsessionId: string | null;
   sessionName: string | null;
@@ -190,7 +191,6 @@ export async function onRequestGet(context: Context) {
   const rows = await context.env.DB.prepare(
     `SELECT
        sp.iracing_member_id as customerId,
-       d.display_name as driverName,
        sp.iracing_session_id as subsessionId,
        s.series_name as sessionName,
        s.series_name as series,
@@ -213,7 +213,6 @@ export async function onRequestGet(context: Context) {
        s.start_time as completedAt
      FROM session_participants sp
      LEFT JOIN sessions s ON s.iracing_session_id = sp.iracing_session_id
-     LEFT JOIN drivers d ON d.iracing_member_id = sp.iracing_member_id
      WHERE sp.iracing_member_id IN (${placeholders})
      ORDER BY datetime(s.start_time) DESC
      LIMIT ?`
@@ -221,12 +220,18 @@ export async function onRequestGet(context: Context) {
     .bind(...customerIds, limit)
     .all<Record<string, unknown>>();
 
-  const results: IntegrationResult[] = (rows.results ?? []).map((row) => {
+  const resultRows = rows.results ?? [];
+  const driverIdByCustId = await ensureDriverIds(context.env.DB, customerIds);
+  const display = await displayDrivers(context.env.DB, [...driverIdByCustId.values()]);
+
+  const results: IntegrationResult[] = resultRows.map((row) => {
     const subsessionId = typeof row.subsessionId === "string" ? row.subsessionId : null;
+    const custId = row.customerId !== undefined && row.customerId !== null ? String(row.customerId) : null;
+    const driverId = custId ? driverIdByCustId.get(custId) ?? null : null;
 
     return {
-      customerId: toNullableNumber(row.customerId),
-      driverName: typeof row.driverName === "string" ? row.driverName : null,
+      driverId,
+      driverName: driverId ? display.get(driverId)?.name ?? null : null,
       subsessionId,
       sessionName: typeof row.sessionName === "string" ? row.sessionName : null,
       series: typeof row.series === "string" ? row.series : null,
