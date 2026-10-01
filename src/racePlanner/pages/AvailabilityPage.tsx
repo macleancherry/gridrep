@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { usePlanContext } from "../PlanContext";
 
-type LineupDriver = { custId: string; driverName: string };
+type LineupDriver = { driverId: string; driverName: string | null };
 
 type Block = {
   blockStartOffsetMinutes: number;
@@ -22,9 +22,9 @@ type Block = {
 
 type OrganizerZone = { zone: string; start: string; finish: string };
 
-type AvailabilityRow = { custId: string; driverName: string; blockStartOffsetMinutes: number; status: string };
+type AvailabilityRow = { driverId: string; driverName: string | null; blockStartOffsetMinutes: number; status: string };
 
-type RosterPreference = { custId: string; nightPreference: Pref; wetPreference: Pref; startPreference: Pref };
+type RosterPreference = { driverId: string; nightPreference: Pref; wetPreference: Pref; startPreference: Pref };
 
 type Status = "available" | "maybe" | "unavailable";
 type Pref = "prefer" | "neutral" | "avoid";
@@ -257,7 +257,7 @@ export default function AvailabilityPage() {
     );
   }
 
-  const submittedCustIds = new Set(allAvailability.map((r) => r.custId));
+  const submittedDriverIds = new Set(allAvailability.map((r) => r.driverId));
 
   return (
     <div>
@@ -305,11 +305,11 @@ export default function AvailabilityPage() {
           <div className="rp-profile-list">
             {lineup.length === 0 && <span className="rp-text-faint">No lineup yet — add drivers on the Lineup page.</span>}
             {lineup.map((d) => {
-              const pref = rosterPreferences.find((p) => p.custId === d.custId);
+              const pref = rosterPreferences.find((p) => p.driverId === d.driverId);
               return (
-                <div className="rp-row" key={d.custId} style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-                  <span className="rp-badge" style={submittedCustIds.has(d.custId) ? { color: "var(--rp-green)", borderColor: "var(--rp-green)" } : { color: "var(--rp-text-faint)" }}>
-                    {d.driverName} — {submittedCustIds.has(d.custId) ? "Submitted" : "Pending"}
+                <div className="rp-row" key={d.driverId} style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+                  <span className="rp-badge" style={submittedDriverIds.has(d.driverId) ? { color: "var(--rp-green)", borderColor: "var(--rp-green)" } : { color: "var(--rp-text-faint)" }}>
+                    {d.driverName ?? "This driver"} — {submittedDriverIds.has(d.driverId) ? "Submitted" : "Pending"}
                   </span>
                   {pref && (pref.nightPreference !== "neutral" || pref.wetPreference !== "neutral" || pref.startPreference !== "neutral") && (
                     <span className="rp-text-faint" style={{ fontSize: 11 }}>

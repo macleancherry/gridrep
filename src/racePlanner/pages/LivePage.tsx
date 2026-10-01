@@ -3,8 +3,8 @@ import { useParams, Link } from "react-router-dom";
 import { usePlanContext } from "../PlanContext";
 
 type Standing = {
-  customerId: number;
-  driverName: string;
+  driverId: string;
+  name: string | null;
   carNumber: string;
   position: number;
   classPosition: number;
@@ -19,12 +19,13 @@ type Deviation =
   | { ok: false; reason: string }
   | {
       ok: true;
-      currentDriverName: string;
+      currentDriverId: string;
+      currentDriverName: string | null;
       currentLap: number;
       position: number;
       gapSeconds: number | null;
       inPits: boolean;
-      expectedCustId: string | null;
+      expectedDriverId: string | null;
       driverMismatch: boolean;
       beyondPlannedDistance: boolean;
       actualPaceSeconds: number | null;
@@ -213,7 +214,7 @@ export default function LivePage() {
         <>
           {deviation.driverMismatch && (
             <div className="rp-warn-banner rp-amber">
-              ⚠ The plan expected a different driver in the car right now — {deviation.currentDriverName} is currently driving.
+              ⚠ The plan expected a different driver in the car right now — {deviation.currentDriverName ?? "someone else"} is currently driving.
             </div>
           )}
           {deviation.paceWarning && (
@@ -254,7 +255,7 @@ export default function LivePage() {
                 <label>Driving now</label>
               </div>
               <div className="rp-mono" style={{ fontSize: 16 }}>
-                {deviation.currentDriverName} {deviation.inPits ? "(in pits)" : ""}
+                {deviation.currentDriverName ?? "This driver"} {deviation.inPits ? "(in pits)" : ""}
               </div>
             </div>
             <div className="rp-card" style={{ minWidth: 140 }}>
@@ -303,11 +304,11 @@ export default function LivePage() {
               </thead>
               <tbody>
                 {(data.standings ?? []).map((s) => {
-                  const isOurs = (data.ourRows ?? []).some((o) => o.customerId === s.customerId);
+                  const isOurs = (data.ourRows ?? []).some((o) => o.driverId === s.driverId);
                   return (
-                    <tr key={s.customerId} style={isOurs ? { background: "var(--rp-amber-bg, rgba(245,166,35,0.12))" } : undefined}>
+                    <tr key={s.driverId} style={isOurs ? { background: "var(--rp-amber-bg, rgba(245,166,35,0.12))" } : undefined}>
                       <td style={{ padding: "4px 8px" }}>{s.position}</td>
-                      <td style={{ padding: "4px 8px" }}>{s.driverName}</td>
+                      <td style={{ padding: "4px 8px" }}>{s.name ?? "This driver"}</td>
                       <td style={{ padding: "4px 8px" }}>{s.carNumber}</td>
                       <td style={{ padding: "4px 8px" }}>{s.lap}</td>
                       <td style={{ padding: "4px 8px" }}>{formatLapTime(s.lastLap)}</td>

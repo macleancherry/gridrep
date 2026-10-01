@@ -8,13 +8,33 @@ type Garage61TeamSummary = { id: string; name: string };
 type Garage61Member = { custId: string | null; name: string };
 
 type RosterMember = {
-  custId: string;
+  driverId: string;
   userId: string | null;
   driverName: string | null;
   role: "coordinator" | "driver";
   status: "invited" | "active";
   invitedAt: string;
   joinedAt: string | null;
+};
+
+// Admin-only roster/consent screen (functions/api/planner/teams/[teamId]/roster.ts) - the
+// one place besides driverIdentity.ts itself allowed to pair a raw custId with a
+// driverId/displayName. Fetched here (coordinator-only, same gate as the rest of this
+// page's "Add drivers"/roster-management section) both to power the new consent section
+// below and to resolve the real custId that changeRole/removeMember still need to call
+// their own (unchanged) endpoints - detail.roster itself never carries one.
+type RosterIdentity = {
+  driverId: string;
+  custId: string;
+  displayName: string | null;
+  role: string;
+  status: string;
+  invitedAt: string | null;
+  joinedAt: string | null;
+  consentStatus: "granted" | "revoked" | null;
+  grantedAt: string | null;
+  revokedAt: string | null;
+  evidenceRef: string | null;
 };
 
 type TeamWeekend = {
@@ -70,6 +90,31 @@ export default function TeamPage() {
   const [deletingTeam, setDeletingTeam] = useState(false);
   const [deleteTeamError, setDeleteTeamError] = useState<string | null>(null);
 
+  const [rosterIdentities, setRosterIdentities] = useState<RosterIdentity[] | null>(null);
+  const [rosterIdentitiesError, setRosterIdentitiesError] = useState<string | null>(null);
+  const [consentActionFor, setConsentActionFor] = useState<string | null>(null);
+  const [consentError, setConsentError] = useState<string | null>(null);
+
+  function loadRosterIdentities() {
+    if (!teamId) return;
+    fetch(`/api/planner/teams/${encodeURIComponent(teamId)}/roster`, { credentials: "include" })
+      .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok || !data.ok) {
+          setRosterIdentitiesError(data.message ?? "Could not load consent status for this roster.");
+          return;
+        }
+        setRosterIdentitiesError(null);
+        setRosterIdentities(data.roster ?? []);
+      })
+      .catch(() => setRosterIdentitiesError("Network error. Please try again."));
+  }
+
+  // custId is what changeRole/removeMember's own (unchanged) endpoints key on, and what
+  // grant/revoke consent take - this page otherwise only ever has a roster member's opaque
+  // driverId, so every coordinator-only action below resolves through this map first.
+  const custIdByDriverId = new Map((rosterIdentities ?? []).map((r) => [r.driverId, r.custId]));
+
   function load() {
     if (!teamId) return;
     setLoading(true);
@@ -88,6 +133,11 @@ export default function TeamPage() {
 
   useEffect(load, [teamId]);
 
+  useEffect(() => {
+    if (detail?.isCoordinator) loadRosterIdentities();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId, detail?.isCoordinator]);
+
   async function addDriver(custId: string, name: string) {
     if (!teamId) return;
     setAdding(true);
@@ -102,6 +152,7 @@ export default function TeamPage() {
       if (r.ok && data.ok) {
         setQuery("");
         load();
+        loadRosterIdentities();
       }
     } finally {
       setAdding(false);
@@ -205,6 +256,7 @@ export default function TeamPage() {
       if (data.skippedNoIracingAccount) parts.push(`${data.skippedNoIracingAccount} have no linked iRacing account in Garage 61`);
       setImportSummary(`Imported from ${data.teamName} — ${parts.join(", ")}.`);
       load();
+      loadRosterIdentities();
     } catch {
       setImportError("Network error. Please try again.");
     } finally {
@@ -212,12 +264,19 @@ export default function TeamPage() {
     }
   }
 
-  async function removeMember(custId: string, name: string) {
+  async function removeMember(driverId: string, name: string) {
     if (!teamId) return;
+    // members/[custId].ts still looks a roster row up by its real custId, which detail.roster
+    // never carries any more - resolved here from the admin roster/consent fetch instead.
+    const custId = custIdByDriverId.get(driverId);
+    if (!custId) {
+      setRemoveError("Still loading this driver's identity - try again in a moment.");
+      return;
+    }
     if (!window.confirm(`Remove ${name} from this team's roster? They'll keep any race plan they're already in — this just takes them off the team.`)) {
       return;
     }
-    setRemovingCustId(custId);
+    setRemovingCustId(driverId);
     setRemoveError(null);
     try {
       const r = await fetch(`/api/planner/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(custId)}`, {
@@ -230,6 +289,7 @@ export default function TeamPage() {
         return;
       }
       load();
+      loadRosterIdentities();
     } catch {
       setRemoveError("Network error. Please try again.");
     } finally {
@@ -237,9 +297,14 @@ export default function TeamPage() {
     }
   }
 
-  async function changeRole(custId: string, name: string, nextRole: "coordinator" | "driver") {
+  async function changeRole(driverId: string, name: string, nextRole: "coordinator" | "driver") {
     if (!teamId) return;
     const verb = nextRole === "coordinator" ? "Promote" : "Demote";
+    const custId = custIdByDriverId.get(driverId);
+    if (!custId) {
+      setRoleError("Still loading this driver's identity - try again in a moment.");
+      return;
+    }
     if (
       !window.confirm(
         nextRole === "coordinator"
@@ -249,7 +314,7 @@ export default function TeamPage() {
     ) {
       return;
     }
-    setChangingRoleFor(custId);
+    setChangingRoleFor(driverId);
     setRoleError(null);
     try {
       const r = await fetch(`/api/planner/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(custId)}`, {
@@ -268,6 +333,68 @@ export default function TeamPage() {
       setRoleError("Network error. Please try again.");
     } finally {
       setChangingRoleFor(null);
+    }
+  }
+
+  // Driver consent (PRD: iRacing's 30 Sept 2026 rule - a member's name/custid can't be
+  // shown anywhere without their explicit, off-platform consent). Grant/revoke live on the
+  // same admin roster endpoint this page already fetches for custId resolution above.
+  async function grantConsentFor(custId: string, name: string) {
+    if (!teamId) return;
+    const evidenceRef = window.prompt(
+      `Record ${name}'s consent to be shown by name in gridrep. Paste a reference to the off-platform record (a signed form's link or ID, or where their "I agree" was captured):`
+    );
+    if (evidenceRef === null) return; // cancelled
+    if (!evidenceRef.trim()) {
+      setConsentError("A reference to the off-platform consent record is required.");
+      return;
+    }
+    setConsentActionFor(custId);
+    setConsentError(null);
+    try {
+      const r = await fetch(`/api/planner/teams/${encodeURIComponent(teamId)}/roster`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ custId, evidenceRef: evidenceRef.trim() }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setConsentError(data.message ?? "Could not record consent for that driver.");
+        return;
+      }
+      loadRosterIdentities();
+      load(); // names gated by consent appear on the rest of this page too
+    } catch {
+      setConsentError("Network error. Please try again.");
+    } finally {
+      setConsentActionFor(null);
+    }
+  }
+
+  async function revokeConsentFor(custId: string, name: string) {
+    if (!teamId) return;
+    if (!window.confirm(`Revoke ${name}'s consent? Their name will stop showing anywhere in gridrep outside this roster screen on the next load.`)) {
+      return;
+    }
+    setConsentActionFor(custId);
+    setConsentError(null);
+    try {
+      const r = await fetch(`/api/planner/teams/${encodeURIComponent(teamId)}/roster?custId=${encodeURIComponent(custId)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        setConsentError(data.message ?? "Could not revoke consent for that driver.");
+        return;
+      }
+      loadRosterIdentities();
+      load();
+    } catch {
+      setConsentError("Network error. Please try again.");
+    } finally {
+      setConsentActionFor(null);
     }
   }
 
@@ -306,7 +433,12 @@ export default function TeamPage() {
   if (error) return <p className="rp-error">{error}</p>;
   if (!detail) return null;
 
-  const alreadyOnRoster = new Set(detail.roster.map((m) => m.custId));
+  // The search box below works in real custIds (that's what iRacing's own driver search
+  // returns), so "already on this roster" has to be checked against real custIds too -
+  // detail.roster itself only ever carries the opaque driverId now. The admin roster/
+  // consent fetch (coordinator-only, same as this whole section) is the one place that
+  // still pairs the two, so it's the source of truth here instead.
+  const alreadyOnRoster = new Set((rosterIdentities ?? []).map((r) => r.custId));
 
   return (
     <div>
@@ -542,9 +674,9 @@ export default function TeamPage() {
         <div className="rp-event-grid">
           {detail.roster.map((m) => {
             const isCreator = m.userId !== null && m.userId === detail.team.createdBy;
-            const name = m.driverName ?? `Driver ${m.custId}`;
+            const name = m.driverName ?? "This driver";
             return (
-              <div className="rp-event-card" key={m.custId}>
+              <div className="rp-event-card" key={m.driverId}>
                 <h3 className="rp-event-track">{name}</h3>
                 <div className="rp-row" style={{ gap: 6 }}>
                   {m.role === "coordinator" && <span className="rp-badge rp-dim">Coordinator</span>}
@@ -557,18 +689,18 @@ export default function TeamPage() {
                     <button
                       className="rp-btn"
                       style={{ alignSelf: "flex-start" }}
-                      onClick={() => changeRole(m.custId, name, m.role === "coordinator" ? "driver" : "coordinator")}
-                      disabled={changingRoleFor === m.custId}
+                      onClick={() => changeRole(m.driverId, name, m.role === "coordinator" ? "driver" : "coordinator")}
+                      disabled={changingRoleFor === m.driverId}
                     >
-                      {changingRoleFor === m.custId ? "Saving…" : m.role === "coordinator" ? "Demote to driver" : "Promote to coordinator"}
+                      {changingRoleFor === m.driverId ? "Saving…" : m.role === "coordinator" ? "Demote to driver" : "Promote to coordinator"}
                     </button>
                     <button
                       className="rp-btn"
                       style={{ alignSelf: "flex-start" }}
-                      onClick={() => removeMember(m.custId, name)}
-                      disabled={removingCustId === m.custId}
+                      onClick={() => removeMember(m.driverId, name)}
+                      disabled={removingCustId === m.driverId}
                     >
-                      {removingCustId === m.custId ? "Removing…" : "Remove from team"}
+                      {removingCustId === m.driverId ? "Removing…" : "Remove from team"}
                     </button>
                   </div>
                 )}
@@ -578,6 +710,63 @@ export default function TeamPage() {
           {detail.roster.length === 0 && <p className="rp-section-sub">No one on this roster yet.</p>}
         </div>
       </div>
+
+      {detail.isCoordinator && (
+        <div className="rp-card" style={{ marginBottom: 20, borderColor: "var(--rp-amber)" }}>
+          <h3 style={{ marginTop: 0 }}>Driver consent</h3>
+          <p className="rp-section-sub" style={{ marginBottom: 12 }}>
+            iRacing requires a driver's explicit, off-platform consent (a signed form, or a recorded "I agree") before
+            gridrep can show their name anywhere outside this roster screen. This is the one screen in gridrep allowed
+            to show a driver's raw iRacing customer id alongside their name.
+          </p>
+          {consentError && <p className="rp-error">{consentError}</p>}
+          {rosterIdentitiesError && <p className="rp-error">{rosterIdentitiesError}</p>}
+          {rosterIdentities === null ? (
+            <p className="rp-section-sub">Loading…</p>
+          ) : rosterIdentities.length === 0 ? (
+            <p className="rp-section-sub">No one on this roster yet.</p>
+          ) : (
+            <div className="rp-profile-list">
+              {rosterIdentities.map((r) => {
+                const name = r.displayName ?? `Driver ${r.custId}`;
+                const granted = r.consentStatus === "granted";
+                return (
+                  <div className="rp-row" key={r.driverId} style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                    <div>
+                      <span style={{ marginRight: 8 }}>{name}</span>
+                      <span className="rp-text-faint rp-mono" style={{ fontSize: 11, marginRight: 8 }}>
+                        #{r.custId}
+                      </span>
+                      <span
+                        className={`rp-badge ${granted ? "rp-green" : r.consentStatus === "revoked" ? "" : "rp-amber"}`}
+                        style={r.consentStatus === "revoked" ? { color: "var(--rp-red)", borderColor: "var(--rp-red)" } : undefined}
+                      >
+                        {granted ? "Granted" : r.consentStatus === "revoked" ? "Revoked" : "Not yet granted"}
+                      </span>
+                      {(r.grantedAt || r.evidenceRef) && (
+                        <div className="rp-text-faint" style={{ fontSize: 11, marginTop: 2 }}>
+                          {r.grantedAt && `Granted ${new Date(r.grantedAt).toLocaleDateString()}`}
+                          {r.grantedAt && r.evidenceRef ? " · " : ""}
+                          {r.evidenceRef && `Evidence: ${r.evidenceRef}`}
+                        </div>
+                      )}
+                    </div>
+                    {granted ? (
+                      <button className="rp-btn" onClick={() => revokeConsentFor(r.custId, name)} disabled={consentActionFor === r.custId}>
+                        {consentActionFor === r.custId ? "Revoking…" : "Revoke"}
+                      </button>
+                    ) : (
+                      <button className="rp-btn rp-primary" onClick={() => grantConsentFor(r.custId, name)} disabled={consentActionFor === r.custId}>
+                        {consentActionFor === r.custId ? "Saving…" : "Grant consent"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {detail.isCoordinator && (
         <div className="rp-card" style={{ marginTop: 24, borderColor: "var(--rp-red)" }}>

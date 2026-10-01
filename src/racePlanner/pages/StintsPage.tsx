@@ -3,19 +3,19 @@ import { useParams, Link } from "react-router-dom";
 import { usePlanContext } from "../PlanContext";
 import { computeStintProjections, computeDutyWarnings, type StintInput, type SpottingAssignment as StintMathSpotting } from "../stintMath";
 
-type LineupDriver = { custId: string; driverName: string };
+type LineupDriver = { driverId: string; driverName: string | null };
 type ConditionProfile = { id: string; label: string };
 
 type DriverProfile = {
-  custId: string;
-  driverName: string;
+  driverId: string;
+  driverName: string | null;
   paceMs: number | null;
   fuelPerLap: number | null;
 };
 
 type Stint = {
-  custId: string;
-  driverName: string;
+  driverId: string;
+  driverName: string | null;
   lapCount: number;
   paceMs: number;
   fuelPerLap: number;
@@ -35,11 +35,11 @@ type Totals = {
   stintCountByDriver: Record<string, number>;
 };
 
-type SpottingAssignment = { custId: string; driverName?: string; startOffsetMinutes: number; endOffsetMinutes: number };
+type SpottingAssignment = { driverId: string; driverName?: string | null; startOffsetMinutes: number; endOffsetMinutes: number };
 
 type Warnings = {
   spotterGaps: { startOffsetMinutes: number; endOffsetMinutes: number }[];
-  extendedStretches: { custId: string; startOffsetMinutes: number; endOffsetMinutes: number; durationMinutes: number }[];
+  extendedStretches: { driverId: string; driverName?: string | null; startOffsetMinutes: number; endOffsetMinutes: number; durationMinutes: number }[];
 };
 
 function formatOffset(minutes: number): string {
@@ -84,10 +84,13 @@ export default function StintsPage() {
   // assignment) but generating/editing/reordering it is a coordinator job.
   const [canEdit, setCanEdit] = useState(false);
 
-  async function loadDriverProfiles(custIds: string[], conditionProfileId: string, forEventId?: string) {
+  async function loadDriverProfiles(driverIds: string[], conditionProfileId: string, forEventId?: string) {
     const targetEventId = forEventId ?? eventId;
-    if (!targetEventId || custIds.length === 0) return;
-    const params = new URLSearchParams({ custIds: custIds.join(",") });
+    if (!targetEventId || driverIds.length === 0) return;
+    // The driver-profiles endpoint's query param is still literally named custIds (unchanged
+    // input) - but the plan GET no longer hands this page any raw driverId for an already-saved
+    // lineup member, only their opaque driverId, so that's what gets sent through here.
+    const params = new URLSearchParams({ custIds: driverIds.join(",") });
     if (conditionProfileId) params.set("conditionProfileId", conditionProfileId);
     if (planId) params.set("planId", planId);
     const r = await fetch(`/api/planner/events/${encodeURIComponent(targetEventId)}/driver-profiles?${params.toString()}`, {
@@ -115,7 +118,7 @@ export default function StintsPage() {
     setSpotting(data.spotting ?? []);
     setWarnings(data.warnings ?? null);
     setCanEdit(Boolean(data.canDelete));
-    await loadDriverProfiles((data.lineup ?? []).map((d: LineupDriver) => d.custId), selectedProfileId, data.eventId);
+    await loadDriverProfiles((data.lineup ?? []).map((d: LineupDriver) => d.driverId), selectedProfileId, data.eventId);
     return data.eventId as string;
   }
 
@@ -126,13 +129,13 @@ export default function StintsPage() {
   useEffect(() => {
     if (!eventId || lineup.length === 0) return;
     const allReady = lineup.every((d) => {
-      const p = driverProfiles.find((x) => x.custId === d.custId);
+      const p = driverProfiles.find((x) => x.driverId === d.driverId);
       return p && p.paceMs !== null && p.fuelPerLap !== null;
     });
     if (allReady) return;
 
     const timer = setTimeout(() => {
-      loadDriverProfiles(lineup.map((d) => d.custId), selectedProfileId);
+      loadDriverProfiles(lineup.map((d) => d.driverId), selectedProfileId);
     }, 2500);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -141,7 +144,7 @@ export default function StintsPage() {
   const allProfilesReady =
     lineup.length > 0 &&
     lineup.every((d) => {
-      const p = driverProfiles.find((x) => x.custId === d.custId);
+      const p = driverProfiles.find((x) => x.driverId === d.driverId);
       return p && p.paceMs !== null && p.fuelPerLap !== null;
     });
 
@@ -157,7 +160,7 @@ export default function StintsPage() {
         headers: { "content-type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          custIds: lineup.map((d) => d.custId),
+          custIds: lineup.map((d) => d.driverId),
           conditionProfileId: nextProfileId || undefined,
           teamId: planTeamId || undefined,
           planId: planId || undefined,
@@ -166,7 +169,7 @@ export default function StintsPage() {
       const data = await r.json().catch(() => ({}));
       if (r.ok && data.ok) setDriverProfiles(data.profiles ?? []);
     } catch {
-      await loadDriverProfiles(lineup.map((d) => d.custId), nextProfileId);
+      await loadDriverProfiles(lineup.map((d) => d.driverId), nextProfileId);
     }
   }
 
@@ -206,18 +209,18 @@ export default function StintsPage() {
   // numbers shown here are real, not placeholders - "Save stint plan" still round-trips
   // through the server, which remains authoritative and overwrites this preview either way.
   function recomputeLocally(nextStints: Stint[]) {
-    const driverNameByCustId = new Map(nextStints.map((s) => [s.custId, s.driverName]));
-    const inputs: StintInput[] = nextStints.map((s) => ({ custId: s.custId, lapCount: s.lapCount, paceMs: s.paceMs, fuelPerLap: s.fuelPerLap }));
+    const driverNameByCustId = new Map(nextStints.map((s) => [s.driverId, s.driverName]));
+    const inputs: StintInput[] = nextStints.map((s) => ({ driverId: s.driverId, lapCount: s.lapCount, paceMs: s.paceMs, fuelPerLap: s.fuelPerLap }));
     const { stints: computed, totals: newTotals } = computeStintProjections(inputs, { pitStopSeconds, tankCapacityLiters });
     const withNames: Stint[] = computed.map((c) => ({
       ...c,
-      driverName: driverNameByCustId.get(c.custId) ?? lineup.find((d) => d.custId === c.custId)?.driverName ?? c.custId,
+      driverName: driverNameByCustId.get(c.driverId) ?? lineup.find((d) => d.driverId === c.driverId)?.driverName ?? null,
     }));
     setStints(withNames);
     setTotals(newTotals);
 
     const spottingInputs: StintMathSpotting[] = spotting.map((s) => ({
-      custId: s.custId,
+      driverId: s.driverId,
       startOffsetMinutes: s.startOffsetMinutes,
       endOffsetMinutes: s.endOffsetMinutes,
     }));
@@ -225,14 +228,14 @@ export default function StintsPage() {
   }
 
   function addStint() {
-    const profile = driverProfiles.find((p) => p.custId === newDriverId);
+    const profile = driverProfiles.find((p) => p.driverId === newDriverId);
     const lapCount = Number(newLapCount);
     if (!profile || !profile.paceMs || !profile.fuelPerLap || !lapCount) return;
 
     recomputeLocally([
       ...stints,
       {
-        custId: profile.custId,
+        driverId: profile.driverId,
         driverName: profile.driverName,
         lapCount,
         paceMs: profile.paceMs,
@@ -264,12 +267,12 @@ export default function StintsPage() {
   // and the "Over fuel capacity" warning appears immediately if their real fuel-per-lap
   // pushes this stint's fuel load past the tank. Every later stint's offsets cascade too.
   function changeStintDriver(index: number, newCustId: string) {
-    const profile = driverProfiles.find((p) => p.custId === newCustId);
+    const profile = driverProfiles.find((p) => p.driverId === newCustId);
     if (!profile || profile.paceMs === null || profile.fuelPerLap === null) return;
-    const driverName = lineup.find((d) => d.custId === newCustId)?.driverName ?? profile.driverName;
+    const driverName = lineup.find((d) => d.driverId === newCustId)?.driverName ?? profile.driverName;
 
     const next = stints.map((s, i) =>
-      i === index ? { ...s, custId: newCustId, driverName, paceMs: profile.paceMs as number, fuelPerLap: profile.fuelPerLap as number } : s
+      i === index ? { ...s, driverId: newCustId, driverName, paceMs: profile.paceMs as number, fuelPerLap: profile.fuelPerLap as number } : s
     );
     recomputeLocally(next);
   }
@@ -327,18 +330,18 @@ export default function StintsPage() {
     );
   }
 
-  function changeStintSpotter(stint: Stint, custId: string) {
+  function changeStintSpotter(stint: Stint, driverId: string) {
     const matchesWindow = (sp: SpottingAssignment) => sp.startOffsetMinutes === stint.startOffsetMinutes && sp.endOffsetMinutes === stint.pitTargetOffsetMinutes;
-    if (!custId) {
+    if (!driverId) {
       setSpotting(spotting.filter((sp) => !matchesWindow(sp)));
       return;
     }
-    const driverName = lineup.find((d) => d.custId === custId)?.driverName ?? custId;
+    const driverName = lineup.find((d) => d.driverId === driverId)?.driverName ?? null;
     const hasExisting = spotting.some(matchesWindow);
     setSpotting(
       hasExisting
-        ? spotting.map((sp) => (matchesWindow(sp) ? { ...sp, custId, driverName } : sp))
-        : [...spotting, { custId, driverName, startOffsetMinutes: stint.startOffsetMinutes, endOffsetMinutes: stint.pitTargetOffsetMinutes }]
+        ? spotting.map((sp) => (matchesWindow(sp) ? { ...sp, driverId, driverName } : sp))
+        : [...spotting, { driverId, driverName, startOffsetMinutes: stint.startOffsetMinutes, endOffsetMinutes: stint.pitTargetOffsetMinutes }]
     );
   }
 
@@ -352,7 +355,7 @@ export default function StintsPage() {
         headers: { "content-type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          stints: stints.map((s) => ({ custId: s.custId, lapCount: s.lapCount, paceMs: s.paceMs, fuelPerLap: s.fuelPerLap })),
+          stints: stints.map((s) => ({ driverId: s.driverId, lapCount: s.lapCount, paceMs: s.paceMs, fuelPerLap: s.fuelPerLap })),
         }),
       });
       const data = await r.json().catch(() => ({}));
@@ -369,7 +372,7 @@ export default function StintsPage() {
         headers: { "content-type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          assignments: spotting.map((s) => ({ custId: s.custId, startOffsetMinutes: s.startOffsetMinutes, endOffsetMinutes: s.endOffsetMinutes })),
+          assignments: spotting.map((s) => ({ driverId: s.driverId, startOffsetMinutes: s.startOffsetMinutes, endOffsetMinutes: s.endOffsetMinutes })),
         }),
       });
       const spottingData = await spottingR.json().catch(() => ({}));
@@ -388,11 +391,11 @@ export default function StintsPage() {
   }
 
   function addSpotting() {
-    const driver = lineup.find((d) => d.custId === newSpotterId);
+    const driver = lineup.find((d) => d.driverId === newSpotterId);
     const start = Number(newSpotStart);
     const end = Number(newSpotEnd);
     if (!driver || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
-    setSpotting([...spotting, { custId: driver.custId, driverName: driver.driverName, startOffsetMinutes: start, endOffsetMinutes: end }]);
+    setSpotting([...spotting, { driverId: driver.driverId, driverName: driver.driverName, startOffsetMinutes: start, endOffsetMinutes: end }]);
     setNewSpotStart("");
     setNewSpotEnd("");
   }
@@ -411,7 +414,7 @@ export default function StintsPage() {
         headers: { "content-type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          assignments: spotting.map((s) => ({ custId: s.custId, startOffsetMinutes: s.startOffsetMinutes, endOffsetMinutes: s.endOffsetMinutes })),
+          assignments: spotting.map((s) => ({ driverId: s.driverId, startOffsetMinutes: s.startOffsetMinutes, endOffsetMinutes: s.endOffsetMinutes })),
         }),
       });
       const data = await r.json().catch(() => ({}));
@@ -466,7 +469,7 @@ export default function StintsPage() {
         )
       )}
       {warnings?.extendedStretches.map((s, i) => {
-        const name = lineup.find((d) => d.custId === s.custId)?.driverName ?? s.custId;
+        const name = s.driverName ?? lineup.find((d) => d.driverId === s.driverId)?.driverName ?? "This driver";
         return (
           <div className="rp-warn-banner rp-amber" key={`stretch-${i}`}>
             ⚠ {name} driving {formatOffset(s.durationMinutes)} continuous ({formatOffset(s.startOffsetMinutes)}–
@@ -494,7 +497,7 @@ export default function StintsPage() {
               <p className="rp-section-sub" style={{ margin: 0 }}>
                 Still finding pace and fuel for{" "}
                 {lineup.filter((d) => {
-                  const p = driverProfiles.find((x) => x.custId === d.custId);
+                  const p = driverProfiles.find((x) => x.driverId === d.driverId);
                   return !p || p.paceMs === null || p.fuelPerLap === null;
                 }).length}{" "}
                 of {lineup.length} driver(s) — this happens automatically in the background, no need to wait here.
@@ -526,11 +529,11 @@ export default function StintsPage() {
                 <select className="rp-input" value={newDriverId} onChange={(e) => setNewDriverId(e.target.value)}>
                   <option value="">Select driver…</option>
                   {lineup.map((d) => {
-                    const p = driverProfiles.find((x) => x.custId === d.custId);
+                    const p = driverProfiles.find((x) => x.driverId === d.driverId);
                     const ready = Boolean(p?.paceMs && p?.fuelPerLap);
                     return (
-                      <option key={d.custId} value={d.custId} disabled={!ready}>
-                        {d.driverName}
+                      <option key={d.driverId} value={d.driverId} disabled={!ready}>
+                        {d.driverName ?? "This driver"}
                         {!ready ? " (finding pace/fuel…)" : ""}
                       </option>
                     );
@@ -547,7 +550,7 @@ export default function StintsPage() {
                 <button
                   className="rp-btn rp-primary"
                   onClick={addStint}
-                  disabled={!newDriverId || !driverProfiles.find((p) => p.custId === newDriverId)?.paceMs || !driverProfiles.find((p) => p.custId === newDriverId)?.fuelPerLap}
+                  disabled={!newDriverId || !driverProfiles.find((p) => p.driverId === newDriverId)?.paceMs || !driverProfiles.find((p) => p.driverId === newDriverId)?.fuelPerLap}
                 >
                   + Add stint
                 </button>
@@ -603,23 +606,23 @@ export default function StintsPage() {
                           <select
                             className="rp-input"
                             style={{ display: "inline-block", width: "auto", fontWeight: 600 }}
-                            value={s.custId}
+                            value={s.driverId}
                             onChange={(e) => changeStintDriver(i, e.target.value)}
                             title="Change who drives this stint - lap count stays the same, everything else recalculates"
                           >
                             {lineup.map((d) => {
-                              const p = driverProfiles.find((x) => x.custId === d.custId);
+                              const p = driverProfiles.find((x) => x.driverId === d.driverId);
                               const ready = Boolean(p?.paceMs && p?.fuelPerLap);
                               return (
-                                <option key={d.custId} value={d.custId} disabled={!ready}>
-                                  {d.driverName}
+                                <option key={d.driverId} value={d.driverId} disabled={!ready}>
+                                  {d.driverName ?? "This driver"}
                                   {!ready ? " (finding pace/fuel…)" : ""}
                                 </option>
                               );
                             })}
                           </select>
                         ) : (
-                          <span style={{ fontWeight: 600 }}>{s.driverName}</span>
+                          <span style={{ fontWeight: 600 }}>{s.driverName ?? "This driver"}</span>
                         )}
                         {s.fuelWarning && (
                           <span className="rp-badge rp-amber" style={{ marginLeft: 8 }}>
@@ -636,23 +639,23 @@ export default function StintsPage() {
                             <select
                               className="rp-input"
                               style={{ width: "auto", fontSize: 12, padding: "2px 6px" }}
-                              value={exactSpotterForStint(s)?.custId ?? ""}
+                              value={exactSpotterForStint(s)?.driverId ?? ""}
                               onChange={(e) => changeStintSpotter(s, e.target.value)}
                             >
                               <option value="">— none —</option>
                               {lineup
-                                .filter((d) => d.custId !== s.custId)
+                                .filter((d) => d.driverId !== s.driverId)
                                 .map((d) => (
-                                  <option key={d.custId} value={d.custId}>
-                                    {d.driverName}
+                                  <option key={d.driverId} value={d.driverId}>
+                                    {d.driverName ?? "This driver"}
                                   </option>
                                 ))}
                             </select>
                           ) : (
-                            <span>{exactSpotterForStint(s)?.driverName ?? exactSpotterForStint(s)?.custId ?? "— none —"}</span>
+                            <span>{exactSpotterForStint(s) ? exactSpotterForStint(s)?.driverName ?? "This driver" : "— none —"}</span>
                           )}
                           {otherOverlappingForStint(s).length > 0 && (
-                            <span className="rp-text-faint">(+ {otherOverlappingForStint(s).map((o) => o.driverName ?? o.custId).join(", ")})</span>
+                            <span className="rp-text-faint">(+ {otherOverlappingForStint(s).map((o) => o.driverName ?? "This driver").join(", ")})</span>
                           )}
                         </div>
                       </div>
@@ -697,8 +700,8 @@ export default function StintsPage() {
                 <select className="rp-input" value={newSpotterId} onChange={(e) => setNewSpotterId(e.target.value)}>
                   <option value="">Select spotter…</option>
                   {lineup.map((d) => (
-                    <option key={d.custId} value={d.custId}>
-                      {d.driverName}
+                    <option key={d.driverId} value={d.driverId}>
+                      {d.driverName ?? "This driver"}
                     </option>
                   ))}
                 </select>
@@ -716,7 +719,7 @@ export default function StintsPage() {
                 {spotting.map((s, i) => (
                   <div className="rp-row" key={i} style={{ justifyContent: "space-between" }}>
                     <span className="rp-mono">
-                      {s.driverName ?? s.custId}: {formatOffset(s.startOffsetMinutes)}–{formatOffset(s.endOffsetMinutes)}
+                      {s.driverName ?? "This driver"}: {formatOffset(s.startOffsetMinutes)}–{formatOffset(s.endOffsetMinutes)}
                     </span>
                     {canEdit && (
                       <button className="rp-btn" onClick={() => removeSpotting(i)}>

@@ -75,7 +75,7 @@ export async function onRequestGet(context: any) {
 
 /** POST: writes the (possibly coordinator-edited) final assignments into each car's real
  *  lineup - replacing race_plan_lineup wholesale per car, same pattern lineup.ts already
- *  uses for a single Car Entry. Body: { assignments: { [carId]: custId[] } }. */
+ *  uses for a single Car Entry. Body: { assignments: { [carId]: driverId[] } }. */
 export async function onRequestPost(context: any) {
   const viewer = await getViewer(context);
   if (!viewer.verified) {
@@ -98,10 +98,19 @@ export async function onRequestPost(context: any) {
   const carsRows = await DB.prepare(`SELECT id FROM race_plans WHERE race_weekend_id = ?`).bind(weekendId).all<any>();
   const validCarIds = new Set((carsRows.results ?? []).map((r: any) => r.id));
 
+  // driverId is all the client has - resolved to real custid here, server-side only,
+  // since race_plan_lineup is still keyed by real custid internally (driverIdentity.ts).
+  const allDriverIds = Object.values(assignments).flatMap((ids) => (Array.isArray(ids) ? ids : [])) as string[];
+  const custIdByDriverId = await custIdsForDriverIds(DB, allDriverIds);
+
   const statements: any[] = [];
-  for (const [carId, custIds] of Object.entries(assignments)) {
-    if (!validCarIds.has(carId) || !Array.isArray(custIds)) continue;
+  for (const [carId, driverIds] of Object.entries(assignments)) {
+    if (!validCarIds.has(carId) || !Array.isArray(driverIds)) continue;
     statements.push(DB.prepare(`DELETE FROM race_plan_lineup WHERE race_plan_id = ?`).bind(carId));
+    const custIds = (driverIds as unknown[])
+      .filter((v): v is string => typeof v === "string")
+      .map((driverId) => custIdByDriverId.get(driverId))
+      .filter((v): v is string => Boolean(v));
     for (const custId of custIds as unknown[]) {
       if (typeof custId === "string" && custId) {
         statements.push(DB.prepare(`INSERT OR IGNORE INTO race_plan_lineup (race_plan_id, cust_id) VALUES (?, ?)`).bind(carId, custId));

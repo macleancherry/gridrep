@@ -6,8 +6,8 @@ import { useDriverSearch } from "../useDriverSearch";
 type ConditionProfile = { id: string; label: string };
 
 type DriverProfile = {
-  custId: string;
-  driverName: string;
+  driverId: string;
+  driverName: string | null;
   ok: boolean;
   reason?: string;
   paceMs: number | null;
@@ -22,7 +22,7 @@ type DriverProfile = {
   locked: boolean;
 };
 
-type TeamRosterMember = { custId: string; driverName: string | null };
+type TeamRosterMember = { driverId: string; driverName: string | null };
 type TeamSummary = { id: string; name: string; isCreator: boolean };
 type EligibleCar = { carId: number; carName: string; carClassId: number | null };
 
@@ -126,7 +126,7 @@ export default function LineupPage() {
   const { setContext } = usePlanContext();
   const [eventId, setEventId] = useState<string | null>(null);
   const [teamSize, setTeamSize] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
-  const [lineup, setLineup] = useState<{ custId: string; name: string }[]>([]);
+  const [lineup, setLineup] = useState<{ driverId: string; name: string; isNew?: boolean }[]>([]);
   const [teamRoster, setTeamRoster] = useState<TeamRosterMember[]>([]);
   const [planTeamId, setPlanTeamId] = useState<string | null>(null);
   const [weekendId, setWeekendId] = useState<string | null>(null);
@@ -178,7 +178,7 @@ export default function LineupPage() {
           return;
         }
         setEventId(data.eventId);
-        setLineup((data.lineup ?? []).map((d: any) => ({ custId: d.custId, name: d.driverName ?? `Driver ${d.custId}` })));
+        setLineup((data.lineup ?? []).map((d: any) => ({ driverId: d.driverId, name: d.driverName ?? "This driver" })));
         setTeamRoster(data.teamRoster ?? []);
         setPlanTeamId(data.teamId ?? null);
         setWeekendId(data.weekendId ?? null);
@@ -260,7 +260,7 @@ export default function LineupPage() {
 
   async function fetchProfiles(conditionProfileId: string): Promise<DriverProfile[]> {
     if (!eventId || lineup.length === 0) return [];
-    const params = new URLSearchParams({ custIds: lineup.map((d) => d.custId).join(",") });
+    const params = new URLSearchParams({ driverIds: lineup.map((d) => d.driverId).join(",") });
     if (conditionProfileId) params.set("conditionProfileId", conditionProfileId);
     if (planId) params.set("planId", planId);
     const r = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/driver-profiles?${params.toString()}`, {
@@ -274,7 +274,7 @@ export default function LineupPage() {
   // found (kicked off by lineup.ts's PUT) - no button to press, nothing to wait on here.
   // This polls both the lap-search status and the resulting profiles every 2.5s, only
   // while at least one driver's result is still unresolved, so an idle page never polls.
-  const lineupKey = lineup.map((d) => d.custId).join(",");
+  const lineupKey = lineup.map((d) => d.driverId).join(",");
   useEffect(() => {
     if (!eventId || lineup.length === 0) return;
     let cancelled = false;
@@ -283,7 +283,7 @@ export default function LineupPage() {
     async function poll() {
       try {
         const [statusRes, freshProfiles] = await Promise.all([
-          fetch(`/api/planner/events/${encodeURIComponent(eventId!)}/session-search-status?custIds=${encodeURIComponent(lineupKey)}`, {
+          fetch(`/api/planner/events/${encodeURIComponent(eventId!)}/session-search-status?driverIds=${encodeURIComponent(lineupKey)}`, {
             credentials: "include",
           }).then((r) => r.json().catch(() => ({}))),
           fetchProfiles(selectedProfileId),
@@ -292,13 +292,13 @@ export default function LineupPage() {
 
         if (statusRes.ok) {
           const next: Record<string, SearchStatus> = {};
-          for (const row of statusRes.results ?? []) next[row.custId] = { status: row.status, message: row.message };
+          for (const row of statusRes.results ?? []) next[row.driverId] = { status: row.status, message: row.message };
           setSearchStatus(next);
         }
         setProfiles(freshProfiles);
 
         const stillSearching = (statusRes.results ?? []).some((row: any) => row.status === "searching");
-        const everyoneResolved = lineup.every((d) => freshProfiles.some((p) => p.custId === d.custId));
+        const everyoneResolved = lineup.every((d) => freshProfiles.some((p) => p.driverId === d.driverId));
         if (stillSearching || !everyoneResolved) {
           timer = setTimeout(poll, 2500);
         }
@@ -315,18 +315,40 @@ export default function LineupPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId, lineupKey, selectedProfileId]);
 
-  async function saveLineup(next: { custId: string; name: string }[]) {
+  // Two distinct sources land in `next`: a team-roster quick-add or an already-saved
+  // entry carries a real driverId (gridrep already knows them); a brand-new pick from
+  // the live iRacing search (useDriverSearch.ts) carries a real custid instead - gridrep
+  // has never seen that person before, so there's no driverId for them yet. `isNew`
+  // tells these apart so the two go to the lineup PUT's two different fields. After a
+  // successful save, this replaces local state with the server's own resolved
+  // {driverId, driverName} list, so a freshly-added driver's entry stops being a raw
+  // custid the moment the save confirms - everything downstream (profile fetch, the
+  // search-status poll, locking) only ever deals in driverId from then on.
+  async function saveLineup(next: { driverId: string; name: string; isNew?: boolean }[]) {
     if (!planId) return;
     setSaving(true);
     try {
       const driverNames: Record<string, string> = {};
-      for (const d of next) driverNames[d.custId] = d.name;
-      await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/lineup`, {
+      const custIds: string[] = [];
+      const driverIds: string[] = [];
+      for (const d of next) {
+        if (d.isNew) {
+          custIds.push(d.driverId);
+          driverNames[d.driverId] = d.name;
+        } else {
+          driverIds.push(d.driverId);
+        }
+      }
+      const r = await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/lineup`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ custIds: next.map((d) => d.custId), driverNames }),
+        body: JSON.stringify({ custIds, driverIds, driverNames }),
       });
+      const data = await r.json().catch(() => ({}));
+      if (data.ok && Array.isArray(data.lineup)) {
+        setLineup(data.lineup.map((l: any) => ({ driverId: l.driverId, name: l.driverName ?? "This driver" })));
+      }
     } catch {
       setError("Could not save the lineup - your changes may not persist.");
     } finally {
@@ -336,16 +358,16 @@ export default function LineupPage() {
 
   // Local+live driver search (useDriverSearch.ts) - extracted here originally, now shared
   // with the Team roster's "add a driver" flow (TeamPage.tsx).
-  function addDriver(custId: string, name: string) {
-    if (lineup.some((d) => d.custId === custId)) return;
-    const next = [...lineup, { custId, name }];
+  function addDriver(driverId: string, name: string, isNew = false) {
+    if (lineup.some((d) => d.driverId === driverId)) return;
+    const next = [...lineup, { driverId, name, isNew }];
     setLineup(next);
     setQuery("");
     saveLineup(next);
   }
 
-  function removeDriver(custId: string) {
-    const next = lineup.filter((d) => d.custId !== custId);
+  function removeDriver(driverId: string) {
+    const next = lineup.filter((d) => d.driverId !== driverId);
     setLineup(next);
     saveLineup(next);
   }
@@ -362,7 +384,7 @@ export default function LineupPage() {
         headers: { "content-type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          custIds: lineup.map((d) => d.custId),
+          driverIds: lineup.map((d) => d.driverId),
           conditionProfileId: nextProfileId || undefined,
           teamId: planTeamId || undefined,
           planId: planId || undefined,
@@ -378,22 +400,22 @@ export default function LineupPage() {
   // Manual pace entry - the same required fallback fuel already has (PRD §5.2/§5.4), for a
   // driver with no synced clean laps at this track. Without it, Stints' pace+fuel readiness
   // gate could never open for them no matter what fuel value was entered.
-  async function savePaceOverride(custId: string) {
+  async function savePaceOverride(driverId: string) {
     if (!eventId) return;
-    const raw = paceDrafts[custId];
+    const raw = paceDrafts[driverId];
     const ms = raw ? parsePaceInput(raw) : null;
     if (!raw || raw.trim() === "" || ms === null) return;
 
-    setSavingPaceFor(custId);
+    setSavingPaceFor(driverId);
     try {
       const r = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/driver-profiles`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          custIds: [custId],
+          driverIds: [driverId],
           conditionProfileId: selectedProfileId || undefined,
-          paceOverrides: { [custId]: ms },
+          paceOverrides: { [driverId]: ms },
           teamId: planTeamId || undefined,
           planId: planId || undefined,
         }),
@@ -401,10 +423,10 @@ export default function LineupPage() {
       const data = await r.json().catch(() => ({}));
       if (r.ok && data.ok && data.profiles?.length) {
         const updated = data.profiles[0];
-        setProfiles((prev) => [...prev.filter((p) => p.custId !== custId), updated]);
+        setProfiles((prev) => [...prev.filter((p) => p.driverId !== driverId), updated]);
         setPaceDrafts((prev) => {
           const next = { ...prev };
-          delete next[custId];
+          delete next[driverId];
           return next;
         });
       }
@@ -415,22 +437,22 @@ export default function LineupPage() {
     }
   }
 
-  async function saveFuelOverride(custId: string) {
+  async function saveFuelOverride(driverId: string) {
     if (!eventId) return;
-    const raw = fuelDrafts[custId];
+    const raw = fuelDrafts[driverId];
     const n = Number(raw);
     if (!raw || raw.trim() === "" || !Number.isFinite(n)) return;
 
-    setSavingFuelFor(custId);
+    setSavingFuelFor(driverId);
     try {
       const r = await fetch(`/api/planner/events/${encodeURIComponent(eventId)}/driver-profiles`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          custIds: [custId],
+          driverIds: [driverId],
           conditionProfileId: selectedProfileId || undefined,
-          fuelOverrides: { [custId]: n },
+          fuelOverrides: { [driverId]: n },
           teamId: planTeamId || undefined,
           planId: planId || undefined,
         }),
@@ -438,10 +460,10 @@ export default function LineupPage() {
       const data = await r.json().catch(() => ({}));
       if (r.ok && data.ok && data.profiles?.length) {
         const updated = data.profiles[0];
-        setProfiles((prev) => [...prev.filter((p) => p.custId !== custId), updated]);
+        setProfiles((prev) => [...prev.filter((p) => p.driverId !== driverId), updated]);
         setFuelDrafts((prev) => {
           const next = { ...prev };
-          delete next[custId];
+          delete next[driverId];
           return next;
         });
       }
@@ -528,14 +550,14 @@ export default function LineupPage() {
   // here. Clicking again unlocks, letting auto-sync/race-default resume.
   async function toggleLock(p: DriverProfile) {
     if (!planId) return;
-    setLockingFor(p.custId);
+    setLockingFor(p.driverId);
     try {
       const r = p.locked
-        ? await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/lineup/${encodeURIComponent(p.custId)}/lock`, {
+        ? await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/lineup/${encodeURIComponent(p.driverId)}/lock`, {
             method: "DELETE",
             credentials: "include",
           })
-        : await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/lineup/${encodeURIComponent(p.custId)}/lock`, {
+        : await fetch(`/api/planner/race-plans/${encodeURIComponent(planId)}/lineup/${encodeURIComponent(p.driverId)}/lock`, {
             method: "PUT",
             headers: { "content-type": "application/json" },
             credentials: "include",
@@ -653,11 +675,11 @@ export default function LineupPage() {
           </div>
           <div className="rp-profile-list">
             {teamRoster.map((m) => {
-              const onLineup = lineup.some((d) => d.custId === m.custId);
+              const onLineup = lineup.some((d) => d.driverId === m.driverId);
               return (
-                <div className="rp-row" key={m.custId} style={{ justifyContent: "space-between" }}>
-                  <span>{m.driverName ?? `Driver ${m.custId}`}</span>
-                  <button className="rp-btn" onClick={() => addDriver(m.custId, m.driverName ?? `Driver ${m.custId}`)} disabled={onLineup}>
+                <div className="rp-row" key={m.driverId} style={{ justifyContent: "space-between" }}>
+                  <span>{m.driverName ?? "This driver"}</span>
+                  <button className="rp-btn" onClick={() => addDriver(m.driverId, m.driverName ?? "This driver")} disabled={onLineup}>
                     {onLineup ? "On lineup" : "+ Add"}
                   </button>
                 </div>
@@ -721,7 +743,7 @@ export default function LineupPage() {
                     <span>
                       {d.name} <span className="rp-text-faint rp-mono">#{d.id}</span>
                     </span>
-                    <button className="rp-btn" onClick={() => addDriver(d.id, d.name)}>
+                    <button className="rp-btn" onClick={() => addDriver(d.id, d.name, true)}>
                       + Add
                     </button>
                   </div>
@@ -739,12 +761,12 @@ export default function LineupPage() {
         <div className="rp-row" style={{ flexWrap: "wrap" }}>
           {lineup.length === 0 && <span className="rp-text-faint">No drivers added yet.</span>}
           {lineup.map((d) => (
-            <span className="rp-badge rp-dim" key={d.custId}>
+            <span className="rp-badge rp-dim" key={d.driverId}>
               {d.name}
-              <StatusBadge s={searchStatus[d.custId]} />
+              <StatusBadge s={searchStatus[d.driverId]} />
               {canEdit && (
                 <button
-                  onClick={() => removeDriver(d.custId)}
+                  onClick={() => removeDriver(d.driverId)}
                   style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", marginLeft: 4, padding: 0 }}
                   aria-label={`Remove ${d.name}`}
                 >
@@ -783,10 +805,10 @@ export default function LineupPage() {
       {lineup.length > 0 && (
         <div className="rp-profile-list">
           {lineup.map((d) => {
-            const p = profiles.find((pr) => pr.custId === d.custId);
+            const p = profiles.find((pr) => pr.driverId === d.driverId);
             if (!p) {
               return (
-                <div className="rp-card" key={d.custId}>
+                <div className="rp-card" key={d.driverId}>
                   <div className="rp-profile-label">{d.name}</div>
                   <div className="rp-text-faint" style={{ marginTop: 4, fontSize: 12 }}>
                     Finding pace and fuel data…
@@ -795,10 +817,10 @@ export default function LineupPage() {
               );
             }
             return (
-              <div className="rp-card" key={p.custId}>
+              <div className="rp-card" key={p.driverId}>
                 <div className="rp-profile-row">
                   <div>
-                    <div className="rp-profile-label">{p.driverName}</div>
+                    <div className="rp-profile-label">{p.driverName ?? "This driver"}</div>
                     {p.ok ? (
                       <div className="rp-mono" style={{ marginTop: 4 }}>
                         {formatPace(p.paceMs)}
@@ -837,13 +859,13 @@ export default function LineupPage() {
                               style={{ width: 100 }}
                               type="text"
                               placeholder={p.paceMs !== null ? formatPace(p.paceMs) : "m:ss.sss"}
-                              value={paceDrafts[p.custId] ?? ""}
-                              onChange={(e) => setPaceDrafts({ ...paceDrafts, [p.custId]: e.target.value })}
-                              onBlur={() => savePaceOverride(p.custId)}
+                              value={paceDrafts[p.driverId] ?? ""}
+                              onChange={(e) => setPaceDrafts({ ...paceDrafts, [p.driverId]: e.target.value })}
+                              onBlur={() => savePaceOverride(p.driverId)}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                               }}
-                              disabled={savingPaceFor === p.custId || p.locked}
+                              disabled={savingPaceFor === p.driverId || p.locked}
                               title="No recent laps synced at this track? Type a lap time here (e.g. 1:32.456) to unblock stint planning."
                             />
                           </div>
@@ -866,13 +888,13 @@ export default function LineupPage() {
                               type="number"
                               step="0.01"
                               placeholder={p.fuelPerLap !== null ? String(p.fuelPerLap) : "manual"}
-                              value={fuelDrafts[p.custId] ?? ""}
-                              onChange={(e) => setFuelDrafts({ ...fuelDrafts, [p.custId]: e.target.value })}
-                              onBlur={() => saveFuelOverride(p.custId)}
+                              value={fuelDrafts[p.driverId] ?? ""}
+                              onChange={(e) => setFuelDrafts({ ...fuelDrafts, [p.driverId]: e.target.value })}
+                              onBlur={() => saveFuelOverride(p.driverId)}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                               }}
-                              disabled={savingFuelFor === p.custId || p.locked}
+                              disabled={savingFuelFor === p.driverId || p.locked}
                             />
                           </div>
                           {p.fuelSource &&
@@ -888,7 +910,7 @@ export default function LineupPage() {
                         <button
                           className="rp-btn"
                           onClick={() => toggleLock(p)}
-                          disabled={lockingFor === p.custId || (!p.locked && p.paceMs === null && p.fuelPerLap === null)}
+                          disabled={lockingFor === p.driverId || (!p.locked && p.paceMs === null && p.fuelPerLap === null)}
                           title={
                             p.locked
                               ? "Locked for this race - click to unlock and resume auto-syncing"

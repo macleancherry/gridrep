@@ -3,7 +3,7 @@ import { isPlanVisible } from "../../../../_lib/plannerRacePlan";
 import { discoverAndSyncRecentSessionAtTrack } from "../../../../_lib/plannerLapDiscovery";
 import { computeAndStoreOneDriverProfile } from "../../../../_lib/plannerDriverProfile";
 import { getCachedCarCatalog, carIdsInSameClass } from "../../../../_lib/plannerIracing";
-import { resolveDriverIds, ensureDriverIds, displayDrivers } from "../../../../_lib/driverIdentity";
+import { resolveDriverIds, ensureDriverIds, displayDrivers, custIdsForDriverIds } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
@@ -47,7 +47,19 @@ export async function onRequestPut(context: any) {
   const previousCustIds = new Set((previousRows.results ?? []).map((r: any) => r.custId));
 
   const body = await context.request.json().catch(() => null);
-  const custIds: string[] = Array.isArray(body?.custIds) ? [...new Set(body.custIds.map(String).filter(Boolean))] : [];
+  // Two distinct sources of a driver in this save: `custIds` are brand-new drivers the
+  // client just found via iRacing's own live name search (functions/api/planner/
+  // drivers/search.ts), which inherently only ever hands back a real custid - gridrep
+  // has never seen them before, so there's no driverId to resolve from. `driverIds` are
+  // drivers the client already knows about (an existing lineup entry being kept, or one
+  // picked from this plan's own team-roster quick-add, which - correctly, per the PRD -
+  // only ever exposes driverId, never a raw custid) - resolved to their real custid
+  // here, server-side only, since race_plan_lineup is still keyed by real custid
+  // internally (see driverIdentity.ts's header comment for why that wasn't migrated).
+  const rawCustIds: string[] = Array.isArray(body?.custIds) ? [...new Set(body.custIds.map(String).filter(Boolean))] : [];
+  const rawDriverIds: string[] = Array.isArray(body?.driverIds) ? [...new Set(body.driverIds.map(String).filter(Boolean))] : [];
+  const custIdByDriverId = await custIdsForDriverIds(DB, rawDriverIds);
+  const custIds = [...new Set([...rawCustIds, ...custIdByDriverId.values()])];
   const newlyAddedCustIds = custIds.filter((id) => !previousCustIds.has(id));
 
   // Names for any driver just picked from the iRacing lookup (functions/api/planner/

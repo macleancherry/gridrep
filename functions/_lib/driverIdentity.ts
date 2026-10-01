@@ -254,3 +254,29 @@ export async function driverIdForCustId(DB: any, custId: string): Promise<string
   const row = await DB.prepare(`SELECT driver_id as driverId FROM driver_identities WHERE cust_id = ?`).bind(custId).first<any>();
   return row?.driverId ?? null;
 }
+
+/**
+ * Server-side-only reverse lookup: driver_id -> real custid. NEVER return the result
+ * of this directly in an API response - it exists so a write endpoint that must
+ * correlate with another table that's genuinely keyed by real iRacing custid
+ * (driver_track_profiles, planner_iracing_laps, Garage 61 matching, iRacing lap-
+ * discovery sync) can accept the opaque driverId a client actually has and resolve it
+ * to the real id internally, instead of requiring the client to round-trip a custid
+ * it was never given in the first place.
+ */
+export async function custIdForDriverId(DB: any, driverId: string): Promise<string | null> {
+  const row = await DB.prepare(`SELECT cust_id as custId FROM driver_identities WHERE driver_id = ?`).bind(driverId).first<any>();
+  return row?.custId ?? null;
+}
+
+/** Batched form of custIdForDriverId - same server-side-only rule applies. */
+export async function custIdsForDriverIds(DB: any, driverIds: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(driverIds)];
+  const map = new Map<string, string>();
+  if (unique.length === 0) return map;
+  const rows = await DB.prepare(`SELECT driver_id as driverId, cust_id as custId FROM driver_identities WHERE driver_id IN (${placeholders(unique.length)})`)
+    .bind(...unique)
+    .all<any>();
+  for (const row of rows.results ?? []) map.set(row.driverId, row.custId);
+  return map;
+}
