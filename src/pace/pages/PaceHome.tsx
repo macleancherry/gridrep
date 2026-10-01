@@ -166,16 +166,52 @@ export default function PaceHome() {
     // each call does a bounded batch and reports how many pairs are still
     // pending. Keep calling until nothing's left, or bail after a sane cap.
     const MAX_BATCHES = 30;
+    // One slow batch (a big field) can occasionally trip a connection hiccup
+    // even though the server-side work keeps succeeding - retry that one call
+    // a few times (with backoff) instead of discarding an already-progressing
+    // pull and making the user restart from batch 1 (same fix as runSync's
+    // league-sync loop above, and the same root cause).
+    const MAX_RETRIES_PER_CALL = 3;
     const allDriverFailures: Array<{ custId: string; simsessionNumber: number; message: string }> = [];
     let totalLapsIngested = 0;
     let lastData: IngestResponse | null = null;
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     try {
       for (let batch = 0; batch < MAX_BATCHES; batch++) {
-        const r = await fetch(`/api/pace/subsessions/${encodeURIComponent(id)}/sync`, { method: "POST" });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok || !data.ok) {
-          setPullError(data.message ?? "Sync failed.");
+        let data: IngestResponse | null = null;
+        let networkFailure = false;
+
+        for (let attempt = 0; attempt <= MAX_RETRIES_PER_CALL; attempt++) {
+          try {
+            const r = await fetch(`/api/pace/subsessions/${encodeURIComponent(id)}/sync`, { method: "POST" });
+            data = await r.json().catch(() => ({}) as IngestResponse);
+            networkFailure = false;
+            if (!r.ok || !data!.ok) {
+              setPullError(data!.message ?? "Sync failed.");
+              return;
+            }
+            break;
+          } catch {
+            networkFailure = true;
+            data = null;
+            if (attempt < MAX_RETRIES_PER_CALL) {
+              setPullProgress(
+                totalLapsIngested > 0
+                  ? `Ingesting laps… ${totalLapsIngested} so far. Hit a network hiccup, retrying (${attempt + 1}/${MAX_RETRIES_PER_CALL})…`
+                  : `Hit a network hiccup, retrying (${attempt + 1}/${MAX_RETRIES_PER_CALL})…`
+              );
+              await sleep(1000 * 2 ** attempt);
+            }
+          }
+        }
+
+        if (networkFailure || !data) {
+          setPullError(
+            totalLapsIngested > 0
+              ? `Network error after several retries - ${totalLapsIngested} lap(s) were already ingested before this. Click Pull again to pick up where it left off.`
+              : "Network error after several retries. Please try again."
+          );
           return;
         }
 
@@ -289,34 +325,80 @@ export default function PaceHome() {
     // subrequest-budget reason the Pull flow batches, so loop it here too
     // until nothing's left, showing live progress along the way.
     const MAX_ITERATIONS = 500;
+    // Ingesting one large field (lots of drivers, each a separate deliberately-
+    // throttled iRacing lap fetch - see paceIngest.ts) can make a single call in
+    // this loop slow enough to occasionally trip a connection hiccup even though
+    // the server-side work itself keeps succeeding. One bad call used to discard
+    // an otherwise fully-working, already-progressing sync and show "Network
+    // error" even though most of the backlog was already cleared - retrying just
+    // that one call a few times (with backoff) recovers from the hiccup instead.
+    const MAX_RETRIES_PER_CALL = 3;
     const summary: SyncSummary = { sessionsFound: 0, sessionsIngested: 0, sessionsAttached: 0, failures: [], emptySearchSamples: [] };
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     try {
       for (let i = 0; i < MAX_ITERATIONS; i++) {
-        const r = await fetch("/api/pace/sync", { method: "POST" });
-        const data: SyncResponse = await r.json().catch(() => ({}) as SyncResponse);
-        if (!r.ok || !data.ok) {
-          setSyncError(data.message ?? "Sync failed.");
+        let data: SyncResponse | null = null;
+        let networkFailure = false;
+
+        for (let attempt = 0; attempt <= MAX_RETRIES_PER_CALL; attempt++) {
+          try {
+            const r = await fetch("/api/pace/sync", { method: "POST" });
+            data = await r.json().catch(() => ({}) as SyncResponse);
+            networkFailure = false;
+            if (!r.ok || !data!.ok) {
+              setSyncError(data!.message ?? "Sync failed.");
+              if (summary.sessionsFound > 0 || summary.sessionsIngested > 0) setSyncSummary(summary);
+              return;
+            }
+            break;
+          } catch {
+            networkFailure = true;
+            data = null;
+            if (attempt < MAX_RETRIES_PER_CALL) {
+              setSyncProgress(
+                summary.sessionsIngested > 0
+                  ? `Syncing… ${summary.sessionsIngested} ingested so far. Hit a network hiccup, retrying (${attempt + 1}/${MAX_RETRIES_PER_CALL})…`
+                  : `Hit a network hiccup, retrying (${attempt + 1}/${MAX_RETRIES_PER_CALL})…`
+              );
+              await sleep(1000 * 2 ** attempt);
+            }
+          }
+        }
+
+        if (networkFailure || !data) {
+          setSyncError(
+            summary.sessionsIngested > 0
+              ? `Network error after several retries - ${summary.sessionsIngested} session(s) were already ingested before this. Try Sync again to pick up where it left off.`
+              : "Network error after several retries. Please try again."
+          );
+          if (summary.sessionsFound > 0 || summary.sessionsIngested > 0) setSyncSummary(summary);
           return;
         }
 
-        summary.sessionsFound = Math.max(summary.sessionsFound, data.sessionsFound ?? 0);
-        summary.sessionsIngested += data.sessionsIngested ?? 0;
-        summary.sessionsAttached += data.sessionsAttached ?? 0;
-        summary.failures.push(...(data.failures ?? []));
-        summary.emptySearchSamples.push(...(data.emptySearchSamples ?? []));
+        summary.sessionsFound = Math.max(summary.sessionsFound, data!.sessionsFound ?? 0);
+        summary.sessionsIngested += data!.sessionsIngested ?? 0;
+        summary.sessionsAttached += data!.sessionsAttached ?? 0;
+        summary.failures.push(...(data!.failures ?? []));
+        summary.emptySearchSamples.push(...(data!.emptySearchSamples ?? []));
 
-        const remaining = data.sessionsRemaining ?? 0;
+        const remaining = data!.sessionsRemaining ?? 0;
         if (remaining === 0) break;
 
         setSyncProgress(`Syncing… ${summary.sessionsIngested} of ${summary.sessionsFound} session(s) ingested, ${remaining} left.`);
-        await loadLeagues();
+        try {
+          await loadLeagues();
+        } catch {
+          // Best-effort progress refresh - a hiccup here shouldn't abort the sync itself.
+        }
       }
 
       setSyncSummary(summary);
-      await loadLeagues();
-    } catch {
-      setSyncError("Network error. Please try again.");
+      try {
+        await loadLeagues();
+      } catch {
+        // Sync itself already completed - a final refresh failing isn't worth erroring over.
+      }
     } finally {
       setSyncing(false);
       setSyncProgress(null);
