@@ -2,6 +2,7 @@ import type { CommandHandler } from "./types.ts";
 import { getSubcommand, optString } from "../discord/types.ts";
 import { resolveDriver, fetchRecentRaces } from "../lib/iracingLookups.ts";
 import { BRAND_COLOR, truncateList } from "../lib/format.ts";
+import { gatedDriverNameOrLabel } from "../lib/identityGate.ts";
 
 // Derived from the driver's recent official races (the Data API doesn't
 // expose an all-time "awards" ledger directly), so this reflects the last
@@ -12,6 +13,7 @@ export const awardsCommand: CommandHandler = async (interaction, env) => {
   if (!query) return { content: "A driver is required." };
 
   const driver = await resolveDriver(env, query);
+  const displayName = await gatedDriverNameOrLabel(env.DB, String(driver.custId), driver.displayName);
   const races = truncateList(await fetchRecentRaces(env, driver.custId), 10);
 
   const poles = races.filter((r) => r.start_position === 0).length;
@@ -25,7 +27,7 @@ export const awardsCommand: CommandHandler = async (interaction, env) => {
   return {
     embeds: [
       {
-        title: `${driver.displayName} — recent awards`,
+        title: `${displayName} — recent awards`,
         description: `Last ${races.length} official races`,
         color: BRAND_COLOR,
         fields: [

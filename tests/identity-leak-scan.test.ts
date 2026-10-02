@@ -7,12 +7,14 @@ import { fileURLToPath } from "node:url";
  * PRD acceptance criterion: "a CI test scans every API response fixture and fails on
  * any custid pattern or non-consented name." These fixtures (tests/fixtures/identity-
  * responses/*.json) document the actual response contract of every endpoint
- * functions/_lib/driverIdentity.ts gates - the planner, live tracking, the Ignium
- * integration export, and What-If. Keeping them in sync with the real endpoints is a
- * manual discipline (there's no live Worker this test can call), but the scan itself
- * is real: it fails the moment a raw-identity key name shows up in any of them, which
- * is exactly the shape of mistake this test exists to catch (a future change that adds
- * `custId`/`customerId` back into a response someone forgot was supposed to be gated).
+ * functions/_lib/driverIdentity.ts gates - the planner (including driver search and
+ * the Garage 61 import), live tracking, the Ignium integration export, What-If, and
+ * (Phase 2) Pace's subsession endpoints. Keeping them in sync with the real endpoints
+ * is a manual discipline (there's no live Worker this test can call), but the scan
+ * itself is real: it fails the moment a raw-identity key name shows up in any of them,
+ * which is exactly the shape of mistake this test exists to catch (a future change
+ * that adds `custId`/`customerId` back into a response someone forgot was supposed to
+ * be gated).
  */
 
 const here = dirname(fileURLToPath(import.meta.url));

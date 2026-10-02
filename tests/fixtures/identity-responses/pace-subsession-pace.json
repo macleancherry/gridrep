@@ -1,0 +1,37 @@
+{
+  "ok": true,
+  "subsessionId": "71234567",
+  "qualLaps": 1,
+  "raceLaps": 5,
+  "qualLapsAvailable": 1,
+  "raceLapsAvailable": 22,
+  "hasIratingData": true,
+  "drivers": [
+    {
+      "driverId": "3f29b6e2-1c3a-4a9e-9b2a-9b7e6f1d2c10",
+      "driverName": "Mac Cherry",
+      "isSelf": true,
+      "qualifying": { "ok": true, "paceMs": 111900, "lapsUsed": 1, "stdDevMs": 0 },
+      "race": { "ok": true, "paceMs": 112500, "lapsUsed": 5, "stdDevMs": 320 },
+      "average": { "ok": true, "paceMs": 112400, "lapsUsed": 6, "stdDevMs": 300 },
+      "incidents": { "total": 2, "estimated": false, "lapsAffected": 1, "types": {} },
+      "position": { "start": 1, "finish": 1 },
+      "car": { "name": "Audi 90 GTO", "class": "GTO" },
+      "iratingChange": 18,
+      "raceGapMs": 0
+    },
+    {
+      "driverId": "9a7c1e44-2b5d-4f3a-8e10-7d4b6c2a9f55",
+      "driverName": null,
+      "isSelf": false,
+      "qualifying": { "ok": true, "paceMs": 112800, "lapsUsed": 1, "stdDevMs": 0 },
+      "race": { "ok": true, "paceMs": 113200, "lapsUsed": 5, "stdDevMs": 410 },
+      "average": { "ok": true, "paceMs": 113100, "lapsUsed": 6, "stdDevMs": 380 },
+      "incidents": { "total": 4, "estimated": true, "lapsAffected": 2, "types": { "off track": 4 } },
+      "position": { "start": 2, "finish": 2 },
+      "car": { "name": "Audi 90 GTO", "class": "GTO" },
+      "iratingChange": -5,
+      "raceGapMs": 700
+    }
+  ]
+}

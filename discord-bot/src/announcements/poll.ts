@@ -4,6 +4,7 @@ import { fetchRecentRaces } from "../lib/iracingLookups.ts";
 import { postChannelMessage } from "../lib/discordApi.ts";
 import { resolveAnnouncementChannel } from "./route.ts";
 import { buildAnnouncementEmbed, passesAnnouncementFilters } from "./format.ts";
+import { gatedDriverName } from "../lib/identityGate.ts";
 
 export type AnnouncementEnv = BotEnv & { DISCORD_BOT_TOKEN: string };
 
@@ -43,11 +44,18 @@ export async function pollAndAnnounce(env: AnnouncementEnv): Promise<void> {
         if (driver.excluded_from_announcements) continue;
         if (!passesAnnouncementFilters(race, guild)) continue;
 
+        // Announcements only name a driver who has actively consented to it (PRD:
+        // iRacing's 30 Sept 2026 notice) - an anonymised race-finish post has little
+        // value on its own, so a non-consented driver is skipped entirely rather than
+        // posted under a placeholder name.
+        const displayName = await gatedDriverName(env.DB, String(driver.cust_id), driver.display_name);
+        if (displayName === null) continue;
+
         const channelId = await resolveAnnouncementChannel(env.DB, guild, race.series_id);
         if (!channelId) continue;
 
         try {
-          const { content, embed } = buildAnnouncementEmbed(race, driver, guild);
+          const { content, embed } = buildAnnouncementEmbed(race, driver, guild, displayName);
           await postChannelMessage(env.DISCORD_BOT_TOKEN, channelId, { content, embeds: [embed] });
         } catch (err) {
           console.error(`Failed to post announcement for cust_id=${driver.cust_id} subsession=${subsessionId}`, err);

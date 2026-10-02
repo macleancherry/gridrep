@@ -5,7 +5,7 @@ import { useRacePlannerViewer } from "../useRacePlannerViewer";
 import { titleCaseRaceName } from "../format";
 
 type Garage61TeamSummary = { id: string; name: string };
-type Garage61Member = { custId: string | null; name: string };
+type Garage61Member = { driverId: string | null; name: string };
 
 type RosterMember = {
   driverId: string;
@@ -75,7 +75,7 @@ export default function TeamPage() {
   const [selectedG61TeamId, setSelectedG61TeamId] = useState("");
   const [g61Members, setG61Members] = useState<Garage61Member[] | null>(null);
   const [loadingG61Members, setLoadingG61Members] = useState(false);
-  const [selectedCustIds, setSelectedCustIds] = useState<Set<string>>(new Set());
+  const [selectedDriverIds, setSelectedDriverIds] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSummary, setImportSummary] = useState<string | null>(null);
@@ -138,7 +138,7 @@ export default function TeamPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId, detail?.isCoordinator]);
 
-  async function addDriver(custId: string, name: string) {
+  async function addDriver(driverId: string) {
     if (!teamId) return;
     setAdding(true);
     try {
@@ -146,7 +146,7 @@ export default function TeamPage() {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ custId, name }),
+        body: JSON.stringify({ driverId }),
       });
       const data = await r.json().catch(() => ({}));
       if (r.ok && data.ok) {
@@ -202,7 +202,7 @@ export default function TeamPage() {
   async function selectG61Team(g61TeamId: string) {
     setSelectedG61TeamId(g61TeamId);
     setG61Members(null);
-    setSelectedCustIds(new Set());
+    setSelectedDriverIds(new Set());
     setImportError(null);
     setImportSummary(null);
     if (!g61TeamId) return;
@@ -217,7 +217,7 @@ export default function TeamPage() {
       }
       const members: Garage61Member[] = data.members ?? [];
       setG61Members(members);
-      setSelectedCustIds(new Set(members.filter((m) => m.custId).map((m) => m.custId as string)));
+      setSelectedDriverIds(new Set(members.filter((m) => m.driverId).map((m) => m.driverId as string)));
     } catch {
       setImportError("Network error. Please try again.");
     } finally {
@@ -225,11 +225,11 @@ export default function TeamPage() {
     }
   }
 
-  function toggleG61Member(custId: string) {
-    setSelectedCustIds((prev) => {
+  function toggleG61Member(driverId: string) {
+    setSelectedDriverIds((prev) => {
       const next = new Set(prev);
-      if (next.has(custId)) next.delete(custId);
-      else next.add(custId);
+      if (next.has(driverId)) next.delete(driverId);
+      else next.add(driverId);
       return next;
     });
   }
@@ -244,7 +244,7 @@ export default function TeamPage() {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ g61TeamId: selectedG61TeamId, custIds: [...selectedCustIds] }),
+        body: JSON.stringify({ g61TeamId: selectedG61TeamId, driverIds: [...selectedDriverIds] }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.ok) {
@@ -433,12 +433,9 @@ export default function TeamPage() {
   if (error) return <p className="rp-error">{error}</p>;
   if (!detail) return null;
 
-  // The search box below works in real custIds (that's what iRacing's own driver search
-  // returns), so "already on this roster" has to be checked against real custIds too -
-  // detail.roster itself only ever carries the opaque driverId now. The admin roster/
-  // consent fetch (coordinator-only, same as this whole section) is the one place that
-  // still pairs the two, so it's the source of truth here instead.
-  const alreadyOnRoster = new Set((rosterIdentities ?? []).map((r) => r.custId));
+  // Both the search box and the roster now work in opaque driverId - no real custid
+  // ever reaches this page - so "already on this roster" is a plain driverId compare.
+  const alreadyOnRoster = new Set((rosterIdentities ?? []).map((r) => r.driverId));
 
   return (
     <div>
@@ -590,16 +587,24 @@ export default function TeamPage() {
               />
               {livePending && <p className="rp-text-faint" style={{ fontSize: 12, marginTop: 4 }}>🔎 Checking iRacing for more matches…</p>}
               {query.trim() && searchResults.length > 0 && (
-                <ul style={{ listStyle: "none", padding: 0, marginTop: 8 }}>
-                  {searchResults.map((d) => (
-                    <li key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}>
-                      <span>{d.name}</span>
-                      <button className="rp-btn" disabled={adding || alreadyOnRoster.has(d.id)} onClick={() => addDriver(d.id, d.name)}>
-                        {alreadyOnRoster.has(d.id) ? "Already on roster" : "Add"}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  {searchResults.some((d) => !d.name) && (
+                    <p className="rp-text-faint" style={{ fontSize: 12, marginTop: 6 }}>
+                      iRacing requires a driver's consent before gridrep can show their name here - an unnamed match
+                      below is a real result for "{query.trim()}", just not yet named.
+                    </p>
+                  )}
+                  <ul style={{ listStyle: "none", padding: 0, marginTop: 8 }}>
+                    {searchResults.map((d) => (
+                      <li key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}>
+                        <span>{d.name ?? `Match for "${query.trim()}"`}</span>
+                        <button className="rp-btn" disabled={adding || alreadyOnRoster.has(d.id)} onClick={() => addDriver(d.id)}>
+                          {alreadyOnRoster.has(d.id) ? "Already on roster" : "Add"}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
             </div>
           )}
@@ -636,25 +641,25 @@ export default function TeamPage() {
                   {g61Members !== null && (
                     <div style={{ marginTop: 12 }}>
                       <p className="rp-section-sub" style={{ marginBottom: 4 }}>
-                        Drivers to import ({selectedCustIds.size} selected)
+                        Drivers to import ({selectedDriverIds.size} selected)
                       </p>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
                         {g61Members.map((m) => (
-                          <label key={m.custId ?? m.name} className="rp-row" style={{ gap: 8, opacity: m.custId ? 1 : 0.5 }}>
+                          <label key={m.driverId ?? m.name} className="rp-row" style={{ gap: 8, opacity: m.driverId ? 1 : 0.5 }}>
                             <input
                               type="checkbox"
-                              checked={m.custId ? selectedCustIds.has(m.custId) : false}
-                              disabled={!m.custId}
-                              onChange={() => m.custId && toggleG61Member(m.custId)}
+                              checked={m.driverId ? selectedDriverIds.has(m.driverId) : false}
+                              disabled={!m.driverId}
+                              onChange={() => m.driverId && toggleG61Member(m.driverId)}
                             />
                             {m.name}
-                            {!m.custId && " (no linked iRacing account)"}
+                            {!m.driverId && " (no linked iRacing account)"}
                           </label>
                         ))}
                       </div>
 
                       <button className="rp-btn rp-primary" style={{ marginTop: 12 }} onClick={importFromG61} disabled={importing}>
-                        {importing ? "Importing…" : `Import ${selectedCustIds.size} driver${selectedCustIds.size === 1 ? "" : "s"}`}
+                        {importing ? "Importing…" : `Import ${selectedDriverIds.size} driver${selectedDriverIds.size === 1 ? "" : "s"}`}
                       </button>
                     </div>
                   )}

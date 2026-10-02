@@ -1,7 +1,6 @@
 export default function Privacy() {
   return (
     <div className="stack">
-      {/* Header */}
       <div className="card card-pad">
         <div className="row space-between wrap">
           <div style={{ minWidth: 0 }}>
@@ -9,8 +8,8 @@ export default function Privacy() {
               Privacy
             </h1>
             <div className="subtle">
-              Short version: we use OAuth, we don’t see your password, and we store the minimum
-              needed to prevent impersonation and duplicates.
+              Short version: we use OAuth, we don't see your password, and we don't show a
+              driver's real name unless they've explicitly consented to it.
             </div>
           </div>
 
@@ -21,129 +20,105 @@ export default function Privacy() {
         </div>
       </div>
 
-      {/* The big promise */}
       <div className="card card-pad">
-        <h2>Big promises</h2>
-        <div className="stack" style={{ marginTop: 12, gap: 8 }}>
-          <div className="kv">
-            <span>Password</span>
-            <strong>We never see it</strong>
-          </div>
-          <div className="kv">
-            <span>Verification</span>
-            <strong>Done on iRacing’s site (OAuth)</strong>
-          </div>
-          <div className="kv">
-            <span>Data</span>
-            <strong>Only what’s needed for Props + pages</strong>
-          </div>
-        </div>
-
+        <h2>Verification</h2>
         <div className="subtle" style={{ marginTop: 10 }}>
-          When you verify, you’re redirected to iRacing to log in. GridRep receives an OAuth token so
-          we can confirm your identity and check session participation — that’s it.
+          When you verify, you're redirected to iRacing to sign in. GridRep receives an OAuth
+          token so we can confirm your identity and pull the race/session data you ask for -
+          that's it. We never see or store your iRacing password.
         </div>
       </div>
 
-      {/* What we store */}
+      <div className="card card-pad">
+        <h2>Driver identity &amp; consent</h2>
+        <div className="stack" style={{ marginTop: 12, gap: 10 }}>
+          <div className="card card-pad">
+            <div style={{ fontWeight: 900, marginBottom: 4 }}>A real name is shown only with consent</div>
+            <div className="subtle">
+              A driver's name is displayed anywhere on GridRep only where that driver has given
+              explicit, off-platform consent (a signed form, or a recorded agreement) to be
+              identified. Without that consent, a driver appears by car number and class instead.
+            </div>
+          </div>
+
+          <div className="card card-pad">
+            <div style={{ fontWeight: 900, marginBottom: 4 }}>Consent can be revoked</div>
+            <div className="subtle">
+              Revoking consent stops a driver's name being shown anywhere on GridRep, from the
+              next request onward.
+            </div>
+          </div>
+
+          <div className="card card-pad">
+            <div style={{ fontWeight: 900, marginBottom: 4 }}>Retention</div>
+            <div className="subtle">
+              A non-consented driver's identity (name and iRacing member id) is deleted after 12
+              months of inactivity. Lap times and results stay, keyed to an internal id that
+              carries no name or iRacing member id.
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="card card-pad">
         <h2>What we store</h2>
         <div className="stack" style={{ marginTop: 12, gap: 10 }}>
           <div className="card card-pad">
-            <div style={{ fontWeight: 900, marginBottom: 4 }}>Identity (after verification)</div>
-            <div className="subtle">Your iRacing member ID and display name.</div>
+            <div style={{ fontWeight: 900, marginBottom: 4 }}>Your own account</div>
+            <div className="subtle">Your iRacing member id and display name, for your own signed-in account.</div>
           </div>
 
           <div className="card card-pad">
             <div style={{ fontWeight: 900, marginBottom: 4 }}>Auth session cookie</div>
             <div className="subtle">
-              A short “logged in” session identifier stored in an HttpOnly cookie.
-              This helps keep you verified without repeatedly logging in.
+              A short "signed in" session identifier stored in an HttpOnly cookie, so you don't
+              need to re-verify on every page.
             </div>
           </div>
 
           <div className="card card-pad">
             <div style={{ fontWeight: 900, marginBottom: 4 }}>OAuth tokens (server-side)</div>
             <div className="subtle">
-              Access/refresh tokens are stored server-side only (never in the browser) so we can
-              fetch iRacing session data when needed.
+              Access/refresh tokens are stored server-side only (never in your browser) so we can
+              fetch iRacing data on your behalf when you use the planner, Pace, or What-If.
             </div>
           </div>
 
           <div className="card card-pad">
-            <div style={{ fontWeight: 900, marginBottom: 4 }}>Props activity</div>
+            <div style={{ fontWeight: 900, marginBottom: 4 }}>Race/session data</div>
             <div className="subtle">
-              Session ID, recipient ID, selected reason, and timestamp. This is what powers the
-              profile totals and prevents duplicate Props.
-            </div>
-          </div>
-
-          <div className="card card-pad">
-            <div style={{ fontWeight: 900, marginBottom: 4 }}>Cached session display data</div>
-            <div className="subtle">
-              Minimal session + participant info needed to render pages and enforce “only
-              participants can send Props in that session”.
+              Lap times, race results, and the stint/fuel plans you build in the race planner.
             </div>
           </div>
         </div>
       </div>
 
-      {/* What we do not store */}
       <div className="card card-pad">
         <h2>What we do not store</h2>
         <div className="stack" style={{ marginTop: 12, gap: 10 }}>
           <div className="card card-pad">
             <div style={{ fontWeight: 900, marginBottom: 4 }}>Your iRacing password</div>
             <div className="subtle">
-              OAuth means you authenticate with iRacing directly — GridRep never sees your password.
+              OAuth means you authenticate with iRacing directly - GridRep never sees your
+              password.
             </div>
           </div>
 
           <div className="card card-pad">
             <div style={{ fontWeight: 900, marginBottom: 4 }}>Private iRacing account details</div>
-            <div className="subtle">
-              We don’t pull or store email, billing info, or anything like that.
-            </div>
-          </div>
-
-          <div className="card card-pad">
-            <div style={{ fontWeight: 900, marginBottom: 4 }}>Free-text comments</div>
-            <div className="subtle">
-              This MVP is reason-only to keep moderation simple and reduce abuse risk.
-            </div>
+            <div className="subtle">We don't pull or store email, billing info, or anything like that.</div>
           </div>
         </div>
       </div>
 
-      {/* Why we store it */}
       <div className="card card-pad">
-        <h2>Why we store it</h2>
-        <div className="stack" style={{ marginTop: 12, gap: 8 }}>
-          <div className="kv">
-            <span>Prevent impersonation</span>
-            <strong>Verified identity via OAuth</strong>
-          </div>
-          <div className="kv">
-            <span>Stop spam / duplicates</span>
-            <strong>One prop per driver per session</strong>
-          </div>
-          <div className="kv">
-            <span>Keep stats meaningful</span>
-            <strong>Only if you participated</strong>
-          </div>
-        </div>
-      </div>
-
-      {/* Retention */}
-      <div className="card card-pad">
-        <h2>Data retention</h2>
+        <h2>Account deletion</h2>
         <div className="subtle" style={{ marginTop: 10 }}>
-          We keep cached session/driver data so pages can load quickly and Props remain meaningful.
-          If you want your data removed, contact us and we’ll sort it out.
+          Deleting your account removes your identity and consent records along with your planner
+          data. Contact us if you'd like this done on your behalf.
         </div>
       </div>
 
-      {/* Contact */}
       <div className="card card-pad">
         <h2>Contact</h2>
         <p style={{ marginTop: 10 }}>

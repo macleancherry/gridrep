@@ -1,46 +1,15 @@
 import type { CommandHandler } from "./types.ts";
-import { getSubcommand, optString } from "../discord/types.ts";
-import { resolveSeries, resolveSeason } from "../lib/iracingLookups.ts";
-import { fetchSeasonStandings } from "../lib/seasonStandings.ts";
-import { buildBarChart } from "../lib/charts.ts";
-import { BRAND_COLOR, truncateList } from "../lib/format.ts";
 
-export const championshipCommand: CommandHandler = async (interaction, env) => {
-  const { options } = getSubcommand(interaction.data!);
-  const seriesQuery = optString(options, "series");
-  if (!seriesQuery) return { content: "A series is required." };
-  const seasonQuery = optString(options, "season");
-
-  const series = await resolveSeries(env, seriesQuery);
-  const season = await resolveSeason(env, series.seriesId, seasonQuery);
-  if (!season) {
-    return { embeds: [{ title: series.seriesName, description: "No active season found for this series.", color: BRAND_COLOR }] };
-  }
-
-  const rows = (await fetchSeasonStandings(env, season.seasonId))
-    .filter((r) => r.points != null)
-    .sort((a, b) => (b.points ?? 0) - (a.points ?? 0));
-  const top30 = truncateList(rows, 30);
-
-  if (top30.length === 0) {
-    return { embeds: [{ title: `${series.seriesName} — championship`, description: "No standings available yet.", color: BRAND_COLOR }] };
-  }
-
-  const listing = top30
-    .map((r, i) => `${i + 1}. **${r.display_name ?? `#${r.cust_id}`}** — ${r.points} pts`)
-    .join("\n");
-
-  const top10 = top30.slice(0, 10);
-  const chartUrl = buildBarChart(top10.map((r) => r.display_name ?? `#${r.cust_id}`), top10.map((r) => r.points ?? 0), "Points");
-
-  return {
-    embeds: [
-      {
-        title: `${series.seriesName} — championship standings`,
-        description: `${season.seasonName}\n\n${listing.slice(0, 3800)}`,
-        color: BRAND_COLOR,
-        image: { url: chartUrl },
-      },
-    ],
-  };
-};
+// Paused (PRD: iRacing's 30 Sept 2026 notice + EULA 6.3 on commercial-style
+// redistribution) - this posted real names+custids for an entire series' standings
+// (every entrant, not just gridrep's own team), straight from iRacing's Data API via
+// this bot's service account, with no consent check. Gating it by consent would just
+// produce a leaderboard of identical placeholder names (nobody in an arbitrary public
+// series has consented through gridrep), so unlike a single-driver lookup this isn't
+// fixed by anonymising - it needs a product decision on whether the feature continues
+// in some other form. See the Gridrep Identity Compliance: Phase 2 PRD's open question
+// on this bot's arbitrary-lookup commands.
+export const championshipCommand: CommandHandler = async () => ({
+  content:
+    "Series-wide championship standings are temporarily unavailable while we review how this bot handles driver names that aren't gridrep's own team's.",
+});

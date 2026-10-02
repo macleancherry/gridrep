@@ -4,7 +4,7 @@ import { useRacePlannerViewer } from "../useRacePlannerViewer";
 
 type TeamSummary = { id: string; name: string; isCreator: boolean };
 type Garage61TeamSummary = { id: string; name: string };
-type Garage61Member = { custId: string | null; name: string };
+type Garage61Member = { driverId: string | null; name: string };
 
 /**
  * Entry point for the coordinator team flow (PRD: "create/manage a team"). Lists teams the
@@ -26,7 +26,7 @@ export default function TeamListPage() {
   const [g61Members, setG61Members] = useState<Garage61Member[] | null>(null);
   const [loadingG61Members, setLoadingG61Members] = useState(false);
   const [importTeamName, setImportTeamName] = useState("");
-  const [selectedCustIds, setSelectedCustIds] = useState<Set<string>>(new Set());
+  const [selectedDriverIds, setSelectedDriverIds] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
 
@@ -89,7 +89,7 @@ export default function TeamListPage() {
   async function selectG61Team(g61TeamId: string) {
     setSelectedG61TeamId(g61TeamId);
     setG61Members(null);
-    setSelectedCustIds(new Set());
+    setSelectedDriverIds(new Set());
     setImportError(null);
     if (!g61TeamId) return;
 
@@ -104,7 +104,7 @@ export default function TeamListPage() {
       const members: Garage61Member[] = data.members ?? [];
       setG61Members(members);
       setImportTeamName(data.teamName ?? "");
-      setSelectedCustIds(new Set(members.filter((m) => m.custId).map((m) => m.custId as string)));
+      setSelectedDriverIds(new Set(members.filter((m) => m.driverId).map((m) => m.driverId as string)));
     } catch {
       setImportError("Network error. Please try again.");
     } finally {
@@ -112,11 +112,11 @@ export default function TeamListPage() {
     }
   }
 
-  function toggleG61Member(custId: string) {
-    setSelectedCustIds((prev) => {
+  function toggleG61Member(driverId: string) {
+    setSelectedDriverIds((prev) => {
       const next = new Set(prev);
-      if (next.has(custId)) next.delete(custId);
-      else next.add(custId);
+      if (next.has(driverId)) next.delete(driverId);
+      else next.add(driverId);
       return next;
     });
   }
@@ -143,7 +143,7 @@ export default function TeamListPage() {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ g61TeamId: selectedG61TeamId, custIds: [...selectedCustIds] }),
+        body: JSON.stringify({ g61TeamId: selectedG61TeamId, driverIds: [...selectedDriverIds] }),
       });
       const importData = await importRes.json().catch(() => ({}));
       if (!importRes.ok || !importData.ok) {
@@ -242,23 +242,23 @@ export default function TeamListPage() {
                   />
 
                   <p className="rp-section-sub" style={{ marginTop: 12, marginBottom: 4 }}>
-                    Drivers to import ({selectedCustIds.size} selected)
+                    Drivers to import ({selectedDriverIds.size} selected)
                   </p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
                     {g61Members.map((m) => (
                       <label
-                        key={m.custId ?? m.name}
+                        key={m.driverId ?? m.name}
                         className="rp-row"
-                        style={{ gap: 8, opacity: m.custId ? 1 : 0.5 }}
+                        style={{ gap: 8, opacity: m.driverId ? 1 : 0.5 }}
                       >
                         <input
                           type="checkbox"
-                          checked={m.custId ? selectedCustIds.has(m.custId) : false}
-                          disabled={!m.custId}
-                          onChange={() => m.custId && toggleG61Member(m.custId)}
+                          checked={m.driverId ? selectedDriverIds.has(m.driverId) : false}
+                          disabled={!m.driverId}
+                          onChange={() => m.driverId && toggleG61Member(m.driverId)}
                         />
                         {m.name}
-                        {!m.custId && " (no linked iRacing account)"}
+                        {!m.driverId && " (no linked iRacing account)"}
                       </label>
                     ))}
                   </div>
@@ -269,7 +269,7 @@ export default function TeamListPage() {
                     onClick={importSelectedTeam}
                     disabled={!importTeamName.trim() || importing}
                   >
-                    {importing ? "Importing…" : `Import team with ${selectedCustIds.size} driver${selectedCustIds.size === 1 ? "" : "s"}`}
+                    {importing ? "Importing…" : `Import team with ${selectedDriverIds.size} driver${selectedDriverIds.size === 1 ? "" : "s"}`}
                   </button>
                 </div>
               )}

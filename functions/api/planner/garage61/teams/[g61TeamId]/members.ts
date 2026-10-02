@@ -1,5 +1,6 @@
 import { getViewer, getValidGarage61AccessToken } from "../../../../../_lib/auth";
 import { fetchGarage61TeamDetail } from "../../../../../_lib/garage61";
+import { resolveDriverIds } from "../../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../../_lib/httpJson";
 
 /**
@@ -30,13 +31,28 @@ export async function onRequestGet(context: any) {
     return jsonError(502, { error: "garage61_unreachable", message: "Could not load that Garage 61 team. Please try again." });
   }
 
-  const members = (detail.members ?? []).map((member) => {
+  const rawMembers = (detail.members ?? []).map((member) => {
     const iracingAccount = (member.accounts ?? []).find((a) => a.platform === "iracing");
     return {
-      custId: iracingAccount?.id ?? null,
+      custId: iracingAccount?.id ? String(iracingAccount.id) : null,
       name: [member.firstName, member.lastName].filter(Boolean).join(" ") || member.slug,
     };
   });
+
+  // The real iRacing custid behind a linked account never leaves the Worker - resolved
+  // to an opaque driverId instead (seeded here, storage only - see driverIdentity.ts).
+  // The Garage 61 profile name itself isn't gated: it's that service's own data, not
+  // gridrep's iRacing identity cache, and is what the coordinator needs to pick the
+  // right person to import.
+  const custIds = rawMembers.map((m) => m.custId).filter((id): id is string => Boolean(id));
+  const driverIdByCustId = await resolveDriverIds(
+    context.env.DB,
+    custIds.map((custId) => ({ custId }))
+  );
+  const members = rawMembers.map((m) => ({
+    driverId: m.custId ? driverIdByCustId.get(m.custId) ?? null : null,
+    name: m.name,
+  }));
 
   return json({ ok: true, teamName: detail.name, members });
 }

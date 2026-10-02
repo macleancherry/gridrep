@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Routes, Route, Link, useLocation } from "react-router-dom";
 import Home from "./pages/Home";
-import Driver from "./pages/Driver";
-import Session from "./pages/Session";
-import Leaderboard from "./pages/Leaderboard";
 import About from "./pages/About";
 import Privacy from "./pages/Privacy";
 import PaceLayout from "./pace/PaceLayout";
@@ -118,16 +115,16 @@ function Topbar() {
           <Link to="/" className="brand-link" aria-label="GridRep home">
             GridRep
           </Link>
-          <small className="brand-tagline">Props (GGs) for clean racing</small>
+          <small className="brand-tagline">Team and pace tools for sim racing</small>
         </div>
 
         {/* Desktop nav (hidden on small screens via CSS) */}
         <nav className="nav nav-desktop" aria-label="Primary navigation">
-          <Link to="/leaderboard">Leaderboard</Link>
-          <Link to="/about">About</Link>
-          <Link to="/privacy">Privacy</Link>
+          <Link to="/race-planner">Race Planner</Link>
           <Link to="/pace">Pace</Link>
           <Link to="/what-if">What If</Link>
+          <Link to="/about">About</Link>
+          <Link to="/privacy">Privacy</Link>
 
           <span className="badge" style={{ marginLeft: 10 }}>
             <span className="badge-dot" />
@@ -178,20 +175,20 @@ function Topbar() {
         aria-label="Mobile navigation"
       >
         <div className="mobile-menu-inner container">
-          <Link to="/leaderboard" className="mobile-link">
-            Leaderboard
-          </Link>
-          <Link to="/about" className="mobile-link">
-            About
-          </Link>
-          <Link to="/privacy" className="mobile-link">
-            Privacy
+          <Link to="/race-planner" className="mobile-link">
+            Race Planner
           </Link>
           <Link to="/pace" className="mobile-link">
             Pace
           </Link>
           <Link to="/what-if" className="mobile-link">
             What If
+          </Link>
+          <Link to="/about" className="mobile-link">
+            About
+          </Link>
+          <Link to="/privacy" className="mobile-link">
+            Privacy
           </Link>
 
           <div className="mobile-divider" />
@@ -480,9 +477,6 @@ export default function App() {
       <main className="container" style={{ paddingTop: 18, paddingBottom: 40 }}>
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/d/:driverId" element={<Driver />} />
-          <Route path="/s/:sessionId" element={<Session />} />
-          <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/about" element={<About />} />
           <Route path="/privacy" element={<Privacy />} />
         </Routes>

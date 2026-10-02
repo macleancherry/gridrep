@@ -3,6 +3,7 @@ import { getSubcommand, optString } from "../discord/types.ts";
 import { listTrackedDrivers } from "../lib/db.ts";
 import { fetchMemberInfo, fetchRecentRaces } from "../lib/iracingLookups.ts";
 import { BRAND_COLOR, truncateList } from "../lib/format.ts";
+import { gateTrackedDrivers, ANONYMOUS_DRIVER_LABEL } from "../lib/identityGate.ts";
 
 const MAX_DRIVERS = 25;
 
@@ -11,7 +12,7 @@ export const teamCommand: CommandHandler = async (interaction, env) => {
   if (!guildId) return { content: "This command only works in a server." };
 
   const { name, options } = getSubcommand(interaction.data!);
-  const drivers = truncateList(await listTrackedDrivers(env.DB, guildId), MAX_DRIVERS);
+  const drivers = truncateList(await gateTrackedDrivers(env.DB, await listTrackedDrivers(env.DB, guildId)), MAX_DRIVERS);
   if (drivers.length === 0) {
     return { embeds: [{ description: "No tracked drivers yet - add some with `/manage_team add`.", color: BRAND_COLOR }] };
   }
@@ -22,7 +23,7 @@ export const teamCommand: CommandHandler = async (interaction, env) => {
         embeds: [
           {
             title: "Team highlight colors",
-            description: drivers.map((d) => `${d.highlight_color ?? "—"} · ${d.display_name ?? `#${d.cust_id}`}`).join("\n"),
+            description: drivers.map((d) => `${d.highlight_color ?? "—"} · ${d.display_name ?? ANONYMOUS_DRIVER_LABEL}`).join("\n"),
             color: BRAND_COLOR,
           },
         ],
@@ -34,7 +35,7 @@ export const teamCommand: CommandHandler = async (interaction, env) => {
           {
             title: "Linked Discord accounts",
             description: drivers
-              .map((d) => `${d.display_name ?? `#${d.cust_id}`} — ${d.discord_user_id ? `<@${d.discord_user_id}>` : "not linked"}`)
+              .map((d) => `${d.display_name ?? ANONYMOUS_DRIVER_LABEL} — ${d.discord_user_id ? `<@${d.discord_user_id}>` : "not linked"}`)
               .join("\n"),
             color: BRAND_COLOR,
           },
@@ -46,7 +47,7 @@ export const teamCommand: CommandHandler = async (interaction, env) => {
       const rows = drivers.map((d, i) => {
         const licenses: any[] = infos[i]?.licenses ?? [];
         const road = licenses.find((l) => /road/i.test(l.category_name ?? l.category ?? "")) ?? licenses[0];
-        return { name: d.display_name ?? `#${d.cust_id}`, irating: road?.irating ?? null };
+        return { name: d.display_name ?? ANONYMOUS_DRIVER_LABEL, irating: road?.irating ?? null };
       });
       rows.sort((a, b) => (b.irating ?? 0) - (a.irating ?? 0));
       return {
@@ -72,7 +73,7 @@ export const teamCommand: CommandHandler = async (interaction, env) => {
         embeds: [
           {
             title: "Inactive drivers (14+ days)",
-            description: inactive.length ? inactive.map((d) => d.display_name ?? `#${d.cust_id}`).join("\n") : "Everyone's been racing recently. 🎉",
+            description: inactive.length ? inactive.map((d) => d.display_name ?? ANONYMOUS_DRIVER_LABEL).join("\n") : "Everyone's been racing recently. 🎉",
             color: BRAND_COLOR,
           },
         ],
@@ -89,7 +90,7 @@ export const teamCommand: CommandHandler = async (interaction, env) => {
         const licenses: any[] = infos[i]?.licenses ?? [];
         const primary = licenses[0];
         const incidents = races[i].slice(0, 5).reduce((sum: number, r: any) => sum + (r.incidents ?? 0), 0);
-        return { name: d.display_name ?? `#${d.cust_id}`, irating: primary?.irating ?? 0, incidents };
+        return { name: d.display_name ?? ANONYMOUS_DRIVER_LABEL, irating: primary?.irating ?? 0, incidents };
       });
 
       if (sortBy === "incidents") rows.sort((a, b) => a.incidents - b.incidents);

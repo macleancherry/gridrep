@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-export type DriverSearchResult = { id: string; name: string };
+export type DriverSearchResult = { id: string; name: string | null };
 
 /**
  * Merges gridrep's local drivers table (only knows drivers who've already appeared in a

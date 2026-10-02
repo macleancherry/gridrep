@@ -1,6 +1,7 @@
 import { getViewer } from "../_lib/auth";
 import { clearCookie } from "../_lib/cookies";
 import { jsonError } from "../_lib/httpJson";
+import { driverIdForCustId } from "../_lib/driverIdentity";
 
 /**
  * Self-service full account deletion - operates only on the authenticated viewer's own
@@ -19,6 +20,8 @@ import { jsonError } from "../_lib/httpJson";
  *    driver_availability, race_plan_duty_assignments, driver_recent_session_search,
  *    team_members, race_weekend_participants
  *  - owned, cascaded: teams -> race_weekends -> race_plans (child-before-parent)
+ *  - identity & consent (driverIdentity.ts): driver_consent, driver_identities,
+ *    driver_registry - logged in identity_audit_log before they're gone
  *  - finally: users, drivers
  */
 export async function onRequestDelete(context: any) {
@@ -30,6 +33,7 @@ export async function onRequestDelete(context: any) {
   const { DB } = context.env;
   const userId = viewer.user!.id;
   const custId = viewer.user!.iracingId;
+  const driverId = await driverIdForCustId(DB, custId);
 
   // Collect every owned record's id, child-first, before issuing any deletes.
   const teamRows = await DB.prepare(`SELECT id FROM teams WHERE created_by = ?`).bind(userId).all<any>();
@@ -100,6 +104,23 @@ export async function onRequestDelete(context: any) {
     DB.prepare(`DELETE FROM driver_condition_preferences WHERE user_id = ?`).bind(userId),
     DB.prepare(`DELETE FROM driver_availability_template WHERE user_id = ?`).bind(userId)
   );
+
+  // Identity & consent (driverIdentity.ts's own tables) - logged before the identity
+  // row itself is gone, since identity_audit_log's own driver_id FK-by-convention
+  // would otherwise point at nothing afterward.
+  if (driverId) {
+    const now = new Date().toISOString();
+    statements.push(
+      DB.prepare(`INSERT INTO identity_audit_log (driver_id, action, detail, set_by, created_at) VALUES (?, 'account_deleted', NULL, ?, ?)`).bind(
+        driverId,
+        userId,
+        now
+      ),
+      DB.prepare(`DELETE FROM driver_consent WHERE driver_id = ?`).bind(driverId),
+      DB.prepare(`DELETE FROM driver_identities WHERE driver_id = ?`).bind(driverId),
+      DB.prepare(`DELETE FROM driver_registry WHERE driver_id = ?`).bind(driverId)
+    );
+  }
 
   // Finally the account itself and its public driver profile.
   statements.push(DB.prepare(`DELETE FROM users WHERE id = ?`).bind(userId), DB.prepare(`DELETE FROM drivers WHERE iracing_member_id = ?`).bind(custId));

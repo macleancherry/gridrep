@@ -2,7 +2,12 @@ import type { DiscordEmbed } from "../lib/discordApi.ts";
 import type { TrackedDriver, BotGuild } from "../lib/db.ts";
 import { BRAND_COLOR, iratingDeltaText, srDeltaText, ordinal } from "../lib/format.ts";
 
-export function buildAnnouncementEmbed(race: any, driver: TrackedDriver, guild: BotGuild): { content?: string; embed: DiscordEmbed } {
+/**
+ * displayName is resolved by the caller (poll.ts), gated through
+ * ../lib/identityGate.ts - never driver.display_name directly, since that's the raw,
+ * unconsented name cached at /manage_team add time.
+ */
+export function buildAnnouncementEmbed(race: any, driver: TrackedDriver, guild: BotGuild, displayName: string): { content?: string; embed: DiscordEmbed } {
   const pos = race.finish_position != null ? ordinal(race.finish_position + 1) : "—";
   const series = race.series_name ?? race.series_short_name ?? "Series";
   const track = race.track?.track_name ?? race.track_name ?? "";
@@ -13,7 +18,7 @@ export function buildAnnouncementEmbed(race: any, driver: TrackedDriver, guild: 
     : "";
 
   const embed: DiscordEmbed = {
-    title: `${driver.display_name ?? `Driver ${driver.cust_id}`} — ${pos} in ${series}`,
+    title: `${displayName} — ${pos} in ${series}`,
     url: race.subsession_id ? `https://members.iracing.com/membersite/member/EventResult.do?subsessionid=${race.subsession_id}` : undefined,
     color: driver.highlight_color ? parseInt(driver.highlight_color.replace("#", ""), 16) || BRAND_COLOR : BRAND_COLOR,
     fields: [

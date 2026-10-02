@@ -171,6 +171,35 @@ export async function displayDriver(DB: any, driverId: string): Promise<DriverDi
   return map.get(driverId) ?? { driverId, name: null };
 }
 
+/**
+ * Same gate as displayDrivers, except a signed-in viewer's own row is always shown
+ * by its real name, consent or not - iRacing's rule is about disclosing a member's
+ * identity to someone else without their consent, not about hiding a person's own
+ * identity from themselves. Used by public, no-login surfaces (Pace) that also have
+ * an optional "sign in with iRacing" so a viewer can find and be shown their own row
+ * on an otherwise-anonymised field. Only driverIdentity.ts may read driver_identities,
+ * so the viewer's own raw name is resolved here rather than via a query in the caller.
+ */
+export async function displayDriversForViewer(
+  DB: any,
+  driverIds: string[],
+  viewerCustId: string | null
+): Promise<Map<string, DriverDisplay & { isSelf: boolean }>> {
+  const base = await displayDrivers(DB, driverIds);
+  const result = new Map<string, DriverDisplay & { isSelf: boolean }>();
+  for (const [id, display] of base.entries()) result.set(id, { ...display, isSelf: false });
+
+  if (!viewerCustId) return result;
+  const viewerDriverId = await driverIdForCustId(DB, viewerCustId);
+  if (!viewerDriverId || !result.has(viewerDriverId)) return result;
+
+  const row = await DB.prepare(`SELECT display_name as displayName FROM driver_identities WHERE driver_id = ?`)
+    .bind(viewerDriverId)
+    .first<any>();
+  result.set(viewerDriverId, { driverId: viewerDriverId, name: row?.displayName ?? null, isSelf: true });
+  return result;
+}
+
 export async function grantConsent(DB: any, driverId: string, evidenceRef: string, setBy: string): Promise<void> {
   const now = new Date().toISOString();
   await DB.batch([

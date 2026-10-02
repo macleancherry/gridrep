@@ -1,4 +1,6 @@
 import { computeCleanPace, stdDev, type StoredLap } from "../../../../_lib/cleanPace";
+import { ensureDriverIds, displayDriversForViewer } from "../../../../_lib/driverIdentity";
+import { getViewer } from "../../../../_lib/auth";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 function clampN(raw: string | null, fallback: number, max: number): number {
@@ -23,6 +25,13 @@ export async function onRequestGet(context: any) {
   const { DB } = context.env;
   const url = new URL(context.request.url);
 
+  // Showing someone their own name isn't the disclosure-to-a-third-party iRacing's
+  // rule is about - a signed-in viewer always sees their own row's real name and can
+  // be highlighted as "me", even on an otherwise fully anonymised field. Everyone
+  // else's row is gated by consent exactly the same regardless of who's asking.
+  const viewer = await getViewer(context);
+  const viewerCustId = viewer.verified ? viewer.user!.iracingId : null;
+
   const subsession = await DB.prepare(`SELECT subsession_id FROM pace_subsessions WHERE subsession_id = ?`)
     .bind(subsessionId)
     .first<any>();
@@ -32,13 +41,12 @@ export async function onRequestGet(context: any) {
   }
 
   const rows = await DB.prepare(
-    `SELECT l.cust_id as custId, d.display_name as driverName, l.simsession_type as simsessionType,
+    `SELECT l.cust_id as custId, l.simsession_type as simsessionType,
             l.lap_time_ms as lapTimeMs, l.is_pit_lap as isPitLap, l.is_clean as isClean,
             l.flags_decoded as flagsDecoded, pp.incidents as officialIncidents,
             pp.start_pos as startPos, pp.finish_pos as finishPos,
             pp.car_name as carName, pp.car_class as carClass, pp.irating_change as iratingChange
      FROM pace_laps l
-     LEFT JOIN drivers d ON d.iracing_member_id = l.cust_id
      LEFT JOIN pace_participants pp
        ON pp.subsession_id = l.subsession_id AND pp.cust_id = l.cust_id AND pp.simsession_type = l.simsession_type
      WHERE l.subsession_id = ?`
@@ -51,7 +59,6 @@ export async function onRequestGet(context: any) {
     Key,
     {
       custId: string;
-      driverName: string;
       simsessionType: string;
       laps: StoredLap[];
       officialIncidents: number | null;
@@ -69,7 +76,6 @@ export async function onRequestGet(context: any) {
     if (!groups.has(key)) {
       groups.set(key, {
         custId: row.custId,
-        driverName: row.driverName ?? `Driver ${row.custId}`,
         simsessionType: row.simsessionType,
         laps: [],
         officialIncidents: row.officialIncidents === null || row.officialIncidents === undefined ? null : Number(row.officialIncidents),
@@ -175,7 +181,6 @@ export async function onRequestGet(context: any) {
     string,
     {
       custId: string;
-      driverName: string;
       qualifying: unknown;
       race: unknown;
       average: unknown;
@@ -194,7 +199,6 @@ export async function onRequestGet(context: any) {
       const info = resultInfoByDriver.get(g.custId) ?? { startPos: null, finishPos: null, carName: null, carClass: null, iratingChange: null };
       byDriver.set(g.custId, {
         custId: g.custId,
-        driverName: g.driverName,
         qualifying: null,
         race: null,
         average: null,
@@ -242,6 +246,16 @@ export async function onRequestGet(context: any) {
     }
   }
 
+  const allCustIds = Array.from(byDriver.keys());
+  const driverIdByCustId = await ensureDriverIds(DB, allCustIds);
+  const display = await displayDriversForViewer(DB, [...driverIdByCustId.values()], viewerCustId);
+
+  const drivers = Array.from(byDriver.values()).map(({ custId, ...rest }) => {
+    const driverId = driverIdByCustId.get(custId)!;
+    const d = display.get(driverId);
+    return { driverId, driverName: d?.name ?? null, isSelf: d?.isSelf ?? false, ...rest };
+  });
+
   return json({
     ok: true,
     subsessionId,
@@ -250,6 +264,6 @@ export async function onRequestGet(context: any) {
     qualLapsAvailable,
     raceLapsAvailable,
     hasIratingData,
-    drivers: Array.from(byDriver.values()),
+    drivers,
   });
 }
