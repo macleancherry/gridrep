@@ -16,6 +16,7 @@ import {
 } from "./paceIracing";
 import { classifyLap } from "./cleanPace";
 import { runWithConcurrency, sleep } from "./concurrency";
+import { resolveDriverIds } from "./driverIdentity";
 
 function safeLog(level: "log" | "warn" | "error", debugId: string, msg: string, extra: Record<string, unknown> = {}) {
   console[level](JSON.stringify({ level, debugId, msg, ...extra }));
@@ -217,17 +218,11 @@ export async function ingestPaceSubsession(context: any, subsessionId: string, o
 
   await upsertParticipantResults(DB, subsessionId, participantResults, now);
 
-  for (const [custId, name] of driverNames) {
-    await DB.prepare(
-      `INSERT INTO drivers (iracing_member_id, display_name, last_seen_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(iracing_member_id) DO UPDATE SET
-         display_name = excluded.display_name,
-         last_seen_at = excluded.last_seen_at`
-    )
-      .bind(custId, name, now)
-      .run();
-  }
+  // Raw identity goes straight to driver_identities now (server-only storage - see
+  // driverIdentity.ts; this is never a display decision, only displayDrivers() is).
+  // The legacy shared `drivers` table is no longer written here - Pace reads driver
+  // display through the same identity/consent gate as the planner.
+  await resolveDriverIds(DB, Array.from(driverNames.entries()).map(([custId, name]) => ({ custId, displayName: name })));
 
   const concurrency = Math.max(1, Math.min(5, opts.lapFetchConcurrency ?? 2));
   const delayMs = Math.max(0, Math.min(5000, opts.lapFetchDelayMs ?? 400));

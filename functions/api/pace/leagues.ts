@@ -8,6 +8,9 @@ function pickTrimmedString(v: unknown): string | null {
   return null;
 }
 
+// Public, no-login endpoint (the Pace race list) - host_cust_id itself never leaves
+// the Worker (it stays server-side for sync.ts); hasHostFilter just tells whoever
+// manages a league whether one is configured, without disclosing the real custid.
 export async function onRequestGet(context: any) {
   const { DB } = context.env;
   const rows = await DB.prepare(
@@ -16,7 +19,16 @@ export async function onRequestGet(context: any) {
      FROM pace_leagues ORDER BY name ASC`
   ).all<any>();
 
-  return json({ ok: true, leagues: rows.results ?? [] });
+  const leagues = (rows.results ?? []).map((r: any) => ({
+    leagueId: r.leagueId,
+    name: r.name,
+    lastSyncedAt: r.lastSyncedAt,
+    createdAt: r.createdAt,
+    hasHostFilter: Boolean(r.hostCustId),
+    sessionNameFilter: r.sessionNameFilter,
+  }));
+
+  return json({ ok: true, leagues });
 }
 
 export async function onRequestPost(context: any) {

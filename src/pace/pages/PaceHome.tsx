@@ -96,7 +96,7 @@ type League = {
   leagueId: string;
   name: string;
   lastSyncedAt: string | null;
-  hostCustId: string | null;
+  hasHostFilter: boolean;
   sessionNameFilter: string | null;
 };
 
@@ -474,12 +474,12 @@ export default function PaceHome() {
             <div className="pace-list-item" key={l.leagueId}>
               <span>
                 {l.name} <span className="pace-muted pace-mono">#{l.leagueId}</span>
-                {(l.hostCustId || l.sessionNameFilter) && (
+                {(l.hasHostFilter || l.sessionNameFilter) && (
                   <>
                     {" "}
                     <span className="pace-muted">
-                      ({l.hostCustId ? `host ${l.hostCustId}` : ""}
-                      {l.hostCustId && l.sessionNameFilter ? ", " : ""}
+                      ({l.hasHostFilter ? "host filter set" : ""}
+                      {l.hasHostFilter && l.sessionNameFilter ? ", " : ""}
                       {l.sessionNameFilter ? `name contains "${l.sessionNameFilter}"` : ""})
                     </span>
                   </>

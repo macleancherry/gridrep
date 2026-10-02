@@ -2,6 +2,7 @@ import type { CommandHandler } from "./types.ts";
 import { getSubcommand, optString } from "../discord/types.ts";
 import { resolveDriver, fetchRecentRaces } from "../lib/iracingLookups.ts";
 import { BRAND_COLOR, iratingDeltaText, srDeltaText, ordinal, truncateList } from "../lib/format.ts";
+import { gatedDriverNameOrLabel } from "../lib/identityGate.ts";
 
 function raceLine(race: any): string {
   const pos = race.finish_position != null ? ordinal(race.finish_position + 1) : "—";
@@ -18,16 +19,17 @@ export const previousRaceCommand: CommandHandler = async (interaction, env) => {
   if (!query) return { content: "A driver is required." };
 
   const driver = await resolveDriver(env, query);
+  const displayName = await gatedDriverNameOrLabel(env.DB, String(driver.custId), driver.displayName);
   const races = await fetchRecentRaces(env, driver.custId);
   const latest = races[0];
   if (!latest) {
-    return { embeds: [{ title: driver.displayName, description: "No recent races found.", color: BRAND_COLOR }] };
+    return { embeds: [{ title: displayName, description: "No recent races found.", color: BRAND_COLOR }] };
   }
 
   return {
     embeds: [
       {
-        title: driver.displayName,
+        title: displayName,
         description: raceLine(latest),
         url: latest.subsession_id
           ? `https://members.iracing.com/membersite/member/EventResult.do?subsessionid=${latest.subsession_id}`
@@ -44,15 +46,16 @@ export const previousRacesCommand: CommandHandler = async (interaction, env) => 
   if (!query) return { content: "A driver is required." };
 
   const driver = await resolveDriver(env, query);
+  const displayName = await gatedDriverNameOrLabel(env.DB, String(driver.custId), driver.displayName);
   const races = truncateList(await fetchRecentRaces(env, driver.custId), 10);
   if (races.length === 0) {
-    return { embeds: [{ title: driver.displayName, description: "No recent races found.", color: BRAND_COLOR }] };
+    return { embeds: [{ title: displayName, description: "No recent races found.", color: BRAND_COLOR }] };
   }
 
   return {
     embeds: [
       {
-        title: `${driver.displayName} — last ${races.length} races`,
+        title: `${displayName} — last ${races.length} races`,
         description: races.map(raceLine).join("\n"),
         color: BRAND_COLOR,
       },

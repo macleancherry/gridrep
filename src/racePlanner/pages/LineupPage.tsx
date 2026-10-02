@@ -740,10 +740,8 @@ export default function LineupPage() {
               <div className="rp-profile-list" style={{ marginBottom: 10 }}>
                 {searchResults.map((d) => (
                   <div className="rp-row" key={d.id} style={{ justifyContent: "space-between" }}>
-                    <span>
-                      {d.name} <span className="rp-text-faint rp-mono">#{d.id}</span>
-                    </span>
-                    <button className="rp-btn" onClick={() => addDriver(d.id, d.name, true)}>
+                    <span>{d.name ?? `Match for "${query.trim()}"`}</span>
+                    <button className="rp-btn" onClick={() => addDriver(d.id, d.name ?? `Match for "${query.trim()}"`)}>
                       + Add
                     </button>
                   </div>

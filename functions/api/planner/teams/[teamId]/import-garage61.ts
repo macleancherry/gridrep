@@ -1,6 +1,7 @@
 import { getViewer, getValidGarage61AccessToken } from "../../../../_lib/auth";
 import { isTeamCoordinator } from "../../../../_lib/plannerTeams";
 import { fetchGarage61TeamDetail } from "../../../../_lib/garage61";
+import { resolveDriverId, custIdsForDriverIds } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
@@ -37,11 +38,15 @@ export async function onRequestPost(context: any) {
 
   // Explicit, coordinator-picked selection - never "everyone in the Garage 61 team" by
   // default (see functions/api/planner/garage61/teams/[g61TeamId]/members.ts, the picker
-  // this list comes from).
-  const selectedCustIds = Array.isArray(body?.custIds) ? new Set(body.custIds.map(String)) : null;
-  if (!selectedCustIds) {
-    return jsonError(400, { error: "invalid_cust_ids", message: "custIds (array of drivers to import) is required." });
+  // this list comes from). Picked by driverId (the picker's own real custid never left
+  // the Worker) - resolved back to real custids here, server-side only, to match against
+  // this team's fresh Garage 61 detail fetch below.
+  const selectedDriverIds = Array.isArray(body?.driverIds) ? body.driverIds.map(String) : null;
+  if (!selectedDriverIds) {
+    return jsonError(400, { error: "invalid_driver_ids", message: "driverIds (array of drivers to import) is required." });
   }
+  const custIdBySelectedDriverId = await custIdsForDriverIds(DB, selectedDriverIds);
+  const selectedCustIds = new Set(custIdBySelectedDriverId.values());
 
   const accessToken = await getValidGarage61AccessToken(context, viewer.user!.id).catch(() => null);
   if (!accessToken) {
@@ -86,15 +91,10 @@ export async function onRequestPost(context: any) {
       continue;
     }
 
-    if (displayName) {
-      await DB.prepare(
-        `INSERT INTO drivers (iracing_member_id, display_name, last_seen_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(iracing_member_id) DO UPDATE SET display_name = excluded.display_name, last_seen_at = excluded.last_seen_at`
-      )
-        .bind(custId, displayName, now)
-        .run();
-    }
+    // Seeds driver_identities with the Garage 61 profile name (storage only, not
+    // display - see driverIdentity.ts). The legacy shared `drivers` table is no longer
+    // written here, matching members.ts's own single-driver add path.
+    if (displayName) await resolveDriverId(DB, custId, displayName);
 
     const existingUser = await DB.prepare(`SELECT id FROM users WHERE iracing_member_id = ?`).bind(custId).first<any>();
 

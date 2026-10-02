@@ -1,31 +1,7 @@
-export async function onRequestGet(context: any) {
-  const { DB } = context.env;
+import { jsonError } from "../../_lib/httpJson";
 
-  const url = new URL(context.request.url);
-  const q = (url.searchParams.get("q") || "").trim();
-
-  if (!q) return Response.json({ results: [] });
-
-  // Case-insensitive "contains" match
-  const like = `%${q.toLowerCase()}%`;
-
-  const rows = await DB.prepare(
-    `
-    SELECT
-      d.iracing_member_id as id,
-      d.display_name as name,
-      (
-        SELECT COUNT(*)
-        FROM props p
-        WHERE p.to_iracing_member_id = d.iracing_member_id
-      ) as propsReceived
-    FROM drivers d
-    WHERE LOWER(d.display_name) LIKE ?
-       OR CAST(d.iracing_member_id AS TEXT) LIKE ?
-    ORDER BY propsReceived DESC, d.display_name ASC
-    LIMIT 20
-    `
-  ).bind(like, `%${q}%`).all();
-
-  return Response.json({ results: rows.results ?? [] }, { headers: { "Cache-Control": "no-store" } });
+// The props app is retired - see functions/api/feed.ts for why this now returns
+// 410 instead of a name/custid search over every driver gridrep has ever cached.
+export async function onRequest() {
+  return jsonError(410, { error: "retired", message: "Driver search has been retired." });
 }

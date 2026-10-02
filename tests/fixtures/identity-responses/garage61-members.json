@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "teamName": "Apex Racing",
+  "members": [
+    { "driverId": "3f29b6e2-1c3a-4a9e-9b2a-9b7e6f1d2c10", "name": "Mac Cherry" },
+    { "driverId": "9a7c1e44-2b5d-4f3a-8e10-7d4b6c2a9f55", "name": "J. Smith" },
+    { "driverId": null, "name": "unlinked-member" }
+  ]
+}

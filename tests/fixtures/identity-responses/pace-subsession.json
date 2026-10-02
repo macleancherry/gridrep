@@ -1,0 +1,37 @@
+{
+  "ok": true,
+  "subsession": {
+    "subsession_id": "71234567",
+    "league_id": null,
+    "track_name": "Road America",
+    "series_name": "IMSA Vintage Series",
+    "start_time": "2026-09-14T19:00:00Z",
+    "ingested_at": "2026-09-14T21:10:00Z"
+  },
+  "laps": [
+    {
+      "driverId": "3f29b6e2-1c3a-4a9e-9b2a-9b7e6f1d2c10",
+      "driverName": "Mac Cherry",
+      "isSelf": true,
+      "simsessionNumber": 0,
+      "simsessionType": "race",
+      "lapNumber": 1,
+      "lapTimeMs": 112345,
+      "isPitLap": false,
+      "isClean": true,
+      "flagsDecoded": []
+    },
+    {
+      "driverId": "9a7c1e44-2b5d-4f3a-8e10-7d4b6c2a9f55",
+      "driverName": null,
+      "isSelf": false,
+      "simsessionNumber": 0,
+      "simsessionType": "race",
+      "lapNumber": 1,
+      "lapTimeMs": 113122,
+      "isPitLap": false,
+      "isClean": false,
+      "flagsDecoded": ["off track"]
+    }
+  ]
+}

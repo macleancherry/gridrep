@@ -1,15 +1,20 @@
 import { getViewer } from "../../../../_lib/auth";
 import { isTeamCoordinator } from "../../../../_lib/plannerTeams";
-import { resolveDriverId, displayDriver } from "../../../../_lib/driverIdentity";
+import { custIdForDriverId, displayDriver } from "../../../../_lib/driverIdentity";
 import { json, jsonError } from "../../../../_lib/httpJson";
 
 /**
  * Add a driver straight to the roster (PRD: "search for a driver" repointed at
  * team-roster-add). Reuses the same global iRacing driver search the Lineup page already
- * uses (functions/api/planner/drivers/search.ts + the local drivers table) - this is just
- * where its result now gets written. If the picked cust_id already has a real gridrep
- * account (they've signed in before, just never touched this team), seat them as 'active'
- * immediately instead of making them click an invite link they don't need.
+ * uses (functions/api/planner/drivers/search.ts) - this is just where its result now
+ * gets written. If the picked driver already has a real gridrep account (they've signed
+ * in before, just never touched this team), seat them as 'active' immediately instead of
+ * making them click an invite link they don't need.
+ *
+ * Takes driverId, not a raw custid - the search endpoint already resolved/seeded a
+ * driver_identities row for whatever was picked (real name included, storage only, not
+ * display - see driverIdentity.ts), so the real custid is recovered here server-side
+ * only, never supplied by (or returned to) the client.
  */
 export async function onRequestPost(context: any) {
   const viewer = await getViewer(context);
@@ -29,30 +34,17 @@ export async function onRequestPost(context: any) {
   }
 
   const body = await context.request.json().catch(() => null);
-  const custId = typeof body?.custId === "string" ? body.custId.trim() : "";
-  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const driverId = typeof body?.driverId === "string" ? body.driverId.trim() : "";
+  if (!driverId) {
+    return jsonError(400, { error: "invalid_driver_id", message: "driverId is required." });
+  }
+
+  const custId = await custIdForDriverId(DB, driverId);
   if (!custId) {
-    return jsonError(400, { error: "invalid_cust_id", message: "custId is required." });
+    return jsonError(404, { error: "driver_not_found", message: "That driver wasn't found - try searching again." });
   }
 
   const now = new Date().toISOString();
-
-  if (name) {
-    await DB.prepare(
-      `INSERT INTO drivers (iracing_member_id, display_name, last_seen_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(iracing_member_id) DO UPDATE SET display_name = excluded.display_name, last_seen_at = excluded.last_seen_at`
-    )
-      .bind(custId, name, now)
-      .run();
-  }
-
-  // Seeds driver_identities with whatever name was just picked, so the roster screen
-  // doesn't start from a blank name while waiting for consent (PRD: raw identity is
-  // fine to store server-only the moment a driver is known; it's *display* that's
-  // gated, not storage).
-  const driverId = await resolveDriverId(DB, custId, name || null);
-
   const existingUser = await DB.prepare(`SELECT id FROM users WHERE iracing_member_id = ?`).bind(custId).first<any>();
 
   await DB.prepare(

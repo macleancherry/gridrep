@@ -2,13 +2,18 @@ import type { CommandHandler } from "./types.ts";
 import { getSubcommand, optString } from "../discord/types.ts";
 import { resolveDriver, fetchMemberInfo, fetchMemberSummary } from "../lib/iracingLookups.ts";
 import { BRAND_COLOR, licenseLetter } from "../lib/format.ts";
+import { gatedDriverNameOrLabel, ANONYMOUS_DRIVER_LABEL } from "../lib/identityGate.ts";
 
+// Arbitrary driver lookup (PRD: iRacing's 30 Sept 2026 notice) - resolveDriver's own
+// real name is only used to seed driver_identities (storage, not display); what this
+// command actually posts is gated by that driver's own consent, same as the main app.
 export const driverCommand: CommandHandler = async (interaction, env) => {
   const { options } = getSubcommand(interaction.data!);
   const query = optString(options, "driver");
   if (!query) return { content: "A driver is required." };
 
   const driver = await resolveDriver(env, query);
+  const displayName = await gatedDriverNameOrLabel(env.DB, String(driver.custId), driver.displayName);
   const [info, summary] = await Promise.all([
     fetchMemberInfo(env, driver.custId).catch(() => null),
     fetchMemberSummary(env, driver.custId).catch(() => null),
@@ -24,8 +29,10 @@ export const driverCommand: CommandHandler = async (interaction, env) => {
   return {
     embeds: [
       {
-        title: driver.displayName,
-        url: `https://members.iracing.com/membersite/member/CareerStats.do?custid=${driver.custId}`,
+        title: displayName,
+        // The link itself leads straight to this person's real iRacing profile - only
+        // included when they're actually consented to be identified.
+        url: displayName !== ANONYMOUS_DRIVER_LABEL ? `https://members.iracing.com/membersite/member/CareerStats.do?custid=${driver.custId}` : undefined,
         color: BRAND_COLOR,
         fields: fields.length
           ? fields

@@ -12,8 +12,9 @@ type PositionInfo = { start: number | null; finish: number | null };
 type CarInfo = { name: string | null; class: string | null };
 
 type DriverPaceRow = {
-  custId: string;
-  driverName: string;
+  driverId: string;
+  driverName: string | null;
+  isSelf: boolean;
   qualifying: PaceResult;
   race: PaceResult;
   average: PaceResult;
@@ -79,10 +80,20 @@ function sortValue(result: PaceResult): number {
 // Partial match ("Mac" or "Cherry" should still find "Mac Cherry") rather
 // than requiring the exact full name - but a 1-character query would match
 // almost every row, so require enough of a name to actually mean something.
-function matchesMyDriverName(driverName: string, myDriverName: string): boolean {
+// A driver with no active consent has no name to match against at all here -
+// typing a name can only ever find an already-consented driver; isSelf (set
+// server-side for a signed-in viewer's own row) is the only way to find an
+// anonymised row that happens to be you.
+function matchesMyDriverName(driverName: string | null, myDriverName: string): boolean {
+  if (!driverName) return false;
   const query = myDriverName.trim().toLowerCase();
   if (query.length < 2) return false;
   return driverName.toLowerCase().includes(query);
+}
+
+function anonymizedLabel(car: CarInfo): string {
+  const label = [car.class, car.name].filter(Boolean).join(" ");
+  return label || "Anonymous driver";
 }
 
 function compareByColumn(a: DriverPaceRow, b: DriverPaceRow, column: SortColumn): number {
@@ -239,6 +250,10 @@ export default function PaceSubsession() {
   // prefix like "Mac" doesn't yank the page around mid-keystroke.
   useEffect(() => {
     if (!sorted) return;
+    if (sorted.some((d) => d.isSelf)) {
+      document.querySelector(".pace-row-highlighted")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     const matches = sorted.filter((d) => matchesMyDriverName(d.driverName, myDriverName));
     if (matches.length !== 1) return;
     document.querySelector(".pace-row-highlighted")?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -322,7 +337,8 @@ export default function PaceSubsession() {
         />
       </div>
       <p className="pace-hint" style={{ marginTop: -16, marginBottom: 24, fontSize: "0.82rem" }}>
-        Saved on this device, so you won't need to type it again next time.
+        Saved on this device, so you won't need to type it again next time. Only works for drivers who've consented to
+        being named here - if you've signed in with iRacing, your own row is highlighted automatically either way.
       </p>
 
       {loading && <p className="pace-hint">Loading…</p>}
@@ -374,10 +390,17 @@ export default function PaceSubsession() {
                   <tbody>
                     {sorted.map((d) => (
                       <tr
-                        key={d.custId}
-                        className={matchesMyDriverName(d.driverName, myDriverName) ? "pace-row-highlighted" : undefined}
+                        key={d.driverId}
+                        className={d.isSelf || matchesMyDriverName(d.driverName, myDriverName) ? "pace-row-highlighted" : undefined}
                       >
-                        <td>{d.driverName}</td>
+                        <td>
+                          {d.driverName ?? <span className="pace-muted">{anonymizedLabel(d.car)}</span>}
+                          {d.isSelf && (
+                            <span className="pace-badge" style={{ marginLeft: 6 }} title="This is your own row, signed in">
+                              You
+                            </span>
+                          )}
+                        </td>
                         <td>
                           <CarCell car={d.car} />
                         </td>

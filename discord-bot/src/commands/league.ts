@@ -10,6 +10,18 @@ import {
 } from "../lib/leagueApi.ts";
 import { BRAND_COLOR, ordinal, truncateList } from "../lib/format.ts";
 import type { BotLeague } from "../lib/db.ts";
+import { gatedDriverNameOrLabel } from "../lib/identityGate.ts";
+
+// Full-field standings (championship/awards) are paused pending a product decision on
+// whether this bot should keep naming arbitrary league members at all (PRD: iRacing's
+// 30 Sept 2026 notice + EULA 6.3 on commercial-style redistribution) - unlike a single
+// driver lookup, anonymising every row here would just produce a leaderboard of
+// identical placeholder names, which has no real value and could read as broken rather
+// than as a privacy choice.
+const STANDINGS_PAUSED = {
+  content:
+    "League-wide standings are temporarily unavailable while we review how this bot handles driver names that aren't gridrep's own team's. `/league driver` and `/league previous_race` still work for one driver at a time.",
+};
 
 const NO_LEAGUE = { content: "No league configured for this server. An admin can set one with `/setup leagues action:add`." };
 
@@ -64,34 +76,22 @@ export const leagueCommand: CommandHandler = async (interaction, env) => {
       };
     }
 
-    case "championship": {
-      const seasonId = await seasonIdFor(env, league);
-      if (seasonId == null) return { content: "No league season available." };
-      const standings = truncateList(await fetchLeagueSeasonStandings(env, league.league_id, seasonId), 20);
-      if (standings.length === 0) return { embeds: [{ description: "No standings yet for this league season.", color: BRAND_COLOR }] };
-      return {
-        embeds: [
-          {
-            title: `${league.name ?? "League"} championship`,
-            description: standings.map((s: any, i: number) => `${i + 1}. **${s.display_name ?? `#${s.cust_id}`}** — ${s.points ?? 0} pts`).join("\n"),
-            color: BRAND_COLOR,
-          },
-        ],
-      };
-    }
+    case "championship":
+      return STANDINGS_PAUSED;
 
     case "driver": {
       const query = optString(options, "driver");
       if (!query) return { content: "A driver is required." };
       const driver = await resolveDriver(env, query);
+      const displayName = await gatedDriverNameOrLabel(env.DB, String(driver.custId), driver.displayName);
       const seasonId = await seasonIdFor(env, league);
       const standings = seasonId != null ? await fetchLeagueSeasonStandings(env, league.league_id, seasonId) : [];
       const row = standings.find((s: any) => s.cust_id === driver.custId);
-      if (!row) return { embeds: [{ title: driver.displayName, description: "No league standings found for this driver.", color: BRAND_COLOR }] };
+      if (!row) return { embeds: [{ title: displayName, description: "No league standings found for this driver.", color: BRAND_COLOR }] };
       return {
         embeds: [
           {
-            title: driver.displayName,
+            title: displayName,
             color: BRAND_COLOR,
             fields: [
               { name: "Points", value: String(row.points ?? 0), inline: true },
@@ -108,6 +108,10 @@ export const leagueCommand: CommandHandler = async (interaction, env) => {
       const bQuery = optString(options, "driver_b");
       if (!aQuery || !bQuery) return { content: "Both drivers are required." };
       const [a, b] = await Promise.all([resolveDriver(env, aQuery), resolveDriver(env, bQuery)]);
+      const [aName, bName] = await Promise.all([
+        gatedDriverNameOrLabel(env.DB, String(a.custId), a.displayName),
+        gatedDriverNameOrLabel(env.DB, String(b.custId), b.displayName),
+      ]);
       const seasonId = await seasonIdFor(env, league);
       const standings = seasonId != null ? await fetchLeagueSeasonStandings(env, league.league_id, seasonId) : [];
       const rowA = standings.find((s: any) => s.cust_id === a.custId);
@@ -115,11 +119,11 @@ export const leagueCommand: CommandHandler = async (interaction, env) => {
       return {
         embeds: [
           {
-            title: `${a.displayName} vs. ${b.displayName}`,
+            title: `${aName} vs. ${bName}`,
             color: BRAND_COLOR,
             fields: [
-              { name: a.displayName, value: `${rowA?.points ?? 0} pts, ${rowA?.wins ?? 0} wins`, inline: true },
-              { name: b.displayName, value: `${rowB?.points ?? 0} pts, ${rowB?.wins ?? 0} wins`, inline: true },
+              { name: aName, value: `${rowA?.points ?? 0} pts, ${rowA?.wins ?? 0} wins`, inline: true },
+              { name: bName, value: `${rowB?.points ?? 0} pts, ${rowB?.wins ?? 0} wins`, inline: true },
             ],
           },
         ],
@@ -135,40 +139,24 @@ export const leagueCommand: CommandHandler = async (interaction, env) => {
       };
     }
 
-    case "awards": {
-      const seasonId = await seasonIdFor(env, league);
-      const standings = seasonId != null ? await fetchLeagueSeasonStandings(env, league.league_id, seasonId) : [];
-      if (standings.length === 0) return { embeds: [{ description: "No league standings available yet.", color: BRAND_COLOR }] };
-      const mostWins = [...standings].sort((a: any, b: any) => (b.wins ?? 0) - (a.wins ?? 0))[0];
-      const mostPoints = [...standings].sort((a: any, b: any) => (b.points ?? 0) - (a.points ?? 0))[0];
-      return {
-        embeds: [
-          {
-            title: `${league.name ?? "League"} awards`,
-            color: BRAND_COLOR,
-            fields: [
-              { name: "Most wins", value: `${mostWins?.display_name ?? "—"} (${mostWins?.wins ?? 0})`, inline: true },
-              { name: "Points leader", value: `${mostPoints?.display_name ?? "—"} (${mostPoints?.points ?? 0})`, inline: true },
-            ],
-          },
-        ],
-      };
-    }
+    case "awards":
+      return STANDINGS_PAUSED;
 
     case "previous_race":
     case "previous_races": {
       const query = optString(options, "driver");
       if (!query) return { content: "A driver is required." };
       const driver = await resolveDriver(env, query);
+      const displayName = await gatedDriverNameOrLabel(env.DB, String(driver.custId), driver.displayName);
       const sessions = await fetchCustLeagueSessions(env, league.league_id, driver.custId);
       if (sessions.length === 0) {
-        return { embeds: [{ title: driver.displayName, description: "No league race history available.", color: BRAND_COLOR }] };
+        return { embeds: [{ title: displayName, description: "No league race history available.", color: BRAND_COLOR }] };
       }
       const count = name === "previous_race" ? 1 : 10;
       const shown = truncateList(sessions, count);
       const lines = shown.map((s: any) => `${s.session_name ?? "Race"} — ${s.finish_position != null ? ordinal(s.finish_position + 1) : "—"}`);
       return {
-        embeds: [{ title: `${driver.displayName} — league races`, description: lines.join("\n"), color: BRAND_COLOR }],
+        embeds: [{ title: `${displayName} — league races`, description: lines.join("\n"), color: BRAND_COLOR }],
       };
     }
 
